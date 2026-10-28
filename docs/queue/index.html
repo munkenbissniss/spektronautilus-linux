@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Queue – Spektronautilus</title>
+<meta name="robots" content="noindex">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<style>
+:root{--bg:#f3f4f8;--ink:#14182b;--mute:#5a607a;--line:#d5d8e6;--panel:#fff;--a:#2b3af0;--b:#ff3d81;--ok:#12906f;--bad:#d1334a;color-scheme:light}
+@media (prefers-color-scheme:dark){:root{--bg:#10122a;--ink:#eceefb;--mute:#a0a6c8;--line:#2a2e57;--panel:#171a3a;--a:#7f8bff;--b:#ff6fa3;--ok:#3fd6a4;--bad:#ff7088;color-scheme:dark}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.wrap{max-width:900px;margin:0 auto;padding:16px 16px 40px}a{color:inherit}h1{font-size:1.8rem;letter-spacing:-.03em;margin:4px 0 2px}.sub{color:var(--mute);margin:0 0 14px}
+button,.btn{font:inherit;cursor:pointer;border:2px solid var(--ink);background:transparent;color:var(--ink);padding:6px 14px;border-radius:999px;font-weight:700;text-decoration:none;display:inline-block}button.main{background:var(--ink);color:var(--bg)}button.sm,.btn.sm{padding:2px 11px;font-size:.85rem}
+button:focus-visible,summary:focus-visible,a:focus-visible{outline:3px solid var(--b);outline-offset:2px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.muted{color:var(--mute)}.warn{color:var(--bad)}
+.chip{font-size:.75rem;font-weight:800;border:1px solid currentColor;border-radius:999px;padding:0 9px}.queued,.running{color:var(--a)}.done{color:var(--ok)}.failed,.cancelled,.lost{color:var(--bad)}
+.app{font-size:.75rem;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:0 7px;color:var(--mute)}
+.bar{height:8px;background:var(--line);border-radius:4px;overflow:hidden;margin:8px 0 2px}.bar i{display:block;height:100%;background:var(--b);transition:width .4s}
+.res a{display:block;font-size:.88rem}.acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.top{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:6px}.top a.back{display:inline-block;padding:10px 0;color:var(--mute);text-decoration:none;font-size:.9rem}
+</style>
+<link rel="manifest" href="../manifest.webmanifest">
+<script src="../shared/sw-register.js" defer></script>
+<script src="../shared/i18n.js"></script>
+</head>
+<body><div class="wrap" role="main">
+<p style="margin:0"><a class="back" href="../" style="color:var(--mute);text-decoration:none;font-size:.9rem">← Spektronautilus</a></p>
+<h1>Queue</h1>
+<p class="sub">All the jobs from the tools and the mixers, in one place. They run in whatever page started them, so keep that page open until it says done.</p>
+<div class="row" style="margin-bottom:12px"><span id="sum" class="muted"></span><span style="flex:1"></span><button class="sm" id="clear">Clear finished</button></div>
+<div id="list"><p class="muted">Nothing here yet. Start a job in <a href="../tools/app/">Tools</a> or the <a href="../mixer/">Magic Mixer</a>.</p></div>
+<p class="muted" style="font-size:.85rem">Finished files from the tools are kept in this browser (up to about 600 MB per job) so you can download them here later. The Magic Mixer keeps its own videos on its own page, so use <b>Open page</b> to download those. Nothing leaves your computer.</p>
+</div>
+<script type="module">
+import * as Q from '../shared/queue.js';
+import { makeZip } from '../tools/app/zip.js';
+const $ = s => document.querySelector(s), esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const fmt = b => b >= 1e6 ? (b / 1e6).toFixed(1) + ' MB' : Math.max(1, Math.round(b / 1e3)) + ' kB';
+const JOBS = new Map();                                   // key -> job
+const urls = new Map();
+async function load() { for (const j of await Q.list()) if (!JOBS.has(j.key) || JOBS.get(j.key).updated < j.updated) JOBS.set(j.key, j); draw(); }
+Q.onUpdate(j => { JOBS.set(j.key, j); schedule(); });
+let t; const schedule = () => { clearTimeout(t); t = setTimeout(draw, 120); };
+const state = j => Q.isStale(j) ? 'lost' : j.status;
+async function draw() {
+  const all = [...JOBS.values()].sort((a, b) => b.created - a.created);
+  const act = all.filter(j => Q.ACTIVE.includes(state(j))).length;
+  $('#sum').textContent = all.length ? `${act} running or waiting · ${all.length - act} finished` : '';
+  if (!all.length) { $('#list').innerHTML = '<p class="muted">Nothing here yet. Start a job in <a href="../tools/app/">Tools</a> or the <a href="../mixer/">Magic Mixer</a>.</p>'; return; }
+  $('#list').innerHTML = all.map(j => {
+    const st = state(j), run = Q.ACTIVE.includes(st), res = j.results || [];
+    return `<div class="card" data-k="${esc(j.key)}"><div class="row"><span class="app">${esc(j.appLabel || j.app)}</span><b>${esc(j.title)}</b><span class="chip ${st}">${st === 'lost' ? 'lost – page closed?' : st}</span><span class="muted">${new Date(j.created).toLocaleTimeString()}</span>${j.total ? `<span class="muted">${j.done || 0}/${j.total}</span>` : ''}${j.failed ? `<span class="warn">${j.failed} failed</span>` : ''}</div>
+      ${run ? `<div class="bar"><i style="width:${Math.round((j.progress || 0) * 100)}%"></i></div><div class="muted" style="font-size:.85rem">${esc(j.current || (st === 'queued' ? 'Waiting in line…' : ''))}</div>` : ''}
+      ${j.error ? `<div class="warn" style="font-size:.9rem">${esc(j.error)}</div>` : ''}
+      <div class="res">${res.slice(0, 8).map(r => `<a href="#" data-dl="${esc(r.name)}">${esc(r.name)} <span class="muted">${fmt(r.size)}</span></a>`).join('')}${res.length > 8 ? `<span class="muted">… and ${res.length - 8} more</span>` : ''}</div>
+      <div class="acts">${run && j.canCancel ? '<button class="sm" data-a="stop">Stop</button>' : ''}${j.url ? `<a class="btn sm" href="${esc(j.url)}">Open page</a>` : ''}${!run && res.length ? '<button class="sm" data-a="zip">Download all (zip)</button>' : ''}${!run || st === 'lost' ? '<button class="sm" data-a="rm">Remove</button>' : ''}</div></div>`;
+  }).join('');
+}
+$('#list').onclick = async e => {
+  const card = e.target.closest('[data-k]'); if (!card) return; const j = JOBS.get(card.dataset.k), a = e.target.dataset.a, dl = e.target.closest('[data-dl]');
+  if (dl) { e.preventDefault(); const b = await Q.getBlob(j.key, dl.dataset.dl); if (!b) { alert('This file is no longer stored. Run the job again.'); return; } const u = URL.createObjectURL(b), l = document.createElement('a'); l.href = u; l.download = dl.dataset.dl; l.click(); setTimeout(() => URL.revokeObjectURL(u), 60000); }
+  if (a === 'stop') { Q.requestCancel(j.key); e.target.disabled = true; e.target.textContent = 'Stopping…'; }
+  if (a === 'rm') { await Q.remove(j); JOBS.delete(j.key); draw(); }
+  if (a === 'zip') { const files = []; for (const r of j.results || []) { const b = await Q.getBlob(j.key, r.name); if (b) files.push({ name: r.name, blob: b }); } if (!files.length) { alert('These files are no longer stored.'); return; } const z = await makeZip(files), u = URL.createObjectURL(z), l = document.createElement('a'); l.href = u; l.download = 'spektronautilus-job.zip'; l.click(); setTimeout(() => URL.revokeObjectURL(u), 60000); }
+};
+$('#clear').onclick = async () => { for (const j of [...JOBS.values()]) if (!Q.ACTIVE.includes(state(j)) || state(j) === 'lost') { await Q.remove(j); JOBS.delete(j.key); } draw(); };
+setInterval(draw, 5000); load(); window.__queue = { JOBS };
+</script></body></html>

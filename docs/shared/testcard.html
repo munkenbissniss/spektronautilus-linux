@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">
+<title>Spektronautilus test card</title>
+<style>html,body{margin:0;height:100%;background:#000;overflow:hidden;cursor:pointer;font-family:system-ui,sans-serif}canvas{display:block;width:100vw;height:100vh}</style></head>
+<body><canvas id="c" role="img" aria-label="Test card"></canvas>
+<script src="i18n.js"></script>
+<script>
+(function () {
+  var c = document.getElementById('c'), ctx = c.getContext('2d'), T = function (s) { return (window.SPK_T || function (x) { return x; })(s); };
+  function draw() {
+    var d = window.devicePixelRatio || 1, W = Math.round(innerWidth * d), H = Math.round(innerHeight * d);
+    c.width = W; c.height = H; var u = Math.min(W, H) / 100;
+    ctx.fillStyle = '#111'; ctx.fillRect(0, 0, W, H);
+    var bars = ['#fff', '#ff0', '#0ff', '#0f0', '#f0f', '#f00', '#00f'], bw = W / bars.length;
+    bars.forEach(function (col, i) { ctx.fillStyle = col; ctx.fillRect(i * bw, 0, bw + 1, H * 0.34); });
+    var g = ctx.createLinearGradient(0, 0, W, 0); g.addColorStop(0, '#000'); g.addColorStop(1, '#fff'); ctx.fillStyle = g; ctx.fillRect(0, H * 0.34, W, H * 0.1);
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = Math.max(1, u * 0.2); ctx.globalAlpha = .35;                          // grid
+    for (var x = 0; x <= W; x += W / 16) { ctx.beginPath(); ctx.moveTo(x, H * 0.44); ctx.lineTo(x, H); ctx.stroke(); }
+    for (var y = H * 0.44; y <= H; y += W / 16) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+    ctx.globalAlpha = 1; ctx.lineWidth = u * 0.5; ctx.strokeStyle = '#ff2d7a';                                         // frame at the very edge
+    ctx.strokeRect(ctx.lineWidth / 2, ctx.lineWidth / 2, W - ctx.lineWidth, H - ctx.lineWidth);
+    var cy = H * 0.72, r = Math.min(W, H * 0.5) * 0.2; ctx.strokeStyle = '#fff'; ctx.lineWidth = u * 0.4;            // circle: round means the aspect ratio is right
+    ctx.beginPath(); ctx.arc(W / 2, cy, r, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = '#ff2d7a'; [[0, 0], [W, 0], [0, H], [W, H]].forEach(function (p) { ctx.beginPath(); ctx.arc(p[0], p[1], u * 4, 0, Math.PI * 2); ctx.fill(); });
+    ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.font = '700 ' + u * 5 + 'px system-ui,sans-serif'; ctx.fillText('Spektronautilus', W / 2, H * 0.52);
+    ctx.font = '600 ' + u * 3.4 + 'px system-ui,sans-serif'; ctx.fillText(T('{a} × {b} pixels').replace('{a}', W).replace('{b}', H), W / 2, cy - u * 2);
+    ctx.font = '500 ' + u * 2.4 + 'px system-ui,sans-serif'; ctx.fillText(T('Round circle, all four corners and the pink frame visible: the picture fits the screen.'), W / 2, cy + u * 3);
+    ctx.fillText(T('Press F for full screen · Esc or click to close'), W / 2, H * 0.93);
+  }
+  function close() { if (window.opener) window.close(); else if (parent !== window) parent.postMessage('spk-testcard-close', '*'); }
+  addEventListener('resize', draw); draw();
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'f' || e.key === 'F') { if (document.fullscreenElement) document.exitFullscreen(); else if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(function () {}); }
+    else if (e.key === 'Escape' && !document.fullscreenElement) close();
+  });
+  c.addEventListener('click', function () { if (!document.fullscreenElement) close(); });
+  setTimeout(draw, 600);   // after the translation has loaded
+})();
+</script></body></html>

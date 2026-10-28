@@ -1,0 +1,684 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#14182b">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Magic Video Mixer Mobile – Spektronautilus</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<style>
+:root{--bg:#f3f4f8;--ink:#14182b;--mute:#5a607a;--line:#d5d8e6;--panel:#fff;--b:#ff3d81;--a:#2b3af0;--ok:#12906f;--bad:#d1334a;--warn:#b7791f;color-scheme:light}
+@media (prefers-color-scheme:dark){:root{--bg:#10122a;--ink:#eceefb;--mute:#a0a6c8;--line:#2a2e57;--panel:#171a3a;--b:#ff6fa3;--a:#7f8bff;--ok:#3fd6a4;--bad:#ff7088;--warn:#f0b254;color-scheme:dark}}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding:env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left)}
+.wrap{max-width:560px;margin:0 auto;padding:14px 14px 110px}h1{font-size:1.7rem;letter-spacing:-.03em;margin:4px 0 0}h2{font-size:1.05rem;margin:0 0 8px}
+.mute{color:var(--mute)}.small{font-size:.85rem}.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;margin:12px 0}
+button,.btn{font:inherit;min-height:46px;cursor:pointer;border:2px solid var(--ink);background:transparent;color:var(--ink);padding:8px 16px;border-radius:999px;font-weight:600;text-decoration:none;display:inline-flex;align-items:center;justify-content:center}
+button.main{background:var(--ink);color:var(--bg)}button:disabled{opacity:.4}button:focus-visible,summary:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--b);outline-offset:2px}
+.file{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.file .name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.seg{display:flex;border:2px solid var(--ink);border-radius:999px;overflow:hidden;margin:4px 0}.seg button{flex:1;border:0;border-radius:0;min-height:42px;padding:6px 4px}.seg button.on{background:var(--ink);color:var(--bg)}
+.q{font-weight:700;margin-top:12px}.h{font-size:.84rem;color:var(--mute);margin-bottom:2px}
+#thumbs{display:flex;flex-wrap:wrap;gap:3px;margin-top:8px}#thumbs img{width:52px;height:30px;object-fit:cover;border-radius:3px}
+details{margin-top:12px;border-top:1px solid var(--line);padding-top:8px}summary{cursor:pointer;font-weight:700;min-height:36px}
+input[type=text],input[type=number],select{font:inherit;width:100%;min-height:44px;padding:6px 10px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink)}
+.job{border:1px solid var(--line);border-radius:12px;padding:12px;margin-top:10px;background:var(--bg)}.jh{display:flex;justify-content:space-between;gap:8px;align-items:center}.jh b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chip{font-size:.75rem;padding:1px 10px;border-radius:999px;border:1px solid currentColor;font-weight:700;flex:none}.waiting,.preparing,.finalizing{color:var(--a)}.rendering{color:var(--b)}.paused{color:var(--warn)}.done{color:var(--ok)}.failed,.stopped{color:var(--bad)}
+.prog{height:10px;background:var(--line);border-radius:5px;overflow:hidden;margin:8px 0 2px}.prog i{display:block;height:100%;background:var(--b);width:0}.jt{width:100%;max-width:240px;aspect-ratio:16/9;background:#000;border-radius:8px;display:block;margin-top:8px}
+.acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}.acts>*{flex:1 1 130px}
+.bar{position:fixed;left:0;right:0;bottom:0;padding:10px 14px calc(10px + env(safe-area-inset-bottom));background:linear-gradient(transparent,var(--bg) 30%);}.bar button{width:100%;max-width:560px;display:flex;margin:0 auto;min-height:52px;font-size:1.05rem}
+#st{min-height:1.3em}.vh{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;overflow:hidden}#st.err{color:var(--bad)}.note{color:var(--warn);font-size:.85rem}
+</style>
+<link rel="manifest" href="../manifest.webmanifest">
+<script src="../shared/sw-register.js" defer></script>
+<script src="../shared/i18n.js"></script>
+</head>
+<body><div class="wrap" role="main">
+<p style="margin:0 0 6px"><a href="../" style="color:inherit;font-size:.9rem;text-decoration:none">← Spektronautilus</a></p>
+<h1>Magic Video Mixer</h1>
+<p class="mute" style="margin:2px 0 0">Mobile. Soft video mixes for your music, made right on your phone. Nothing is uploaded.</p>
+
+<div class="card"><h2>1. Music</h2>
+ <div class="file"><button id="bA">Choose track</button><span class="name mute" id="an">No file chosen</span></div></div>
+
+<div class="card"><h2>2. Video loops <span class="mute" id="vc"></span></h2>
+ <div class="file"><button id="bV">Choose videos</button><button id="clr" disabled>Clear</button></div>
+ <div class="h" style="margin-top:6px">Seamless loops work best. Up to 24 are used, which keeps the phone happy.</div><div id="thumbs"></div></div>
+
+<div class="card"><h2>3. Style</h2>
+ <div class="q">Mood</div><div class="seg" data-k="mood"><button data-v="Recommended">Recommended</button></div>
+ <div class="seg" data-k="mood"><button data-v="Ambient">Ambient</button><button data-v="Chill">Chill</button><button data-v="Groove">Groove</button></div>
+ <div class="h" id="moodH"></div>
+ <div class="q">How long each clip stays</div><div class="seg" data-k="pace"><button data-v="Slow">Slow</button><button data-v="Normal">Normal</button><button data-v="Fast">Fast</button></div>
+ <div class="h" id="paceH"></div>
+ <div class="q">Crossfade between clips</div><div class="seg" data-k="fade"><button data-v="Short">Short</button><button data-v="Medium">Medium</button><button data-v="Long">Long</button></div>
+ <div class="h">How softly one clip melts into the next. Long = dreamy.</div>
+ <div class="q">Loops per part of the song</div><div class="seg" data-k="sets"><button data-v="2">2</button><button data-v="3">3</button></div>
+ <div class="h">2 alternates calmly between two clips (A-B-A-B). 3 adds a little more variety.</div>
+ <details><summary>More options</summary>
+  <div class="q">Picture size</div><div class="seg" data-k="res"><button data-v="480p">480p</button><button data-v="720p">720p</button><button data-v="1080p">1080p</button></div>
+  <div class="h">Higher is sharper but needs more from the phone and makes bigger files. 720p is a good start.</div>
+  <div class="q">Orientation</div><div class="seg" data-k="orient"><button data-v="Landscape">Landscape</button><button data-v="Portrait">Portrait</button></div>
+  <div class="h">Portrait is for vertical video (stories, phone screens).</div>
+  <div class="q">Frame rate</div><div class="seg" data-k="fps"><button data-v="24">24</button><button data-v="30">30</button><button data-v="60">60</button></div>
+  <div class="h">60 (the default) gives the smoothest motion and fades, but needs more from the phone, takes more memory and makes larger files. If the phone struggles or the page reloads, choose 30 or 24.</div>
+  <div class="q">Slow motion in calm parts</div><div class="seg" data-k="slowmo"><button data-v="1">On</button><button data-v="0">Off</button></div>
+  <div class="q">Breathing zoom</div><div class="seg" data-k="breathe"><button data-v="1">On</button><button data-v="0">Off</button></div>
+  <div class="q">Smarter matching (AI)</div><div class="seg" data-k="clip"><button data-v="0">Off</button><button data-v="1">On</button></div>
+  <div class="h">An AI model (CLIP) looks at what is in your loops and groups similar ones, which gives smoother sets. It downloads about 90 MB the first time (about 150 MB with a theme), so use Wi-Fi. It takes a little longer before the video starts. It is heavy for the phone: if the page reloads on its own, the phone ran out of memory, so switch it off or use fewer loops. If the AI cannot start, the app carries on without it.</div>
+  <input type="text" id="theme" placeholder="Theme (optional), e.g. dark forest" autocapitalize="none">
+  <div class="h">Loops that match the theme are preferred. Needs smarter matching switched on.</div>
+  <div class="q">Seed (optional)</div><input type="number" id="seed" placeholder="random" inputmode="numeric">
+  <div class="h">The same seed and settings give the same mix. The seed of each export is shown on its card.</div>
+ </details></div>
+
+<div id="recov" class="card" style="display:none;border:2px solid var(--warn);margin:10px 0"><b>A video was interrupted</b>
+ <p class="small" id="recTxt"></p>
+ <label class="small">Pick the same MP3 again to get the original sound (optional) <input type="file" id="recMp3" accept="audio/*,.mp3"></label>
+ <div class="bar" style="margin-top:8px"><button class="main" id="recGo">Save what was recorded</button><button class="sm" id="recNo">Discard it</button></div><div id="recOut" class="small"></div></div>
+<div class="card"><h2>Exports</h2><div id="st" class="mute"></div><div id="fmt" class="small"></div>
+<details id="storBox"><summary>Storage on this phone</summary><div class="small" style="display:grid;gap:8px;margin:8px 0">
+ <span id="stInfo" class="mute">Checking…</span>
+ <span class="mute">Finished videos are kept inside this page until you press <b>Remove</b> on them, so download first. Videos left behind by an interrupted run are deleted automatically the next time the page opens.</span>
+ <div class="bar"><button class="sm" id="stClear">Delete all stored videos</button><button class="sm" id="stModel">Delete the AI model</button></div></div></details>
+<details id="vimeoBox"><summary>Upload to Vimeo (optional)</summary><div class="small" style="display:grid;gap:8px;margin:8px 0">
+ <label>Access token <input id="vtok" type="password" autocomplete="off" placeholder="Paste your personal Vimeo access token" style="width:100%"></label>
+ <label>Who can watch <select id="vpriv"><option value="unlisted">Only with the link (unlisted)</option><option value="nobody">Only me (private)</option><option value="anybody">Everyone (public)</option></select></label>
+ <label>Showcase number (optional) <input id="valb" inputmode="numeric" placeholder="for example 12463997" style="width:100%"></label>
+ <span class="mute">Create the token at developer.vimeo.com (Create an app, then Generate an access token with the scopes <b>upload</b>, <b>edit</b> and <b>private</b>). It is stored only in this browser and sent only to Vimeo. Each finished video gets an <b>Upload to Vimeo</b> button.</span></div></details>
+ <div id="queue"><p class="mute small" style="margin:6px 0">Nothing yet. Press "Make video" below.</p></div>
+ <p class="mute small">Keep this page open and the screen on while a video is made. It runs in real time, so a 4-minute track takes about 4 minutes. If you switch app, it pauses until you come back. On an iPhone, turn off Low Power Mode first, because it stops videos from playing.</p></div>
+</div>
+<div class="bar"><button class="main" id="add">Make video</button></div>
+<input type="file" id="fA" class="vh" aria-label="Choose music file"><input type="file" id="fV" class="vh" multiple accept="video/*,.mp4,.mov,.m4v,.webm,.mkv" aria-label="Choose video files">
+
+<script>
+/* CORE:START */
+const BARS=[1,2,4,8,16],clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
+const mkrng=a=>()=>{a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296};
+const pctl=(x,p)=>{const s=Array.from(x).sort((a,b)=>a-b);return s[Math.min(s.length-1,Math.floor(p/100*s.length))]};
+const rnorm=x=>{const lo=pctl(x,5),hi=pctl(x,95);return Array.from(x,v=>clamp((v-lo)/(hi-lo+1e-9),0,1))};
+const sm=(x,w)=>x.map((_,i)=>{let s=0,n=0;for(let j=i-w;j<=i+w;j++)if(j>=0&&j<x.length){s+=x[j];n++}return s/n});
+const mean=(a,i,j)=>{let s=0;j=Math.min(j,a.length);for(let k=i;k<j;k++)s+=a[k];return j>i?s/(j-i):0};
+const maxf=(x,w)=>x.map((_,i)=>{let m=-1e9;for(let j=Math.max(0,i-w);j<=Math.min(x.length-1,i+w);j++)m=Math.max(m,x[j]);return m});
+function fft(re,im){const n=re.length;for(let i=1,j=0;i<n;i++){let b=n>>1;for(;j&b;b>>=1)j^=b;j^=b;if(i<j){[re[i],re[j]]=[re[j],re[i]];[im[i],im[j]]=[im[j],im[i]]}}
+ for(let len=2;len<=n;len<<=1){const a=-2*Math.PI/len,wr=Math.cos(a),wi=Math.sin(a);for(let i=0;i<n;i+=len){let cr=1,ci=0;for(let j=0;j<len/2;j++){const u=i+j,v=u+len/2,xr=re[v]*cr-im[v]*ci,xi=re[v]*ci+im[v]*cr;re[v]=re[u]-xr;im[v]=im[u]-xi;re[u]+=xr;im[u]+=xi;const t=cr*wr-ci*wi;ci=cr*wi+ci*wr;cr=t}}}}
+
+async function analyzeAudio(ab,secLen,prog){
+ const x=ab.getChannelData(0),sr=ab.sampleRate,dur=x.length/sr,N=sr>30000?2048:1024,H=N/2,fr=sr/H,B=24,T=Math.floor((x.length-N)/H),
+  win=Float64Array.from({length:N},(_,i)=>.5-.5*Math.cos(2*Math.PI*i/N)),edges=[2];
+ for(let i=1;i<=B;i++)edges.push(Math.max(edges[i-1]+1,Math.round(2*Math.pow(Math.min(700,N/2-1)/2,i/B))));
+ const lowEnd=Math.max(3,Math.round(150/(sr/N))),re=new Float64Array(N),im=new Float64Array(N),
+  rms=new Float64Array(T),cent=new Float64Array(T),flux=new Float64Array(T),low=new Float64Array(T),band=new Float32Array(T*B),mg=new Float64Array(N/2);
+ let prev=new Float64Array(B);
+ for(let t=0;t<T;t++){let e=0;for(let i=0;i<N;i++){const v=x[t*H+i];e+=v*v;re[i]=v*win[i];im[i]=0}
+  rms[t]=Math.sqrt(e/N);fft(re,im);let sw=0,s=0;for(let k=1;k<N/2;k++){mg[k]=Math.hypot(re[k],im[k]);sw+=mg[k];s+=k*mg[k]}cent[t]=sw?s/sw:0;
+  let lw=0;for(let k=2;k<=lowEnd;k++)lw+=mg[k];low[t]=Math.log(1+lw);
+  let f=0;for(let b=0;b<B;b++){let q=0;for(let k=edges[b];k<edges[b+1];k++)q+=mg[k];q=Math.log(1+q);band[t*B+b]=q;f+=Math.max(0,q-prev[b]);prev[b]=q}flux[t]=f;
+  if(t%800==0){prog&&prog(`Analyzing music… ${Math.round(100*t/T)} %`);await new Promise(r=>setTimeout(r))}}
+ prog&&prog('Finding the beat…');await new Promise(r=>setTimeout(r));
+ const o=sm(Array.from(flux),1),sd=Math.sqrt(Math.max(1e-12,mean(o.map(v=>v*v),0,T)-mean(o,0,T)**2))+1e-9,oo=o.map(v=>v/sd);
+ let P=0,bs=-1;for(let L=Math.round(fr*60/200);L<=Math.round(fr*60/60);L++){let s=0;for(let i=0;i+L<T;i++)s+=oo[i]*oo[i+L];s/=T-L;
+  s*=Math.exp(-.5*(Math.log2(60*fr/L/120)/.9)**2);if(s>bs){bs=s;P=L}}
+ const tempo=60*fr/P,cum=new Float64Array(T),back=new Int32Array(T).fill(-1);
+ for(let t=0;t<T;t++){let best=-1e9,bi=-1;for(let q=t-Math.round(2*P);q<=t-Math.round(P/2);q++){if(q<0)continue;const sc=cum[q]-100*Math.log((t-q)/P)**2;if(sc>best){best=sc;bi=q}}
+  cum[t]=oo[t]+(bi>=0?best:0);back[t]=bi}
+ let tt=T-1;for(let t=Math.max(0,T-P);t<T;t++)if(cum[t]>cum[tt])tt=t;
+ const bf=[];for(;tt>=0;tt=back[tt])bf.push(tt);bf.reverse();
+ if(bf.length<16)throw new Error('Too few beats found. Is the music rhythmic enough?');
+ const off=N/2/sr,bt=[0];for(const f of bf){const s=f*H/sr+off;if(s>.05&&s<dur-.05)bt.push(s)}bt.push(dur);
+ const nb=bt.length-1,fa=i=>Math.floor(bt[i]*fr),fb=i=>Math.max(fa(i)+1,Math.floor(bt[i+1]*fr));
+ const db=[],onb=[],cb=[],feat=[];
+ for(let i=0;i<nb;i++){db.push(20*Math.log10(mean(rms,fa(i),fb(i))+1e-6));onb.push(mean(o,fa(i),fb(i)));cb.push(mean(cent,fa(i),fb(i)));
+  const v=new Float64Array(B);for(let b=0;b<B;b++){let s=0,n=0;for(let f=fa(i);f<Math.min(fb(i),T);f++){s+=band[f*B+b];n++}v[b]=n?s/n:0}feat.push(v)}
+ const r1=rnorm(db),r2=rnorm(onb),r3=rnorm(cb);
+ const energy=rnorm(sm(r1.map((_,i)=>.55*r1[i]+.3*r2[i]+.15*r3[i]),2));
+ let ph=0,pb=-1;for(let p=0;p<4;p++){let s=0,n=0;for(let i=1;i<nb;i++)if(i%4==p){s+=onb[i];n++}if(n&&s/n>pb){pb=s/n;ph=p}}
+ const lf=Array.from(low,(v,i)=>i?Math.max(0,v-low[i-1]):0),lmu=mean(lf,0,T),lsd=Math.sqrt(Math.max(1e-12,mean(lf.map(v=>v*v),0,T)-lmu*lmu)),kicks=[],kst=[];let last=-9;
+ for(let t=3;t<T-3;t++){let ok=lf[t]>lmu+.5*lsd;for(let j=-3;j<=3&&ok;j++)if(lf[t+j]>lf[t])ok=false;
+  if(ok&&t*H/sr+off-last>.12){last=t*H/sr+off;kicks.push(last);kst.push(lf[t])}}
+ const k90=pctl(kst.length?kst:[1],90)+1e-9,kstr=kst.map(v=>clamp(v/k90,0,1));
+ prog&&prog('Finding song sections…');await new Promise(r=>setTimeout(r));
+ const z=feat.map(v=>Float64Array.from(v));for(let b=0;b<B;b++){const m=mean(z.map(v=>v[b]),0,nb),s=Math.sqrt(mean(z.map(v=>(v[b]-m)**2),0,nb))+1e-9;z.forEach(v=>v[b]=(v[b]-m)/s)}
+ const avg=(i,j)=>{const v=new Float64Array(B);let n=0;for(let k=Math.max(0,i);k<Math.min(nb,j);k++){for(let b=0;b<B;b++)v[b]+=z[k][b];n++}return v.map(a=>a/(n||1))};
+ const dist=(a,b)=>Math.sqrt(a.reduce((s,v,i)=>s+(v-b[i])**2,0)),snap=i=>{const r=((i-ph)%4+4)%4;return clamp(i+(r<=2?-r:4-r),0,nb-1)};
+ const nov=[];for(let i=16;i<nb-16;i++)if(((i-ph)%4+4)%4==0)nov.push([dist(avg(i-16,i),avg(i,i+16)),i]);nov.sort((a,b)=>b[0]-a[0]);
+ const K=clamp(Math.round(dur/secLen),1,Math.max(1,Math.floor(nb/16))),bd=[0];
+ for(const[,i]of nov){if(bd.length>=K)break;if(bd.every(b=>Math.abs(b-i)>=16)&&nb-i>=16)bd.push(i)}bd.sort((a,b)=>a-b);
+ const sections=bd.map((s,i)=>[s,i+1<bd.length?bd[i+1]:nb]),sv=sections.map(([a,b])=>avg(a,b)),ds=[];
+ for(let i=0;i<sv.length;i++)for(let j=i+1;j<sv.length;j++)ds.push(dist(sv[i],sv[j]));
+ const thr=ds.length?pctl(ds,40):0,cents=[],cluster=sv.map(v=>{let c=cents.findIndex(q=>dist(q,v)<thr);if(c<0){cents.push(v);c=cents.length-1}return c});
+ const es=sm(energy,2),ref=maxf(es,16),brk=es.map((v,i)=>v<.45*ref[i]&&ref[i]>.55),breaks=[];
+ for(let i=0,s=-1;i<=nb;i++){if(i<nb&&brk[i]){if(s<0)s=i}else if(s>=0){if(i-s>=4)breaks.push([s,i]);s=-1}}
+ const jump=energy.map((_,i)=>i>=4&&i<nb-3?mean(energy,i,i+4)-mean(energy,i-4,i):0),jm=maxf(jump,8),drops=[];
+ jump.forEach((v,i)=>{if(v>.28&&v>=jm[i]){const s=snap(i);if(!drops.length||s-drops[drops.length-1]>=16)drops.push(s)}});
+ const buildup=new Array(nb).fill(false);drops.forEach(d=>{for(let i=Math.max(0,d-8);i<d;i++)buildup[i]=true});
+ const dbs=Array.from(rms,v=>20*Math.log10(v+1e-6)).sort((a,b)=>a-b),qd=p=>dbs[Math.min(dbs.length-1,Math.floor(p*dbs.length))],cs=Array.from(cent).sort((a,b)=>a-b),
+  pk=[];let lpk=-9;for(let t=2;t<T-2;t++)if(oo[t]>.9&&oo[t]>=oo[t-1]&&oo[t]>oo[t+1]&&(t-lpk)/fr>.07){pk.push(t);lpk=t}
+ const feel={loud:qd(.9),dyn:qd(.9)-qd(.2),bright:cs[cs.length>>1]*sr/N,onsets:pk.length/dur,flux:mean(flux,0,T),clarity:bs};
+ return{dur,tempo,bt,nb,energy,phase:ph,sections,cluster,breaks,drops,buildup,kicks,kstr,feel};
+}
+
+/* loops: raw style vector v (15 numbers), mean motion mm, optional CLIP embedding emb */
+function normLoops(L,clipW){
+ const n=L.length,D=L[0].v.length,cols=[];
+ for(let d=0;d<D;d++){const m=mean(L.map(l=>l.v[d]),0,n),s=Math.sqrt(mean(L.map(l=>(l.v[d]-m)**2),0,n))+1e-9;cols.push([m,s])}
+ const Z=L.map(l=>l.v.map((x,d)=>(x-cols[d][0])/cols[d][1])),dd=Z.map(a=>Z.map(b=>Math.sqrt(mean(a.map((x,d)=>(x-b[d])**2),0,D))));
+ const fl=dd.flat().filter(x=>x>0),med=pctl(fl.length?fl:[1],50)||1,S=dd.map(r=>r.map(d=>Math.exp(-d/med)));
+ const order=L.map((l,i)=>[l.mm,i]).sort((a,b)=>a[0]-b[0]);order.forEach(([,i],r)=>L[i].energy=n>1?r/(n-1):.5);
+ if(clipW>0&&L.every(l=>l.emb)){const cs=L.map(a=>L.map(b=>a.emb.reduce((s,x,i)=>s+x*b.emb[i],0))),cf=cs.flat().filter((_,i)=>i%(n+1)),cm=mean(cf,0,cf.length),
+   csd=Math.sqrt(mean(cf.map(x=>(x-cm)**2),0,cf.length))+1e-9;
+  for(let i=0;i<n;i++)for(let j=0;j<n;j++)S[i][j]=(1-clipW)*S[i][j]+clipW*clamp(.5+(cs[i][j]-cm)/(4*csd),0,1)}
+ const th=L.every(l=>l.theme!=null)?(()=>{const t=L.map(l=>l.theme),m=mean(t,0,n),s=Math.sqrt(mean(t.map(x=>(x-m)**2),0,n))+1e-9;return t.map(x=>clamp((x-m)/s,-2,2)/2)})():L.map(()=>0);
+ L.forEach((l,i)=>l.th=th[i]);return S;
+}
+/* the mix: sections get 2-4 similar loops that alternate slowly; accent layers and per-section looks add variety; every loop gets used when possible */
+function plan(A,L,S,o,rnd){
+ const BARS=[1,2,4,8,16,32],nb=A.nb,n=L.length,used=new Array(n).fill(0),sets={},slots=[],looks={},brk=new Array(nb).fill(false);
+ A.breaks.forEach(([a,b])=>{for(let i=a;i<b;i++)brk[i]=true});
+ const secs=A.sections.map(([a,b],i)=>({a,b,e:mean(A.energy,a,b),c:A.cluster[i]})),mu=()=>mean(used,0,n),cov=j=>o.useAll&&used[j]==0?1.2:0;
+ const pick=(sc,temp)=>{const mx=Math.max(...sc.map(x=>x[0])),w=sc.map(x=>Math.exp((x[0]-mx)/temp)),t=w.reduce((a,b)=>a+b);let r=rnd()*t;for(let i=0;i<sc.length;i++){r-=w[i];if(r<=0)return sc[i][1]}return sc[sc.length-1][1]};
+ const simTo=(j,set)=>set.reduce((s,k)=>s+S[j][k],0)/set.length,FLOW=o.flow??.5,SMOOTH=o.smooth??.6,lum=j=>L[j].v[4];
+ const lookOf=c=>looks[c]??=(()=>{const v=o.lookVar,bl=o.layerBlend=='auto'?['screen','soft-light','overlay','lighten'][Math.floor(rnd()*4)]:o.layerBlend;
+  return{hue:Math.floor(rnd()*360),tint:v>0?o.tintAmount*(.3+.7*v):0,mirror:o.mirror=='always'?1:(o.mirror=='sometimes'&&rnd()<.25+.3*v)?1:0,blend:bl}})();
+ const makeSet=(e,size)=>{const set=[pick(L.map((l,j)=>[-o.matchEnergy*3*Math.abs(l.energy-e)-.6*used[j]/(1+mu())+cov(j)+o.themeWeight*3*l.th+(prevLast>=0?FLOW*(1.5*S[j][prevLast]-2*Math.abs(lum(j)-lum(prevLast))):0),j]),.15+.6*o.variety)];
+  while(set.length<Math.min(size,n)){const c=[];for(let j=0;j<n;j++)if(!set.includes(j))c.push([o.styleMatch*4*simTo(j,set)-o.matchEnergy*2*Math.abs(L[j].energy-e)-.4*used[j]/(1+mu())+cov(j)+o.themeWeight*2*L[j].th,j]);set.push(pick(c,.1+.3*o.variety))}
+  set.forEach(j=>used[j]++);return set};
+ let prevLast=-1;
+ secs.forEach((sec,si)=>{
+  const key=o.reuseSets?sec.c:si;let set=(sets[key]??=makeSet(sec.e,o.setSize)).slice();
+  let i=sec.a,last=prevLast,age={},cnt=0,evo=sec.a;
+  while(i<sec.b){
+   const e=mean(A.energy,i,Math.min(i+8,nb)),nd=A.drops.find(d=>d>i&&d<sec.b),kind=A.drops.includes(i)?'drop':brk[i]?'break':A.buildup[i]?'buildup':'normal';
+   const bars=o.shotBars*Math.pow(2,(.5-e)*o.follow*2)*(kind=='break'?1.5:kind=='buildup'?.75:1);
+   let q=clamp(Math.round(Math.log2(bars)),0,5);if(rnd()<o.irregular)q=clamp(q+(rnd()<.5?-1:1),0,5);
+   const minB=o.minBars*4;let len=clamp(BARS[q],o.minBars,o.maxBars)*4;if(sec.b-i-len<Math.max(minB,len*.5))len=sec.b-i;if(o.accent&&nd!=null&&nd-i<len&&nd-i>=minB)len=nd-i;len=Math.max(1,len);
+   if(o.evolve>0&&set.length>1&&(i-evo)/4>=o.evolve){const r=set.filter(j=>j!==last).sort((a,b)=>(age[a]??-1)-(age[b]??-1))[0],rest=set.filter(j=>j!==r),c=[];
+    for(let j=0;j<n;j++)if(!set.includes(j))c.push([o.styleMatch*4*simTo(j,rest)-o.matchEnergy*2*Math.abs(L[j].energy-sec.e)-.4*used[j]/(1+mu())+cov(j),j]);
+    if(c.length){const nj=pick(c,.2);set[set.indexOf(r)]=nj;used[nj]++}evo=i}
+   const cand=set.filter(j=>j!==last),pl=(cand.length?cand:set).slice().sort((a,b)=>(age[a]??-1)-(age[b]??-1));
+   let j=pl.length>1&&rnd()<.25*o.variety?pl[1]:pl[0];
+   if(FLOW>0&&last>=0&&pl.length>1)j=pick(pl.map((c,r)=>[-r*(1.2-FLOW*.6)+FLOW*(3*S[last][c]-4*Math.abs(lum(c)-lum(last))),c]),.25);
+   age[j]=cnt++;last=j;
+   slots.push({i0:i,i1:i+len,t0:A.bt[i],t1:A.bt[i+len],energy:mean(A.energy,i,i+len),kind,loop:j,sec:si,cluster:sec.c});i+=len}
+  prevLast=last});
+ slots.forEach((s,k)=>{lookOf(s.cluster);s.xf=0;if(k&&o.fade>0){const beat=(s.t1-s.t0)/(s.i1-s.i0);let x=o.fade*beat*(s.kind=='break'||s.energy<.3?1.5:1);if(s.kind=='drop')x=Math.min(x,beat);
+  if(s.kind!='drop'&&SMOOTH>0){const pj=slots[k-1].loop,sm=S[s.loop][pj],ld=Math.abs(lum(s.loop)-lum(pj));x*=clamp(1+SMOOTH*(.8*(1-sm)-.8+1.2*ld),.6,1.9)}
+  s.xf=Math.min(x,.4*(s.t1-s.t0),.4*(slots[k-1].t1-slots[k-1].t0))}});
+ // accent layers (like a second layer in a VJ deck): two possible windows per long shot
+ const layers=[],wins=slots.map(()=>[null,null,null]);
+ const addLayer=(k,w,j)=>{const s=slots[k],d=s.t1-s.t0,t0=s.t0+d*[.08,.38,.68][w],t1=t0+d*.26*clamp(o.layerLen/.6,.3,1.2);wins[k][w]=j;used[j]++;
+  layers.push({t0,t1,loop:j,blend:lookOf(s.cluster).blend,alpha:o.layerOpacity,fade:Math.min(6,(t1-t0)/3),slot:k})};
+ slots.forEach((s,k)=>{if(s.t1-s.t0<6||s.kind=='drop')return;
+  for(let w=0;w<3;w++)if(rnd()<o.layerDensity*[1,.6,.4][w]){const c=[];for(let j=0;j<n;j++)if(j!==s.loop)c.push([(o.useAll&&used[j]==0?4:0)-.5*used[j]/(1+mu())+o.styleMatch*1.5*S[j][s.loop]-o.matchEnergy*Math.abs(L[j].energy-s.energy)+.3*rnd(),j]);
+   if(c.length)addLayer(k,w,pick(c,.3))}});
+ const app=()=>{const a=new Array(n).fill(0);slots.forEach(s=>a[s.loop]++);layers.forEach(l=>a[l.loop]++);return a};
+ if(o.useAll){const a=app(),un=[];a.forEach((c,j)=>{if(!c)un.push(j)});const free=[];
+  slots.forEach((s,k)=>{if(s.t1-s.t0>=6&&s.kind!='drop')for(let w=0;w<3;w++)if(wins[k][w]==null)free.push([k,w])});
+  un.sort((x,y)=>L[x].energy-L[y].energy);free.sort((x,y)=>slots[x[0]].energy-slots[y[0]].energy);const taken=new Set();
+  un.forEach((j,u)=>{if(taken.size>=free.length)return;let f=Math.round(u*(free.length-1)/Math.max(1,un.length-1));while(taken.has(f))f=(f+1)%free.length;taken.add(f);addLayer(free[f][0],free[f][1],j)})}
+ layers.sort((x,y)=>x.t0-y.t0);const a=app();
+ return{slots,layers,looks,coverage:{used:a.filter(x=>x>0).length,total:n}};
+}
+/* CORE:END */
+/* VIMEO:START — optional upload of a finished video straight from the browser to your own Vimeo account (tus resumable upload). The access token is only kept in this browser. */
+const VK='munken_vimeo',vcfg=()=>{try{return JSON.parse(localStorage.getItem(VK)||'{}')}catch(e){return{}}},vsave=c=>{try{localStorage.setItem(VK,JSON.stringify(c))}catch(e){}};
+(()=>{const c=vcfg(),$$=id=>document.getElementById(id);if(!$$('vtok'))return;$$('vtok').value=c.token||'';$$('vpriv').value=c.privacy||'unlisted';$$('valb').value=c.album||'';
+ const sv=()=>vsave({token:$$('vtok').value.trim(),privacy:$$('vpriv').value,album:$$('valb').value.replace(/\D/g,'')});['vtok','vpriv','valb'].forEach(i=>$$(i).addEventListener('change',sv))})();
+async function vimeoUp(j){
+ const c=vcfg();if(!c.token){j.note='Paste your Vimeo access token under "Upload to Vimeo (optional)" first.';const d=document.getElementById('vimeoBox');if(d){d.open=true;d.scrollIntoView({block:'center'})}upd(j);return}
+ if(j.vim&&j.vim.busy||!j.file)return;j.vim={busy:true};const f=j.file,H={Authorization:'bearer '+c.token,Accept:'application/vnd.vimeo.*+json;version=3.4'},say=m=>{j.note=m;upd(j)};
+ const err=async r=>{let t='';try{const e=await r.json();t=e.developer_message||e.error||''}catch(e){}return `Vimeo said ${r.status}${t?': '+t:''}`+(r.status==401||r.status==403?'. Check that the token has the scopes upload, edit and private.':'')};
+ try{
+  say('Vimeo: creating the video…');
+  const r=await fetch('https://api.vimeo.com/me/videos',{method:'POST',headers:{...H,'Content-Type':'application/json'},body:JSON.stringify({upload:{approach:'tus',size:f.size},name:j.name,description:`Made with Spektronautilus. ${j.audio?j.audio.name:''}`.trim(),privacy:{view:c.privacy||'unlisted'}})});
+  if(!r.ok)throw new Error(await err(r));
+  const d=await r.json(),link=d.upload.upload_link,CH=16*1024*1024;let off=0,tries=0;
+  while(off<f.size){const end=Math.min(f.size,off+CH);
+   try{const p=await fetch(link,{method:'PATCH',headers:{'Tus-Resumable':'1.0.0','Upload-Offset':String(off),'Content-Type':'application/offset+octet-stream'},body:f.slice(off,end)});
+    if(!p.ok)throw new Error('Upload part failed ('+p.status+')');off=+p.headers.get('Upload-Offset')||end;tries=0;say(`Vimeo: uploading ${Math.round(100*off/f.size)} % (${(off/1e6).toFixed(0)} of ${(f.size/1e6).toFixed(0)} MB)…`)}
+   catch(e){if(++tries>4)throw e;await new Promise(r=>setTimeout(r,2000*tries));try{const h=await fetch(link,{method:'HEAD',headers:{'Tus-Resumable':'1.0.0'}});if(h.ok)off=+h.headers.get('Upload-Offset')||off}catch(_){}}}
+  const id=d.uri.split('/').pop();let extra='';
+  if(c.album){try{const a=await fetch(`https://api.vimeo.com/me/albums/${c.album}/videos/${id}`,{method:'PUT',headers:H});extra=a.ok?' Added to your showcase.':' It could not be added to the showcase ('+a.status+').'}catch(e){extra=' It could not be added to the showcase.'}}
+  j.vlink=d.link;j.vim={busy:false,done:true};say('Uploaded to Vimeo. Vimeo is now processing it, which can take a few minutes.'+extra)
+ }catch(e){j.vim={busy:false};say('Vimeo upload failed: '+(e.message||e)+'. Press the button to try again.')}}
+/* VIMEO:END */
+/* REMUX:START — rewrites a fragmented MP4 (as made by MediaRecorder) into a regular MP4 with correct duration, index and seeking. No re-encoding.
+   With opts.mp3 the recorded (and possibly stretched) audio is dropped and the ORIGINAL MP3 frames are put in as the audio track, sample exact.
+   The picture is then lined up with it: opts.lead = seconds from the start of the recording to music time 0, opts.expected = seconds of music that were rendered.
+   If the recorded video is a little longer or shorter than that (clock drift), its timeline is stretched to fit the music, so picture and sound end together. */
+async function mp3Info(file){
+ const b=new Uint8Array(await file.arrayBuffer()),n=b.length,BR1=[0,32,40,48,56,64,80,96,112,128,160,192,224,256,320],BR2=[0,8,16,24,32,40,48,56,64,80,96,112,128,144,160],SR={3:[44100,48000,32000],2:[22050,24000,16000],0:[11025,12000,8000]};
+ let p=0;if(n>10&&b[0]==73&&b[1]==68&&b[2]==51){p=10+(((b[6]&127)<<21)|((b[7]&127)<<14)|((b[8]&127)<<7)|(b[9]&127));if(b[5]&16)p+=10}
+ const hdr=i=>{if(i+4>n||b[i]!=255||(b[i+1]&224)!=224)return null;const ver=(b[i+1]>>3)&3,lay=(b[i+1]>>1)&3,bri=b[i+2]>>4,sri=(b[i+2]>>2)&3,pad=(b[i+2]>>1)&1;
+  if(ver==1||lay!=1||bri==0||bri==15||sri==3)return null;const sr=SR[ver][sri],br=(ver==3?BR1:BR2)[bri]*1000;return{ver,sr,br,spf:ver==3?1152:576,len:Math.floor((ver==3?144:72)*br/sr)+pad,ch:(b[i+3]>>6)==3?1:2,prot:b[i+1]&1}};
+ const ok=i=>{const h=hdr(i);return h&&(i+h.len>=n-128||hdr(i+h.len))?h:null};
+ let first=null;for(;p+4<=n;p++){const h=ok(p);if(h){first=h;break}}if(!first)throw new Error('This is not an MP3 file');
+ const frames=[];let delay=0,padd=0,tagSeen=false;
+ while(p+4<=n){const h=hdr(p);if(!h){let q=p+1;for(;q+4<=n;q++)if(ok(q))break;if(q+4>n)break;p=q;continue}
+  if(p+h.len>n)break;if(h.sr!=first.sr||h.ver!=first.ver){p+=h.len;continue}
+  if(!tagSeen){tagSeen=true;const si=h.ver==3?(h.ch==1?17:32):(h.ch==1?9:17),o=p+4+(h.prot?0:2)+si,tg=String.fromCharCode(b[o],b[o+1],b[o+2],b[o+3]),vb=String.fromCharCode(b[p+36],b[p+37],b[p+38],b[p+39]);
+   if(tg=='Xing'||tg=='Info'||vb=='VBRI'){if(tg!='VBRI'){const d=new DataView(b.buffer,b.byteOffset);let x=o+4;const fl=d.getUint32(x);x+=4;if(fl&1)x+=4;if(fl&2)x+=4;if(fl&4)x+=100;if(fl&8)x+=4;
+     if(b[x]>=32&&b[x]<127&&b[x+1]>=32&&b[x+1]<127){delay=(b[x+21]<<4)|(b[x+22]>>4);padd=((b[x+22]&15)<<8)|b[x+23]}}p+=h.len;continue}}
+  frames.push({pos:p,len:h.len});p+=h.len}
+ if(!frames.length)throw new Error('No MP3 audio frames found');
+ let bytes=0;frames.forEach(f=>bytes+=f.len);
+ return{sr:first.sr,ch:first.ch,spf:first.spf,ver:first.ver,frames,skip:delay?delay+529:0,endTrim:padd>529?padd-529:0,br:first.br,avgBr:Math.round(bytes*8/(frames.length*first.spf/first.sr))};
+}
+async function fixMp4(file,sink,progress,opts){
+ const fcc=(d,o)=>String.fromCharCode(d.getUint8(o),d.getUint8(o+1),d.getUint8(o+2),d.getUint8(o+3));
+ const top=[];for(let pos=0;pos+8<=file.size;){const d=new DataView(await file.slice(pos,pos+16).arrayBuffer());let size=d.getUint32(0),hdr=8;
+  if(size==1){size=Number(d.getBigUint64(8));hdr=16}else if(size==0)size=file.size-pos;if(size<hdr)break;top.push({type:fcc(d,4),pos,size:Math.min(size,file.size-pos),hdr});pos+=size}
+ const mb=top.find(b=>b.type=='moov');if(!mb)return false;
+ const moov=new Uint8Array(await file.slice(mb.pos,mb.pos+mb.size).arrayBuffer()),M=new DataView(moov.buffer);
+ const kids=(dv,s,e)=>{const out=[];for(let p=s;p+8<=e;){let size=dv.getUint32(p),hdr=8;if(size==1){size=Number(dv.getBigUint64(p+8));hdr=16}else if(size==0)size=e-p;if(size<hdr)break;out.push({type:fcc(dv,p+4),s:p,e:Math.min(e,p+size),h:hdr});p+=size}return out};
+ const find=(l,t)=>l.find(b=>b.type==t),mk=kids(M,mb.hdr,moov.length),mvex=find(mk,'mvex');if(!mvex)return false;
+ const mvhd=find(mk,'mvhd'),mv=moov[mvhd.s+mvhd.h],movTs=M.getUint32(mvhd.s+mvhd.h+(mv?20:12));
+ const trex={};kids(M,mvex.s+mvex.h,mvex.e).filter(b=>b.type=='trex').forEach(b=>{const o=b.s+b.h+4;trex[M.getUint32(o)]={dur:M.getUint32(o+8),size:M.getUint32(o+12),flags:M.getUint32(o+16)}});
+ const T={};mk.filter(b=>b.type=='trak').forEach(tb=>{const tk=kids(M,tb.s+tb.h,tb.e),tkhd=find(tk,'tkhd'),md=find(tk,'mdia'),mc=kids(M,md.s+md.h,md.e),mdhd=find(mc,'mdhd'),hdlr=find(mc,'hdlr'),minf=find(mc,'minf'),mi=kids(M,minf.s+minf.h,minf.e),stbl=find(mi,'stbl'),st=kids(M,stbl.s+stbl.h,stbl.e),
+  id=M.getUint32(tkhd.s+tkhd.h+(moov[tkhd.s+tkhd.h]?20:12)),ts=M.getUint32(mdhd.s+mdhd.h+(moov[mdhd.s+mdhd.h]?20:12));
+  T[id]={id,tb,tk,tkhd,md,mc,mdhd,minf,mi,stsd:find(st,'stsd'),ts,video:fcc(M,hdlr.s+hdlr.h+8)=='vide',kind:fcc(M,hdlr.s+hdlr.h+8),dur:[],size:[],sync:[],cto:[],chunks:[],start:null,ctoNeg:false}});
+ // read every fragment
+ for(const mf of top.filter(b=>b.type=='moof')){
+  const buf=new Uint8Array(await file.slice(mf.pos,mf.pos+mf.size).arrayBuffer()),D=new DataView(buf.buffer),trafs=kids(D,mf.hdr,buf.length).filter(b=>b.type=='traf'),add=[];let bad=false;
+  for(const tf of trafs){const k=kids(D,tf.s+tf.h,tf.e),th=find(k,'tfhd'),fl=D.getUint32(th.s+th.h)&0xffffff;let p=th.s+th.h+4;const id=D.getUint32(p);p+=4;const tr=T[id];if(!tr)continue;
+   let base=mf.pos;if(fl&1){base=Number(D.getBigUint64(p));p+=8}if(fl&2)p+=4;const X=trex[id]||{dur:0,size:0,flags:0};let dd=X.dur,ds=X.size,df=X.flags;
+   if(fl&8){dd=D.getUint32(p);p+=4}if(fl&0x10){ds=D.getUint32(p);p+=4}if(fl&0x20){df=D.getUint32(p);p+=4}
+   const td=find(k,'tfdt'),tdt=td?(buf[td.s+td.h]?Number(D.getBigUint64(td.s+td.h+4)):D.getUint32(td.s+td.h+4)):null;let cursor=base,firstRun=true;
+   for(const tn of k.filter(b=>b.type=='trun')){const ver=buf[tn.s+tn.h],f=D.getUint32(tn.s+tn.h)&0xffffff;let q=tn.s+tn.h+4;const n=D.getUint32(q);q+=4;let off=null,ff=null;
+    if(f&1){off=D.getInt32(q);q+=4}if(f&4){ff=D.getUint32(q);q+=4}if(off!==null)cursor=base+off;const start=cursor,S={dur:[],size:[],sync:[],cto:[]};
+    for(let i=0;i<n;i++){let d=dd,s=ds,fg=i==0&&ff!==null?ff:df,c=0;if(f&0x100){d=D.getUint32(q);q+=4}if(f&0x200){s=D.getUint32(q);q+=4}
+     if(f&0x400){const v=D.getUint32(q);q+=4;if(!(i==0&&ff!==null))fg=v}if(f&0x800){c=ver?D.getInt32(q):D.getUint32(q);q+=4}
+     S.dur.push(d);S.size.push(s);S.sync.push(!(fg&0x10000));S.cto.push(c);cursor+=s}
+    if(cursor>file.size){bad=true;break}add.push({tr,S,pos:start,len:cursor-start,tdt:firstRun?tdt:null});firstRun=false}
+   if(bad)break}
+  if(bad)break;
+  for(const a of add){const tr=a.tr,i0=tr.size.length;if(tr.start===null&&a.tdt!==null)tr.start=a.tdt;a.S.sync.forEach((s,i)=>{if(s)tr.sync.push(tr.size.length+i+1)});
+   a.S.dur.forEach(x=>tr.dur.push(x));a.S.size.forEach(x=>tr.size.push(x));a.S.cto.forEach(x=>{tr.cto.push(x);if(x<0)tr.ctoNeg=true});tr.chunks.push({pos:a.pos,len:a.len,n:a.S.size.length,tdt:a.tdt,i0})}}
+ let tracks=Object.values(T).filter(t=>t.size.length);if(!tracks.length)return false;
+ let aud=null;if(opts&&opts.mp3){aud={info:await mp3Info(opts.mp3)};tracks=tracks.filter(t=>t.kind!='soun');if(!tracks.length)return false}
+ // where a fragment's sample durations are missing (zero), derive them from the next fragment's timestamp (tfdt)
+ tracks.forEach(t=>t.chunks.forEach((c,i)=>{const nx=t.chunks[i+1];if(c.tdt==null||!nx||nx.tdt==null)return;const exp=nx.tdt-c.tdt;if(exp<=0)return;let sum=0,zero=false;for(let k=c.i0;k<c.i0+c.n;k++){sum+=t.dur[k];if(!t.dur[k])zero=true}if(!zero||sum===exp)return;
+  let acc=0;for(let k=c.i0;k<c.i0+c.n;k++){const v=k==c.i0+c.n-1?exp-acc:Math.round(sum>0?t.dur[k]*exp/sum:exp/c.n);t.dur[k]=v;acc+=v}}));
+ // samples without a usable duration get the most common one, so time never stands still
+ tracks.forEach(t=>{const cnt={};t.dur.forEach(d=>{if(d>0)cnt[d]=(cnt[d]||0)+1});const best=Object.keys(cnt).sort((x,y)=>cnt[y]-cnt[x])[0];if(best)t.dur=t.dur.map(d=>d>0?d:+best)});
+ const u16=n=>Uint8Array.from([(n>>8)&255,n&255]),u32s=a=>{const o=new Uint8Array(a.length*4),d=new DataView(o.buffer);a.forEach((v,i)=>d.setUint32(i*4,v>>>0));return o};
+ const u32=n=>{const b=new Uint8Array(4);new DataView(b.buffer).setUint32(0,n>>>0);return b},i32=n=>{const b=new Uint8Array(4);new DataView(b.buffer).setInt32(0,n);return b},
+  u64=n=>{const b=new Uint8Array(8);new DataView(b.buffer).setBigUint64(0,BigInt(n));return b},cat=(...a)=>{const o=new Uint8Array(a.reduce((s,x)=>s+x.length,0));let p=0;a.forEach(x=>{o.set(x,p);p+=x.length});return o},
+  box=(t,...p)=>{const b=cat(...p);return cat(u32(8+b.length),Uint8Array.from(t,c=>c.charCodeAt(0)),b)},fbox=(t,v,fl,...p)=>box(t,u32((v<<24)|fl),...p);
+
+ const t0=Math.min(...tracks.map(t=>(t.start||0)/t.ts)),mdur=t=>t.dur.reduce((a,b)=>a+b,0);let offs=t=>(t.start||0)/t.ts-t0,A3=null,syncInfo=null;
+ if(aud){
+  const m3=aud.info,sr=m3.sr,vt=tracks.find(t=>t.video),lead=Math.max(0,opts.lead||0),exp0=opts.expected>0?opts.expected:0;
+  const playable=Math.max(0,m3.frames.length*m3.spf-m3.skip-m3.endTrim)/sr,aPlay=Math.min(playable,exp0>0?exp0:playable);
+  let gap=0,mtSec=0,vSeg=0,scale=1;
+  if(vt){const vstart=(vt.start||0)/vt.ts,span=vstart+mdur(vt)/vt.ts-lead;scale=exp0>0&&span>0?exp0/span:1;if(!(scale>.9&&scale<1.1)||Math.abs(scale-1)<.0004)scale=1;
+   if(scale!=1){let acc=0,accS=0;vt.dur=vt.dur.map(d=>{acc+=d;const tt=Math.round(acc*scale),r=tt-accS;accS=tt;return Math.max(1,r)});vt.cto=vt.cto.map(c=>Math.round(c*scale))}
+   gap=Math.max(0,(vstart-lead)*scale);mtSec=Math.max(0,(lead-vstart)*scale);
+   {const have=vt.dur.length?mdur(vt)/vt.ts-mtSec:0,want=Math.min(aPlay,exp0>0?exp0:aPlay)-gap;if(vt.dur.length&&want>have+.05)vt.dur[vt.dur.length-1]+=Math.round((want-have)*vt.ts)}   // the recorder stopped early: hold the last picture
+vSeg=Math.max(0,mdur(vt)/vt.ts-mtSec);if(exp0>0)vSeg=Math.min(vSeg,aPlay);
+   vt.edit={gap,mt:Math.round(mtSec*vt.ts),seg:vSeg};
+   let cum=0;vt.chunks.forEach(c=>{c.f=file;c.time=gap+cum/vt.ts-mtSec;for(let k=c.i0;k<c.i0+c.n;k++)cum+=vt.dur[k]})}
+  // keep only the MP3 frames that are needed
+  const need=Math.min(m3.frames.length,Math.ceil((m3.skip+aPlay*sr)/m3.spf)+2),fr=m3.frames.slice(0,need),per=Math.max(1,Math.round(.5*sr/m3.spf)),chunks=[];
+  for(let i=0;i<fr.length;){let j=i+1;while(j<fr.length&&j-i<per&&fr[j].pos==fr[j-1].pos+fr[j-1].len)j++;const last=fr[j-1];chunks.push({f:opts.mp3,pos:fr[i].pos,len:last.pos+last.len-fr[i].pos,n:j-i,time:Math.max(0,(i*m3.spf-m3.skip)/sr)});i=j}
+  A3={m3,fr,chunks,dur:aPlay};syncInfo={scale,gap,aPlay,vSeg,lead,expected:exp0};
+ }
+ const all=aud?[...tracks.flatMap(t=>t.chunks),...A3.chunks].sort((a,b)=>a.time-b.time||(a.f===file?-1:1)):tracks.flatMap(t=>t.chunks).sort((a,b)=>a.pos-b.pos);let total=0;all.forEach(c=>{c.rel=total;total+=c.len});
+ const vtr=aud?tracks.find(t=>t.video):null,vEnd=vtr?vtr.edit.gap+vtr.edit.seg:0,movDur=aud?Math.round(Math.max(vEnd,A3.dur)*movTs):Math.max(...tracks.map(t=>Math.round((mdur(t)/t.ts+offs(t))*movTs)));
+ const setDur=(bytes,off,v8,val)=>{const d=new DataView(bytes.buffer,bytes.byteOffset);if(v8)d.setBigUint64(off,BigInt(val));else d.setUint32(off,val)};
+ const co64=total+(moov.length*3)+8*(tracks.reduce((a,t)=>a+t.chunks.length,0)+(A3?A3.chunks.length:0))+16>0xFFFFFFFF;
+ const buildMoov=base=>{
+  const trs=tracks.map(t=>{
+   const runs=(arr,key)=>{const o=[];arr.forEach(v=>{const l=o[o.length-1];if(l&&l[1]===v)l[0]++;else o.push([1,v])});return o};
+   const sd=runs(t.dur),sttsB=fbox('stts',0,0,u32(sd.length),...sd.map(([c,d])=>cat(u32(c),u32(d))));
+   const hasC=t.cto.some(x=>x!==0),cd=runs(t.cto),cttsB=hasC?fbox('ctts',t.ctoNeg?1:0,0,u32(cd.length),...cd.map(([c,d])=>cat(u32(c),i32(d)))):new Uint8Array(0);
+   const stssB=t.video&&t.sync.length<t.size.length?fbox('stss',0,0,u32(t.sync.length),u32s(t.sync)):new Uint8Array(0);
+   const sc=[];t.chunks.forEach((c,i)=>{const l=sc[sc.length-1];if(!l||l[1]!==c.n)sc.push([i+1,c.n])});
+   const stscB=fbox('stsc',0,0,u32(sc.length),...sc.map(([f,n])=>cat(u32(f),u32(n),u32(1))));
+   const stszB=fbox('stsz',0,0,u32(0),u32(t.size.length),u32s(t.size));
+   const stcoB=co64?fbox('co64',0,0,u32(t.chunks.length),...t.chunks.map(c=>u64(base+c.rel))):fbox('stco',0,0,u32(t.chunks.length),u32s(t.chunks.map(c=>base+c.rel)));
+   const stbl=box("stbl",moov.slice(t.stsd.s,t.stsd.e),sttsB,cttsB,stssB,stscB,stszB,stcoB);
+   const minf=box('minf',...t.mi.filter(b=>b.type!='stbl').map(b=>moov.slice(b.s,b.e)),stbl);
+   const mdhd=moov.slice(t.mdhd.s,t.mdhd.e),m8=moov[t.mdhd.s+t.mdhd.h];setDur(mdhd,t.mdhd.h+(m8?24:16),m8,mdur(t));
+   const mdia=box('mdia',mdhd,...t.mc.filter(b=>b.type!='mdhd'&&b.type!='minf').map(b=>moov.slice(b.s,b.e)),minf);
+   const tkhd=moov.slice(t.tkhd.s,t.tkhd.e),k8=moov[t.tkhd.s+t.tkhd.h];let edts;
+   if(aud&&t.edit){const e=t.edit,segM=Math.round(e.seg*movTs),parts=[];if(e.gap>.0005)parts.push(cat(u32(Math.round(e.gap*movTs)),i32(-1),u32(0x10000)));parts.push(cat(u32(segM),i32(e.mt),u32(0x10000)));
+    setDur(tkhd,t.tkhd.h+(k8?28:20),k8,Math.round((e.gap+e.seg)*movTs));edts=box('edts',fbox('elst',0,0,u32(parts.length),...parts))}
+   else{const o=offs(t),segDur=Math.round(mdur(t)/t.ts*movTs);setDur(tkhd,t.tkhd.h+(k8?28:20),k8,Math.round((mdur(t)/t.ts+o)*movTs));
+    edts=o>.002?box('edts',fbox('elst',0,0,u32(2),u32(Math.round(o*movTs)),i32(-1),u32(0x10000),u32(segDur),i32(0),u32(0x10000))):new Uint8Array(0)}
+   return box('trak',tkhd,edts,...t.tk.filter(b=>!['tkhd','mdia','edts'].includes(b.type)).map(b=>moov.slice(b.s,b.e)),mdia)});
+  const aud3=A3?(()=>{const m3=A3.m3,sr=m3.sr,nS=A3.fr.length,id=Math.max(...tracks.map(t=>t.id))+1,oti=m3.ver==3?0x6B:0x69,ch=A3.chunks,
+   esd=Uint8Array.from([3,128,128,128,27,0,0,0,4,128,128,128,13,oti,0x15,0,0,0,...u32(m3.br),...u32(m3.avgBr),6,128,128,128,1,2]),
+   stsd=fbox('stsd',0,0,u32(1),box('mp4a',new Uint8Array(6),u16(1),u32(0),u32(0),u16(m3.ch),u16(16),u16(0),u16(0),u32(sr*65536),fbox('esds',0,0,esd))),
+   sc=[];ch.forEach((c,i)=>{const l=sc[sc.length-1];if(!l||l[1]!==c.n)sc.push([i+1,c.n])});
+   const stbl=box('stbl',stsd,fbox('stts',0,0,u32(1),u32(nS),u32(m3.spf)),fbox('stsc',0,0,u32(sc.length),...sc.map(([f,n])=>cat(u32(f),u32(n),u32(1)))),fbox('stsz',0,0,u32(0),u32(nS),u32s(A3.fr.map(f=>f.len))),
+    co64?fbox('co64',0,0,u32(ch.length),...ch.map(c=>u64(base+c.rel))):fbox('stco',0,0,u32(ch.length),u32s(ch.map(c=>base+c.rel)))),
+   minf=box('minf',fbox('smhd',0,0,u32(0)),box('dinf',fbox('dref',0,0,u32(1),fbox('url ',0,1))),stbl),
+   mdhd=fbox('mdhd',0,0,u32(0),u32(0),u32(sr),u32(nS*m3.spf),u16(0x55C4),u16(0)),
+   hdlr=fbox('hdlr',0,0,u32(0),Uint8Array.from('soun',c=>c.charCodeAt(0)),new Uint8Array(12),Uint8Array.from('SoundHandler\0',c=>c.charCodeAt(0))),
+   segDur=Math.round(A3.dur*movTs),
+   tkhd=fbox('tkhd',0,3,u32(0),u32(0),u32(id),u32(0),u32(segDur),new Uint8Array(8),u16(0),u16(0),u16(0x0100),u16(0),u32(0x10000),new Uint8Array(12),u32(0x10000),new Uint8Array(12),u32(0x40000000),u32(0),u32(0)),
+   edts=box('edts',fbox('elst',0,0,u32(1),u32(segDur),i32(m3.skip),u32(0x10000)));
+   return box('trak',tkhd,edts,box('mdia',mdhd,hdlr,minf))})():new Uint8Array(0);
+  const mh=moov.slice(mvhd.s,mvhd.e);setDur(mh,mvhd.h+(mv?24:16),mv,movDur);
+  return box('moov',mh,...trs,aud3,...mk.filter(b=>!['mvhd','trak','mvex'].includes(b.type)).map(b=>moov.slice(b.s,b.e)))};
+ const ftyp=box('ftyp',Uint8Array.from('isom',c=>c.charCodeAt(0)),u32(512),...['isom','iso2','avc1','mp41'].map(s=>Uint8Array.from(s,c=>c.charCodeAt(0))));
+ const big=total+8>0xFFFFFFFF,mh=big?cat(u32(1),Uint8Array.from('mdat',c=>c.charCodeAt(0)),u64(total+16)):cat(u32(total+8),Uint8Array.from('mdat',c=>c.charCodeAt(0)));
+ const size0=buildMoov(0).length,moov2=buildMoov(ftyp.length+size0+mh.length);
+ sink.write(new Blob([ftyp,moov2,mh]));
+ let i=0,done=0;while(i<all.length){let a=all[i],end=a.pos+a.len,j=i+1;while(j<all.length&&all[j].pos==end&&all[j].f===a.f){end+=all[j].len;j++}sink.write((a.f||file).slice(a.pos,end));done+=end-a.pos;i=j;if(progress&&i%40==0)progress(done/total)}
+ return aud?syncInfo:true}
+/* REMUX:END */
+
+
+const IOS=/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+const $=s=>document.querySelector(s),sleep=ms=>new Promise(r=>setTimeout(r,ms)),fmtT=s=>{s=Math.max(0,Math.round(s));return Math.floor(s/60)+':'+String(s%60).padStart(2,'0')};
+const DEF={shotBars:8,follow:.5,minBars:4,maxBars:32,irregular:.25,accent:true,setSize:3,styleMatch:.7,variety:.6,useAll:false,clip:false,theme:'',matchEnergy:.6,secLen:45,reuseSets:true,evolve:16,themeWeight:0,seed:'',
+ layerDensity:0,lookVar:.4,layerOpacity:.5,layerBlend:'auto',layerLen:.6,tintAmount:.12,mirror:'off',trails:0,reactive:.5,slowmo:.3,fade:8,breathe:.03,breathBars:16,zoom:0,zoomOn:'bar',shake:0,shakeOn:'kick',pulse:0,pulseOn:'kick',pulseMode:'dark',res:'1280x720',bitrate:4,fps:30,sync:0};
+const PACE={Slow:{shotBars:16,minBars:8,maxBars:32},Normal:{shotBars:8,minBars:4,maxBars:32},Fast:{shotBars:4,minBars:2,maxBars:16}},FADE={Short:2,Medium:8,Long:16};
+const MOOD={Ambient:{pace:'Slow',fade:'Long',slowmo:.5,breathe:.04,lookVar:.3,zoom:0,pulse:0,h:'Very slow and dreamy. Long shots, long fades.'},Chill:{pace:'Normal',fade:'Medium',slowmo:.3,breathe:.03,lookVar:.4,zoom:0,pulse:0,h:'Relaxed and soft. A good default.'},
+ Groove:{pace:'Fast',fade:'Short',slowmo:.1,breathe:.02,lookVar:.5,zoom:.02,pulse:0,h:'A little more movement, with a gentle zoom on the bar.'}};
+const RES={'480p':[854,480,2],'720p':[1280,720,3.5],'1080p':[1920,1080,7]},PH={Slow:'Each clip stays about 30 seconds at 120 BPM (16 bars).',Normal:'Each clip stays about 16 seconds at 120 BPM (8 bars).',Fast:'Each clip stays about 8 seconds at 120 BPM (4 bars).'};
+const ui={mood:'Chill',pace:'Normal',fade:'Medium',sets:'3',res:IOS?'480p':'720p',orient:'Landscape',slowmo:'1',breathe:'1',clip:'1',fps:'60',rec:null};
+function showUI(){document.querySelectorAll('.seg').forEach(s=>s.querySelectorAll('button').forEach(b=>b.classList.toggle('on',b.dataset.v==ui[s.dataset.k])));$('#moodH').innerHTML=MOOD[ui.mood].h;$('#paceH').textContent=PH[ui.pace]}
+document.querySelectorAll('.seg').forEach(s=>s.onclick=e=>{const b=e.target.closest('button');if(!b)return;const k=s.dataset.k,v=b.dataset.v;
+ if(k=='mood'){if(v=='Recommended'){unlockEls();recommendNow();return}ui.rec=null;ui.mood=v;const m=MOOD[v];ui.pace=m.pace;ui.fade=m.fade}
+ else{ui[k]=v;if(ui.mood=='Recommended'&&ui.rec){if(k=='pace')['shotBars','minBars','maxBars'].forEach(x=>delete ui.rec[x]);if(k=='fade')delete ui.rec.fade;if(k=='sets')delete ui.rec.setSize}}
+ showUI()});
+function opts(){const m=MOOD[ui.mood],o={...DEF,...PACE[ui.pace],fade:FADE[ui.fade],setSize:+ui.sets,slowmo:ui.slowmo=='1'?m.slowmo:0,breathe:ui.breathe=='1'?m.breathe:0,lookVar:m.lookVar,zoom:m.zoom,pulse:m.pulse},[w,h,b]=RES[ui.res];
+ if(ui.mood=='Recommended'&&ui.rec)Object.assign(o,ui.rec);
+ o.res=ui.orient=='Portrait'?`${h}x${w}`:`${w}x${h}`;o.fps=+ui.fps;o.bitrate=b*(o.fps>30?1.6:1);o.seed=$('#seed').value;o.clip=ui.clip=='1';o.theme=o.clip?$('#theme').value.trim():'';o.themeWeight=o.theme?.5:0;return o}
+
+/* ---------------- files ---------------- */
+const MAXL=24,isVid=f=>/^video\//.test(f.type)||/\.(mp4|mov|m4v|webm|mkv)$/i.test(f.name),fkey=f=>f.name+'|'+f.size+'|'+f.lastModified;
+let audio=null,lib=[],pick=[];const st=(m,e)=>{$('#st').textContent=m;$('#st').className=e?'err':'mute'};
+$('#bA').onclick=()=>$('#fA').click();$('#bV').onclick=()=>$('#fV').click();
+$('#fA').onchange=e=>{audio=e.target.files[0]||null;$('#an').textContent=audio?audio.name:'No file chosen';e.target.value='';
+ if(!audio)return;const looksAudio=/^audio\//.test(audio.type)||/\.(mp3|m4a|aac|wav|flac|ogg|opus|aif|aiff|caf|mp4)$/i.test(audio.name);
+ if(!looksAudio)st('This does not look like an audio file. The app will still try to read it.',0);else if(audio.size>40e6)st('This is a large track. Very long tracks can be too much for some phones.',0);else st('')};
+$('#fV').onchange=e=>{const have=new Set(lib.map(fkey));[...e.target.files].filter(isVid).forEach(f=>{if(!have.has(fkey(f))){have.add(fkey(f));lib.push(f)}});e.target.value='';drawPick()};
+$('#clr').onclick=()=>{lib=[];drawPick()};
+function drawPick(){pick=lib.slice().sort(()=>Math.random()-.5).slice(0,MAXL);$('#thumbs').innerHTML='';$('#clr').disabled=!lib.length;$('#vc').textContent=lib.length?`(${pick.length}${lib.length>MAXL?' of '+lib.length+', the rest are skipped':''})`:''}
+
+/* ---------------- loop analysis (light version for phones) ---------------- */
+const seek=(v,t)=>new Promise(r=>{let d=false;const f=()=>{if(d)return;d=true;v.removeEventListener('seeked',f);r(true)};v.addEventListener('seeked',f);setTimeout(()=>{if(!d){d=true;v.removeEventListener('seeked',f);r(false)}},3000);v.currentTime=Math.min(t,Math.max(0,v.duration-.05))});
+function hue(r,g,b){const mx=Math.max(r,g,b),mn=Math.min(r,g,b),d=mx-mn;if(d<.08)return -1;let h=mx==r?((g-b)/d)%6:mx==g?(b-r)/d+2:(r-g)/d+4;return((h*60+360)%360)/60|0}
+async function analyzeLoop(f,vid,wantFrame,tok){
+ const chk=()=>{if(tok&&tok.dead)throw new Error('aborted')},url=URL.createObjectURL(f);
+ vid.muted=true;vid.src=url;const first=vid.play();first&&first.catch(()=>{});   // starting playback at once makes an iPhone load the file even when it ignores preload
+ try{await Promise.race([new Promise((r,j)=>{vid.onloadedmetadata=r;vid.onerror=()=>j(new Error('unreadable'));if(vid.readyState>=1)r()}),sleep(20000).then(()=>{throw new Error('timeout')})]);chk();
+  for(let w=0;w<50&&vid.readyState<2;w++)await sleep(100);chk();vid.pause();
+  const dur=vid.duration,n=clamp(Math.round(dur/10),4,8),dtp=Math.min(.3,dur/(n*3)),c=document.createElement('canvas');c.width=64;c.height=36;const g=c.getContext('2d',{willReadFrequently:true}),mot=[],acc=new Float64Array(13);let thumb='',frame=null,miss=0;
+  for(let i=0;i<n;i++){const t=dur*(i+.5)/n;if(!await seek(vid,t))miss++;chk();g.drawImage(vid,0,0,64,36);const d=g.getImageData(0,0,64,36).data,gr=new Float32Array(2304);let R=0,G=0,B=0,sa=0,lu=0,lu2=0,ed=0;
+   for(let p=0;p<2304;p++){const r=d[p*4]/255,gg=d[p*4+1]/255,b=d[p*4+2]/255,l=.3*r+.59*gg+.11*b;gr[p]=l;R+=r;G+=gg;B+=b;lu+=l;lu2+=l*l;const mx=Math.max(r,gg,b),mn=Math.min(r,gg,b);sa+=mx?(mx-mn)/mx:0;
+    if(p%64)ed+=Math.abs(l-gr[p-1]);const h=hue(r,gg,b);if(h>=0)acc[7+h]+=mx-mn}
+   acc[0]+=R/2304/n;acc[1]+=G/2304/n;acc[2]+=B/2304/n;acc[3]+=sa/2304/n;acc[4]+=lu/2304/n;acc[5]+=Math.sqrt(Math.max(0,lu2/2304-(lu/2304)**2))/n;acc[6]+=ed/2304/n;
+   if(i==Math.floor(n/2)){thumb=c.toDataURL('image/jpeg',.6);if(wantFrame){const c2=document.createElement('canvas');c2.width=c2.height=224;const g2=c2.getContext('2d',{willReadFrequently:true});g2.drawImage(vid,0,0,224,224);frame=g2.getImageData(0,0,224,224)}}
+   if(!await seek(vid,t+dtp))miss++;chk();g.drawImage(vid,0,0,64,36);const d2=g.getImageData(0,0,64,36).data;let m=0;for(let p=0;p<2304;p++)m+=Math.abs((.3*d2[p*4]+.59*d2[p*4+1]+.11*d2[p*4+2])/255-gr[p]);mot.push(m/2304)}
+  if(miss>n)throw new Error('unreadable');const hs=acc.slice(7,13).reduce((a,b)=>a+b,0)||1,mm=mean(mot,0,mot.length),ms=Math.sqrt(mean(mot.map(x=>(x-mm)**2),0,mot.length));
+  return{file:f,name:f.name,dur,mm,v:[...acc.slice(0,7),...Array.from(acc.slice(7,13),x=>x/hs),mm,ms],thumb,frame};
+ }finally{URL.revokeObjectURL(url)}
+}
+const loopCache=new Map();
+async function loopsFor(files,msg,clip){
+ files.forEach(f=>{const c=loopCache.get(fkey(f));if(c&&c.bad)loopCache.delete(fkey(f))});
+ const need=files.filter(f=>{const c=loopCache.get(fkey(f));return !c||(clip&&!c.bad&&!c.emb&&!c.frame)});
+ if(need.length){unlockEls();const ws=(IOS?[0]:[0,1]).map(i=>({v:ELS[POOL+i]}));let next=0,done=0,ok=0,fail=0,stop=false;msg(`Looking at your loops 0/${need.length}…`);
+  await Promise.all(ws.map(async w=>{for(;;){if(stop)break;const i=next++;if(i>=need.length)break;const f=need[i],tok={dead:false};
+   try{loopCache.set(fkey(f),await Promise.race([analyzeLoop(f,w.v,clip,tok),sleep(30000).then(()=>{throw new Error('timeout')})]));ok++}
+   catch(e){tok.dead=true;loopCache.set(fkey(f),{bad:true});fail++;try{w.v.pause();w.v.removeAttribute('src');w.v.load()}catch(x){}if(fail>=3&&ok==0)stop=true}
+   msg(`Looking at your loops ${++done}/${need.length}${fail?` (${fail} skipped)`:''}…`)}}));
+  if(stop){need.forEach(f=>{const c=loopCache.get(fkey(f));if(c&&c.bad)loopCache.delete(fkey(f))});throw new Error('This phone could not open your videos for analysis. Turn off Low Power Mode, try fewer or shorter H.264 mp4 loops, and try again.')}}
+ const L=files.map(f=>loopCache.get(fkey(f))).filter(c=>c&&!c.bad),bad=files.length-L.length;
+ if(!L.length)throw new Error('This phone could not read any of the videos. H.264 mp4 files work best. Try fewer or shorter loops.');
+ for(let i=POOL;i<ELS.length;i++){const v=ELS[i];try{v.pause();v.removeAttribute('src');v.load()}catch(e){}}   // the two analysis players must not keep a video decoder alive while the video is made
+ L.forEach(l=>{l.theme=null});return{L,bad};
+}
+
+/* ---------------- optional CLIP, run in a separate worker that is closed afterwards so its memory is given back ---------------- */
+const CLIP_SRC=`import * as T from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.2';
+const id='Xenova/clip-vit-base-patch32',norm=a=>{const n=Math.hypot(...a)||1;return Array.from(a,x=>x/n)};let vis=null;
+const load=async(M,gpu)=>{if(gpu){try{return await M.from_pretrained(id,{device:'webgpu'})}catch(e){}}return await M.from_pretrained(id,{})};
+onmessage=async e=>{const d=e.data;try{
+ if(d.cmd=='images'){postMessage({t:'status',m:'Loading the AI model (the first time it is about 90 MB)…'});const proc=await T.AutoProcessor.from_pretrained(id);vis=await load(T.CLIPVisionModelWithProjection,d.gpu);const out=[];
+  for(let i=0;i<d.frames.length;i++){const f=d.frames[i],im=new T.RawImage(new Uint8ClampedArray(f.data),f.width,f.height,4).rgb(),{image_embeds}=await vis(await proc(im));out.push(norm(image_embeds.data));postMessage({t:'prog',i:i+1,n:d.frames.length})}
+  postMessage({t:'done',out})}
+ else if(d.cmd=='text'){try{vis&&await vis.dispose()}catch(x){}vis=null;postMessage({t:'status',m:'Loading the AI text model…'});const tok=await T.AutoTokenizer.from_pretrained(id),tm=await load(T.CLIPTextModelWithProjection,d.gpu),{text_embeds}=await tm(tok([d.text],{padding:true,truncation:true}));postMessage({t:'done',out:norm(text_embeds.data)})}
+}catch(err){postMessage({t:'err',m:String(err&&err.message||err)})}};`;
+async function clipEmbed(L,o,msg){
+ const w=new Worker(URL.createObjectURL(new Blob([CLIP_SRC],{type:'text/javascript'})),{type:'module'});
+ const call=(payload,transfer,onProg)=>new Promise((res,rej)=>{w.onmessage=e=>{const d=e.data;if(d.t=='status')msg(d.m);else if(d.t=='prog')onProg&&onProg(d);else if(d.t=='err')rej(new Error(d.m));else res(d)};
+  w.onerror=e=>rej(new Error(e.message||'The AI worker could not start'));w.postMessage(payload,transfer||[])});
+ try{const todo=L.filter(l=>!l.emb);
+  if(todo.length){const frames=todo.map(l=>({data:l.frame.data.buffer.slice(0),width:l.frame.width,height:l.frame.height})),r=await call({cmd:'images',frames,gpu:!IOS},frames.map(f=>f.data),d=>msg(`The AI is looking at loop ${d.i}/${d.n}…`));
+   if(!r.out||r.out.length!=todo.length)throw new Error('The AI returned no result');todo.forEach((l,i)=>{l.emb=r.out[i];l.frame=null})}
+  if(o.theme){const r=await call({cmd:'text',text:o.theme,gpu:!IOS});L.forEach(l=>l.theme=l.emb.reduce((s,x,i)=>s+x*r.out[i],0))}
+ }finally{w.terminate()}
+}
+
+/* ---------------- recording helpers ---------------- */
+const MIMES=['video/mp4;codecs=avc1.640028,mp4a.40.2','video/mp4;codecs=avc1,mp4a.40.2','video/mp4;codecs=avc1','video/mp4','video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm'];
+const MIME=window.MediaRecorder?MIMES.find(t=>MediaRecorder.isTypeSupported(t))||'':'',EXT=MIME.includes('mp4')?'mp4':'webm';
+$('#fmt').innerHTML=!MIME?'<span class="note">This browser cannot record video. Try Chrome (Android) or Safari (iPhone).</span>':EXT=='mp4'?'':'<span class="note">This phone can only save WebM. Many apps cannot open it, but it plays in a browser and can be converted with ffmpeg.</span>';
+/* Recording storage for browsers without createWritable (iPhone/iPad): a worker writes straight into a real file in the browser's private file system, which is really deleted again (IndexedDB is not). */
+async function openWorkerSink(name){
+ try{if(!navigator.storage||!navigator.storage.getDirectory||typeof Worker==='undefined')return null;
+  const root=await navigator.storage.getDirectory(),src=`let acc=null,pos=0;onmessage=async e=>{const d=e.data;try{
+   if(d.cmd=='open'){const root=await navigator.storage.getDirectory(),fh=await root.getFileHandle(d.name,{create:true});acc=await fh.createSyncAccessHandle();acc.truncate(0);pos=0}
+   else if(d.cmd=='write'){pos+=acc.write(new Uint8Array(d.buf),{at:pos})}
+   else if(d.cmd=='close'){if(acc){acc.flush();acc.close();acc=null}}
+   postMessage({id:d.id})}catch(err){postMessage({id:d.id,err:String(err&&err.message||err)})}}`,
+   w=new Worker(URL.createObjectURL(new Blob([src],{type:'text/javascript'})));let n=0;const pend={};
+  w.onmessage=e=>{const r=pend[e.data.id];delete pend[e.data.id];r&&(e.data.err?r[1](new Error(e.data.err)):r[0]())};
+  const call=(m,t)=>new Promise((res,rej)=>{const id=++n;pend[id]=[res,rej];w.postMessage({...m,id},t||[])});
+  await call({cmd:'open',name});let p=Promise.resolve(),closed=false;
+  const shut=async()=>{if(closed)return;closed=true;try{await call({cmd:'close'})}catch(e){}w.terminate()};
+  return{write(b){p=p.then(async()=>{const buf=await b.arrayBuffer();await call({cmd:'write',buf},[buf])})},
+   async close(){await p;await shut();return (await root.getFileHandle(name)).getFile()},
+   async remove(){try{await p}catch(e){}await shut();for(const x of [name,name+'.crswap'])try{await root.removeEntry(x)}catch(e){}}}
+ }catch(e){return null}}
+async function openSink(name){let w=null,root=null,fh=null;try{root=await navigator.storage.getDirectory();fh=await root.getFileHandle(name,{create:true});w=await fh.createWritable()}catch(e){w=null}
+ if(w){let p=Promise.resolve();return{write(b){p=p.then(()=>w.write(b))},async close(){await p;await w.close();return fh.getFile()},async remove(){try{await w.abort()}catch(e){}for(const n of [name,name+'.crswap'])try{await root.removeEntry(n)}catch(e){}}}}
+ {const ws=await openWorkerSink(name);if(ws)return ws}
+ // no private file system (iPhone): keep the recording in IndexedDB, which is stored on disk and not in memory
+ if(typeof indexedDB!=='undefined'){try{
+  const dbName='munken-rec-'+name.replace(/[^\w-]/g,'_'),db=await new Promise((res,rej)=>{const r=indexedDB.open(dbName,1);r.onupgradeneeded=()=>r.result.createObjectStore('c');r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)});
+  const put=(k,v)=>new Promise((res,rej)=>{const tx=db.transaction('c','readwrite');tx.objectStore('c').put(v,k);tx.oncomplete=res;tx.onerror=()=>rej(tx.error);tx.onabort=()=>rej(tx.error)}),range=IDBKeyRange.bound(name+':',name+':\uffff');
+  await put(name+'_test',new Blob(['x']));await new Promise(res=>{const tx=db.transaction('c','readwrite');tx.objectStore('c').delete(name+'_test');tx.oncomplete=res;tx.onerror=res});
+  let n=0,p=Promise.resolve();
+  return{write(b){const k=`${name}:${String(n++).padStart(8,'0')}`;p=p.then(()=>put(k,b))},
+   async close(){await p;const parts=await new Promise((res,rej)=>{const r=db.transaction('c').objectStore('c').getAll(range);r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)});return new Blob(parts,{type:MIME})},
+   async remove(){try{await p}catch(e){}try{db.close()}catch(e){}await new Promise(res=>{const q=indexedDB.deleteDatabase(dbName);q.onsuccess=q.onerror=q.onblocked=res})}}}catch(e){}}
+ const mem=[];let p=Promise.resolve();
+ return{write(b){p=p.then(()=>void mem.push(b))},async close(){await p;return new Blob(mem,{type:MIME})},async remove(){}}}
+const tickW=new Worker(URL.createObjectURL(new Blob(['let id;onmessage=e=>{clearInterval(id);if(e.data)id=setInterval(()=>postMessage(0),1000/e.data)}'])));
+const NOSLEEP='data:video/mp4;base64,AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAAM3bW9vdgAAAGxtdmhkAAAAAAAAAAAAAAAAAAAD6AAAA+gAAQAAAQAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAmF0cmFrAAAAXHRraGQAAAADAAAAAAAAAAAAAAABAAAAAAAAA+gAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAABAAAAAABAAAAAQAAAAAAAkZWR0cwAAABxlbHN0AAAAAAAAAAEAAAPoAAAAAAABAAAAAAHZbWRpYQAAACBtZGhkAAAAAAAAAAAAAAAAAAAoAAAAKABVxAAAAAAALWhkbHIAAAAAAAAAAHZpZGUAAAAAAAAAAAAAAABWaWRlb0hhbmRsZXIAAAABhG1pbmYAAAAUdm1oZAAAAAEAAAAAAAAAAAAAACRkaW5mAAAAHGRyZWYAAAAAAAAAAQAAAAx1cmwgAAAAAQAAAURzdGJsAAAAuHN0c2QAAAAAAAAAAQAAAKhhdmMxAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAABAAEABIAAAASAAAAAAAAAABFUxhdmM2MC4zMS4xMDIgbGlieDI2NAAAAAAAAAAAAAAAGP//AAAALmF2Y0MBQsAK/+EAFmdCwArZHsBEAAADAAQAAAMAKDxImSABAAVoy4PLIAAAABBwYXNwAAAAAQAAAAEAAAAUYnRydAAAAAAAABVIAAAVSAAAABhzdHRzAAAAAAAAAAEAAAAFAAAIAAAAABRzdHNzAAAAAAAAAAEAAAABAAAAHHN0c2MAAAAAAAAAAQAAAAEAAAAFAAAAAQAAAChzdHN6AAAAAAAAAAAAAAAFAAACgwAAAAoAAAAKAAAACQAAAAkAAAAUc3RjbwAAAAAAAAABAAADZwAAAGJ1ZHRhAAAAWm1ldGEAAAAAAAAAIWhkbHIAAAAAAAAAAG1kaXJhcHBsAAAAAAAAAAAAAAAALWlsc3QAAAAlqXRvbwAAAB1kYXRhAAAAAQAAAABMYXZmNjAuMTYuMTAwAAAACGZyZWUAAAKxbWRhdAAAAnAGBf//bNxF6b3m2Ui3lizYINkj7u94MjY0IC0gY29yZSAxNjQgcjMxMDggMzFlMTlmOSAtIEguMjY0L01QRUctNCBBVkMgY29kZWMgLSBDb3B5bGVmdCAyMDAzLTIwMjMgLSBodHRwOi8vd3d3LnZpZGVvbGFuLm9yZy94MjY0Lmh0bWwgLSBvcHRpb25zOiBjYWJhYz0wIHJlZj0zIGRlYmxvY2s9MTowOjAgYW5hbHlzZT0weDE6MHgxMTEgbWU9aGV4IHN1Ym1lPTcgcHN5PTEgcHN5X3JkPTEuMDA6MC4wMCBtaXhlZF9yZWY9MSBtZV9yYW5nZT0xNiBjaHJvbWFfbWU9MSB0cmVsbGlzPTEgOHg4ZGN0PTAgY3FtPTAgZGVhZHpvbmU9MjEsMTEgZmFzdF9wc2tpcD0xIGNocm9tYV9xcF9vZmZzZXQ9LTIgdGhyZWFkcz0xIGxvb2thaGVhZF90aHJlYWRzPTEgc2xpY2VkX3RocmVhZHM9MCBucj0wIGRlY2ltYXRlPTEgaW50ZXJsYWNlZD0wIGJsdXJheV9jb21wYXQ9MCBjb25zdHJhaW5lZF9pbnRyYT0wIGJmcmFtZXM9MCB3ZWlnaHRwPTAga2V5aW50PTI1MCBrZXlpbnRfbWluPTUgc2NlbmVjdXQ9NDAgaW50cmFfcmVmcmVzaD0wIHJjX2xvb2thaGVhZD00MCByYz1jcmYgbWJ0cmVlPTEgY3JmPTIzLjAgcWNvbXA9MC42MCBxcG1pbj0wIHFwbWF4PTY5IHFwc3RlcD00IGlwX3JhdGlvPTEuNDAgYXE9MToxLjAwAIAAAAALZYiEBHyYoAA2I4AAAAAGQZo4CPqAAAAABkGaVAI+oAAAAAVBmmAQ9QAAAAVBmoA/1A==';
+const ELS=[];   // video elements made once, "unlocked" by a tap, and in view (iPhone refuses to play hidden or never-tapped videos)
+function unlockEls(){while(ELS.length<POOL+2){const v=document.createElement('video');v.muted=true;v.defaultMuted=true;v.setAttribute('muted','');v.loop=true;v.playsInline=true;v.setAttribute('playsinline','');v.preload='auto';
+  v.style.cssText='position:fixed;left:2px;bottom:2px;width:64px;height:36px;opacity:.05;pointer-events:none;z-index:-1';document.body.append(v);ELS.push(v)}
+ for(const v of ELS)if(!v.dataset.u){v.dataset.u='1';v.src=NOSLEEP;const p=v.play();p&&p.then(()=>v.pause()).catch(()=>{})}}
+let wake=null,nsEl=null;
+const wakeOn=async()=>{try{if(navigator.wakeLock){if(!wake){wake=await navigator.wakeLock.request('screen');wake.addEventListener('release',()=>wake=null)}return}}catch(e){}
+ try{if(!nsEl){nsEl=document.createElement('video');nsEl.src=NOSLEEP;nsEl.loop=true;nsEl.muted=true;nsEl.playsInline=true;nsEl.setAttribute('playsinline','');nsEl.style.cssText='position:fixed;right:2px;bottom:2px;width:48px;height:27px;opacity:.05;pointer-events:none;z-index:-1';document.body.append(nsEl)}await nsEl.play()}catch(e){}},
+ wakeOff=()=>{try{wake&&wake.release()}catch(e){}wake=null;try{nsEl&&nsEl.pause()}catch(e){}};
+
+/* ---------------- renderer (offscreen canvas) ---------------- */
+const POOL=3,pool=[];
+function mkPool(){if(pool.length)return;unlockEls();for(let i=0;i<POOL;i++)pool.push({el:ELS[i],loop:-1,url:'',t:0,ct:0,cat:performance.now(),frozen:0})}
+const holder=l=>pool.find(p=>p.loop===l);
+function acquire(L,l,need,m){const p=pool.find(p=>p.loop===-1)||pool.filter(p=>!need.has(p.loop)).sort((a,b)=>a.t-b.t)[0];if(!p)return;
+ if(p.url)URL.revokeObjectURL(p.url);p.loop=l;p.t=m;p.ct=0;p.cat=performance.now();p.url=URL.createObjectURL(L[l].file);const el=p.el;
+ el.addEventListener('loadedmetadata',()=>{el.currentTime=Math.random()*el.duration;el.play().catch(()=>{})},{once:true});el.src=p.url;el.load()}
+const trig=(A,mode)=>mode=='kick'?A.kicks.map((t,i)=>({t,w:.5+.5*A.kstr[i]})):A.bt.slice(1,-1).map((t,i)=>({t,i:i+1})).filter(x=>mode=='beat'||((x.i-A.phase)%4+4)%4==0).map(x=>({t:x.t,w:1}));
+const env=(a,m,d)=>{let lo=0,hi=a.length-1,r=-1;while(lo<=hi){const k=(lo+hi)>>1;if(a[k].t<=m){r=k;lo=k+1}else hi=k-1}return r<0?0:a[r].w*Math.exp(-d*(m-a[r].t))};
+const ease=x=>x*x*(3-2*x),ease5=x=>x*x*x*(x*(x*6-15)+10);
+
+function renderJob(j,A,L,P){
+ return new Promise(async resolve=>{
+  const o=j.o,{slots,looks}=P,[W,H]=o.res.split('x').map(Number),cv=document.createElement('canvas');cv.width=W;cv.height=H;const g=cv.getContext('2d',{alpha:false});g.fillStyle='#000';g.fillRect(0,0,W,H);
+  const ta=slots.map(s=>s.t0-s.xf/2),T={zoom:trig(A,o.zoomOn),pulse:trig(A,o.pulseOn)},beatS=60/A.tempo;
+  mkPool();pool.forEach(p=>{p.loop=-1;p.el.pause()});
+  const findK=m=>{let lo=0,hi=slots.length-1,r=0;while(lo<=hi){const k=(lo+hi)>>1;if(ta[k]<=m){r=k;lo=k+1}else hi=k-1}return r};
+  const eAt=m=>{let lo=0,hi=A.nb-1;while(lo<hi){const k=(lo+hi+1)>>1;if(A.bt[k]<=m)lo=k;else hi=k-1}return A.energy[lo]};
+  const ensure=(m,k)=>{const need=new Set();need.add(slots[k].loop);if(k>0&&m-ta[k]<slots[k].xf+1.5)need.add(slots[k-1].loop);if(k+1<slots.length&&ta[k+1]<m+8)need.add(slots[k+1].loop);   // only the clips that are on screen or about to be, so the phone decodes as few videos as possible
+  need.forEach(l=>{const h=holder(l);if(h)h.t=m;else acquire(L,l,need,m)});
+   for(const p of pool)if(p.loop>=0&&!need.has(p.loop)&&m-p.t>3){p.el.pause();p.el.removeAttribute('src');p.el.load();if(p.url)URL.revokeObjectURL(p.url);p.url='';p.loop=-1}};
+  const visible=(m,k)=>{const v=new Set([slots[k].loop]);if(k>0&&m-ta[k]<slots[k].xf)v.add(slots[k-1].loop);if(k+1<slots.length&&ta[k+1]-m<2.5)v.add(slots[k+1].loop);return v};
+  j.msg='Loading the first clips…';upd(j);
+  for(let i=0;i<100;i++){ensure(0,0);const h=holder(slots[0].loop);if(h&&h.el.readyState>=2)break;await sleep(100)}
+  const dest=AC.createMediaStreamDestination(),src=AC.createBufferSource();src.buffer=A.buf;src.connect(dest);
+  const sink=await openSink(`${j.id}-${Date.now()}.${EXT}`);j.sink=sink;
+  let useMp3=false;if(EXT=='mp4'&&(j.audio.type=='audio/mpeg'||/\.mp3$/i.test(j.audio.name)))try{await mp3Info(j.audio);useMp3=true}catch(e){}
+  let lastM=0;
+  const rec=new MediaRecorder(new MediaStream([...cv.captureStream(o.fps).getVideoTracks(),...dest.stream.getAudioTracks()]),{mimeType:MIME,videoBitsPerSecond:o.bitrate*1e6,audioBitsPerSecond:useMp3?64000:160000});
+  rec.ondataavailable=e=>{if(e.data.size)sink.write(e.data)};
+  let ended=false,blocked=0;const finish=async why=>{if(ended)return;ended=true;tickW.postMessage(0);wakeOff();try{localStorage.removeItem('mm_busy');localStorage.removeItem('mm_beat');localStorage.removeItem('mm_pos');localStorage.removeItem('mm_lead')}catch(e){}try{src.stop()}catch(e){}pool.forEach(p=>p.el.pause());
+   await new Promise(r=>{rec.onstop=r;if(rec.state!='inactive')rec.stop();else r()});let f=await sink.close();
+   if(EXT=='mp4'){j.status='finalizing';j.msg='Fixing duration and seeking…';upd(j);
+    try{const s2=await openSink(`${j.id}-fixed-${Date.now()}.mp4`);const ok=await fixMp4(f,s2,p=>{j.msg=`Fixing duration and seeking… ${Math.round(p*100)} %`;upd(j)},useMp3?{mp3:j.audio,lead:tS-tRec,expected:why=='done'?A.dur:lastM}:null);
+     if(!useMp3&&A.small)j.note='The original MP3 could not be attached, so the sound is a lower-quality recording.';
+     if(ok&&useMp3)j.note='The original MP3 is attached as the sound (not re-encoded), lined up with the picture.';
+     if(ok){const f2=await s2.close();await sink.remove();j.sink=s2;f=f2}else await s2.remove()}catch(e){j.note='Could not fix the MP4 index. The original file is kept.'}}
+   j.file=f instanceof File?f:new File([f],'mix.'+EXT,{type:MIME.split(';')[0]});j.url=URL.createObjectURL(j.file);j.status=why;j.prog=why=='done'?1:j.prog;j.msg='';upd(j);if(AC.state=='suspended')AC.resume();resolve()};
+  j.ctl={pause:async()=>{if(j.status!='rendering')return;j.status='paused';await AC.suspend();rec.state=='recording'&&rec.pause();pool.forEach(p=>p.el.pause());upd(j)},
+   resume:async()=>{if(j.status!='paused')return;j.status='rendering';j.msg='';j.note='';blocked=0;rec.state=='paused'&&rec.resume();await AC.resume();wakeOn();upd(j)},stop:()=>{if(j.status=='paused')AC.resume();finish('stopped')}};
+  const tS=AC.currentTime+.3,tRec=AC.currentTime;src.start(tS);rec.start(1000);wakeOn();try{localStorage.setItem('mm_busy','1');localStorage.setItem('mm_lead',String(tS-tRec))}catch(e){}j.status='rendering';j.msg='';upd(j);let lastUI=0,lastRate=0;
+  tickW.onmessage=()=>{if(ended||j.status!='rendering')return;const m=AC.currentTime-tS;if(m<0)return;lastM=m;if(m>=A.dur){finish('done');return}
+   const k=findK(m);ensure(m,k);const s=slots[k],since=m-ta[k],bo=s.kind=='drop'?1.6:1,e=eAt(m),react=1-o.reactive+o.reactive*Math.min(1.4,e*1.6),look=looks[s.cluster],pl=k>0?looks[slots[k-1].cluster]:look,fx=s.xf>0&&since<s.xf?ease5(since/s.xf):1;
+   const vis=visible(m,k),nowT=performance.now();for(const p of pool)if(p.loop>=0){const want=vis.has(p.loop);
+    if(want&&p.el.paused&&p.el.readyState>=2){const pr=p.el.play();pr&&pr.catch(err=>{if(err&&err.name=='NotAllowedError')blocked++})}else if(!want&&!p.el.paused)p.el.pause();
+    if(want&&!p.el.paused&&p.el.readyState>=2){if(Math.abs(p.el.currentTime-p.ct)>.001){p.ct=p.el.currentTime;p.cat=nowT}
+     else if(nowT-p.cat>3000){p.cat=nowT;if(++p.frozen>3)blocked+=5;else{p.el.pause();p.el.removeAttribute('src');p.el.load();if(p.url)URL.revokeObjectURL(p.url);p.url='';p.loop=-1}}}}   // a frozen picture: load that loop again
+   if(blocked>=5){blocked=0;j.note='The phone is not letting the videos play. Turn off Low Power Mode, then tap Resume.';j.ctl.pause();return}
+   if(m-lastRate>.5){lastRate=m;const rate=clamp(1-o.slowmo*.5*(1-e),.5,1);for(const p of pool)if(p.loop>=0&&vis.has(p.loop)&&Math.abs(p.el.playbackRate-rate)>.02)p.el.playbackRate=rate}
+   const z=1+o.breathe*react*(.5-.5*Math.cos(2*Math.PI*m/(o.breathBars*4*beatS)))+o.zoom*bo*env(T.zoom,m,7);
+   const dv=(el,al)=>{if(!el||el.readyState<2||!el.videoWidth||al<=.003)return;g.globalAlpha=al;g.save();g.translate(W/2,H/2);g.scale(z,z);const sc=Math.max(W/el.videoWidth,H/el.videoHeight);
+    g.drawImage(el,-el.videoWidth*sc/2,-el.videoHeight*sc/2,el.videoWidth*sc,el.videoHeight*sc);g.restore();g.globalAlpha=1};
+   g.fillStyle='#000';g.fillRect(0,0,W,H);
+   if(k>0&&fx<1){dv(holder(slots[k-1].loop)?.el,1);dv(holder(s.loop)?.el,fx)}else dv(holder(s.loop)?.el,1);
+   for(const[lk,w]of[[pl,1-fx],[look,fx]])if(lk.tint>0&&w>.01){g.globalCompositeOperation='soft-light';g.fillStyle=`hsla(${lk.hue},80%,55%,${Math.min(1,lk.tint*react*w)})`;g.fillRect(0,0,W,H);g.globalCompositeOperation='source-over'}
+   const pu=o.pulse*bo*env(T.pulse,m,10);if(pu>.002){g.fillStyle=o.pulseMode=='dark'?`rgba(0,0,0,${Math.min(1,pu*2)})`:`rgba(255,255,255,${pu})`;g.fillRect(0,0,W,H)}
+   j.prog=m/A.dur;const now=performance.now();if(now-lastUI>700){lastUI=now;try{localStorage.setItem('mm_beat',String(Date.now()));localStorage.setItem('mm_pos',m.toFixed(1)+'/'+A.dur.toFixed(0))}catch(e){}j.tctx&&j.tctx.drawImage(cv,0,0,j.tctx.canvas.width,j.tctx.canvas.height);upd(j)}};
+  tickW.postMessage(o.fps);
+ });
+}
+
+/* ---------------- exports (queue) ---------------- */
+function lite(ab){const sr=ab.sampleRate;if(sr<=30000)return ab;const x=ab.getChannelData(0),n=x.length>>1,y=new Float32Array(n);for(let i=0;i<n;i++)y[i]=.5*(x[2*i]+x[2*i+1]);return{getChannelData:()=>y,sampleRate:sr/2,duration:ab.duration}}
+let jobs=[],jid=0,cur=null,running=false,AC=null,aCache={};
+const CH={waiting:'Waiting',preparing:'Preparing',rendering:'Making video',paused:'Paused',finalizing:'Finishing',done:'Done',failed:'Failed',stopped:'Stopped'};
+function card(j){const d=document.createElement('div');d.className='job';
+ d.innerHTML='<div class="jh"><b class="jn"></b><span class="chip"></span></div><div class="mute small jm"></div><canvas class="jt" width="240" height="135"></canvas><div class="prog"><i></i></div><div class="mute small jp"></div><div class="acts"></div><div class="small jf note"></div>';
+ j.tctx=d.querySelector('.jt').getContext('2d');j.el=d;d.onclick=async e=>{const b=e.target.closest('[data-a]');if(!b)return;const a=b.dataset.a;
+  if(a=='pause'){if(j.status=='paused'){ELS.forEach(v=>{try{const q=v.play();q&&q.catch(()=>{})}catch(x){}});j.ctl.resume()}else j.ctl.pause()}
+  if(a=='stop'){if(j.ctl&&(j.status=='rendering'||j.status=='paused'))j.ctl.stop();else if(j.status=='waiting'){j.status='stopped';upd(j)}else if(j.status=='preparing')j.cancel=true}
+  if(a=='vimeo')vimeoUp(j);if(a=='rm')rmJob(j);if(a=='again')addJob(j.audio,j.files,{...j.o,seed:Math.floor(Math.random()*1e9)},j.name);
+  if(a=='share'){try{await navigator.share({files:[j.file],title:j.name})}catch(e){}}};return d}
+function upd(j){try{window.__spkq&&window.__spkq(j)}catch(e){}const d=j.el;if(!d)return;const q=s=>d.querySelector(s);q('.jn').textContent=j.name;const ch=q('.chip');ch.textContent=CH[j.status];ch.className='chip '+j.status;
+ q('.jm').textContent=`${j.o.res} · ${j.o.shotBars}-bar clips · seed ${j.o.seed}`+(j.info?' · '+j.info:'');q('.prog i').style.width=Math.round(100*j.prog)+'%';
+ const dur=j.dur||0,live=j.status=='rendering'||j.status=='paused';q('.jp').textContent=j.msg||(dur?`${fmtT(j.prog*dur)} / ${fmtT(dur)}${live?` · about ${fmtT(dur*(1-j.prog))} left`:''}`:'');
+ q('.jt').style.display=live?'':'none';q('.prog').style.display=['done','failed','stopped'].includes(j.status)?'none':'';
+ const b=(a,t,c)=>`<button data-a="${a}" class="${c||''}">${t}</button>`;let h='';
+ if(live)h=b('pause',j.status=='paused'?'Resume':'Pause')+b('stop','Stop');else if(j.status=='waiting'||j.status=='preparing')h=b('stop','Cancel');
+ else if(j.status!='finalizing'){if(j.url)h+=`<a class="btn main" href="${j.url}" download="${j.name.replace(/[^\w\-. ]+/g,'_')}.${EXT}">Download${j.file?' ('+(j.file.size/1e6).toFixed(0)+' MB)':''}</a>`;if(j.vlink)h+=`<a class="btn" href="${j.vlink}" target="_blank" rel="noopener">Open on Vimeo</a>`;else if(j.url&&j.file)h+=j.vim&&j.vim.busy?'<button disabled>Uploading to Vimeo…</button>':b('vimeo','Upload to Vimeo');
+  if(j.url&&navigator.canShare&&navigator.canShare({files:[j.file]}))h+=b('share','Share / save');h+=b('again','Make another')+b('rm','Remove')}
+ if(d.querySelector('.acts').dataset.h!=h){q('.acts').innerHTML=h;q('.acts').dataset.h=h}q('.jf').textContent=j.status=='failed'?j.err:(j.note||'')}
+function order(){const q=$('#queue');q.innerHTML='';if(!jobs.length){q.innerHTML='<p class="mute small" style="margin:6px 0">Nothing yet. Press "Make video" below.</p>';return}jobs.slice().reverse().forEach(j=>{if(!j.el)card(j);q.append(j.el);upd(j)})}
+function addJob(a,files,o,name){const j={id:++jid,name,audio:a,files:files.slice(),o,status:'waiting',prog:0,msg:'',dur:0};jobs.push(j);order();runQueue()}
+function rmJob(j){if(['rendering','paused','preparing','finalizing'].includes(j.status))return;if(j.url)URL.revokeObjectURL(j.url);j.sink&&j.sink.remove();jobs=jobs.filter(x=>x!==j);j.el&&j.el.remove();order()}
+$('#add').onclick=async()=>{unlockEls();if(!audio)return st('Choose a music track first.',1);if(!pick.length)return st('Choose some video loops first.',1);if(!MIME)return st('This browser cannot record video.',1);
+ AC??=new AudioContext();await AC.resume();const o=opts();o.seed=o.seed!==''?+o.seed:Math.floor(Math.random()*1e9);st('');addJob(audio,pick,o,audio.name.replace(/\.[^.]+$/,''))};
+async function runQueue(){if(running)return;running=true;
+ for(;;){const j=jobs.find(x=>x.status=='waiting');if(!j)break;cur=j;
+  try{await doJob(j)}catch(e){if(e.message=='Cancelled')j.status='stopped';else if(j.status!='stopped'){j.status='failed';j.err=e.message||String(e)}}j.msg='';upd(j);cur=null}
+ running=false}
+async function getAudio(file,secLen,msg){const ak=fkey(file)+'|'+secLen;if(aCache.key!=ak){const fk=fkey(file);let buf=aCache.fk==fk?aCache.buf:null;
+ if(!buf){msg('Reading the music…');try{buf=await AC.decodeAudioData(await file.arrayBuffer())}catch(e){throw new Error('This phone could not read the audio file. MP3, M4A and WAV usually work.')}}
+ // For an MP3 the finished MP4 gets the original file as its sound, so the app only needs a small mono copy (about 1/8 of the memory) for timing and as a fallback.
+ const small=EXT=='mp4'&&(file.type=='audio/mpeg'||/\.mp3$/i.test(file.name)),l=lite(buf),A0=await analyzeAudio(l,secLen,msg);let keep=buf;
+ if(small&&buf.numberOfChannels&&buf.length>l.getChannelData(0).length){const y=l.getChannelData(0);keep=AC.createBuffer(1,y.length,l.sampleRate);keep.copyToChannel(y,0)}
+ A0.buf=keep;A0.small=keep!==buf;aCache={key:ak,fk,buf:keep,A:A0}}return aCache.A}
+
+/* ---------------- Recommended mood: settings chosen from the music and the loops ---------------- */
+function recommendM(A,L,S){
+ const nearest=(v,o)=>o.reduce((a,b)=>Math.abs(b-v)<Math.abs(a-v)?b:a),r20=x=>Math.round(x*20)/20;
+ const bpm=A.tempo,e=A.energy,mE=mean(e,0,e.length),dyn=Math.sqrt(mean(e.map(x=>(x-mE)**2),0,e.length)),kd=A.kicks.length/A.dur,
+  iv=A.bt.slice(1).map((t,i)=>t-A.bt[i]).filter(x=>x>.05),mi=mean(iv,0,iv.length)||.5,cv=Math.sqrt(mean(iv.map(x=>(x-mi)**2),0,iv.length))/mi,
+  mm=mean(L.map(l=>l.mm),0,L.length),motion=clamp((Math.log10(Math.max(mm,1e-4))+2.3)/1.3,0,1);
+ let sim=0,c=0;for(let i=0;i<L.length;i++)for(let j=i+1;j<L.length;j++){sim+=S[i][j];c++}sim=c?sim/c:.5;
+ const F=A.feel||{loud:-20,dyn:12,bright:1500,onsets:4},drive=.12*clamp((bpm-60)/100,0,1)+.45*clamp(F.flux/8,0,1)+.23*clamp((F.loud+32)/18,0,1)+.15*clamp((F.bright-300)/2500,0,1)+.05*clamp(kd/3,0,1),cls=drive<.28?'Ambient':drive<.5?'Chill':drive<.75?'Groove':'Energetic',
+  X={Ambient:{slowmo:.5,breathe:.04,lookVar:.3,zoom:0,pulse:0},Chill:{slowmo:.3,breathe:.03,lookVar:.4,zoom:0,pulse:0},Groove:{slowmo:.1,breathe:.02,lookVar:.5,zoom:.02,pulse:0},Energetic:{slowmo:0,breathe:0,lookVar:.7,zoom:.05,pulse:.1}}[cls],
+  beatS=60/bpm,barS=4*beatS,target={Ambient:28,Chill:16,Groove:13,Energetic:6}[cls]*(.92+.16*motion),sb=[1,2,4,8,16,32][clamp(Math.round(Math.log2(target/barS)),1,5)],
+  fadeF={Ambient:.4,Chill:.25,Groove:.15,Energetic:.08}[cls],fade=clamp(Math.round(sb*4*fadeF*2)/2,.5,16),setSize=L.length<6?2:3;
+ const rec={shotBars:sb,minBars:nearest(sb/2,[2,4,8]),maxBars:Math.max(sb,nearest(sb*4,[8,16,32])),follow:clamp(r20(.3+dyn*2.5),.3,1.2),fade,setSize,styleMatch:sim>.55?.6:sim<.35?.85:.7,variety:.5,matchEnergy:.6,
+  zoomOn:cls=='Energetic'?'beat':'bar',pulseOn:'kick',pulseMode:'dark'};
+ const why=[`Tempo ${bpm.toFixed(0)} BPM, ${cv<.03?'steady':cv<.07?'fairly steady':'varying'} beat. ${mE<.4?'Low':mE<.65?'Medium':'High'} energy, ${A.drops.length} drop${A.drops.length==1?'':'s'}, so it feels ${cls}.`,
+  `Your loops are ${motion<.33?'calm':motion<.66?'moderately active':'very active'} and ${sim>.55?'quite alike':sim<.35?'quite different':'fairly varied'}.`,
+  `Clips last about ${Math.round(sb*barS)} s (${sb} bars), crossfade ${fade} beats (about ${(fade*beatS).toFixed(1)} s), ${setSize} loops per section.`];
+ return{rec,x:X,cls,drive,why,pace:sb>=16?'Slow':sb>=8?'Normal':'Fast',fadeSeg:fade<=3?'Short':fade<=10?'Medium':'Long'};
+}
+async function recommendNow(){
+ const h=$('#moodH'),say=m=>{h.textContent=m};
+ if(!audio||!pick.length){say('Add a track and some videos first, then choose Recommended.');return}
+ $('#add').disabled=true;say('Analyzing your music and loops…');
+ try{AC??=new AudioContext();await AC.resume();const o=opts(),A=await getAudio(audio,o.secLen,say),{L}=await loopsFor(pick,say,ui.clip=='1'),S=normLoops(L,0),R=recommendM(A,L,S);
+  MOOD.Recommended={pace:R.pace,fade:R.fadeSeg,...R.x,h:'<b>Recommended</b> (it feels '+R.cls+')<br>'+R.why.join('<br>')};
+  ui.rec=R.rec;ui.mood='Recommended';ui.pace=R.pace;ui.fade=R.fadeSeg;ui.sets=String(R.rec.setSize);showUI()
+ }catch(e){say(e.message||String(e))}finally{$('#add').disabled=false}}
+
+async function doJob(j){
+ const o=j.o,msg=m=>{j.msg=m;upd(j)};j.status='preparing';msg('Preparing…');
+ const {L,bad}=await loopsFor(j.files,msg,o.clip);if(j.cancel)throw new Error('Cancelled');
+ const heavy=L.filter(l=>l.file&&l.dur>1&&l.file.size*8/l.dur>10e6);if(heavy.length)j.note=`${heavy.length} loop${heavy.length>1?'s are':' is'} very heavy for a phone (over 10 Mbit/s: ${heavy.slice(0,3).map(l=>l.name).join(', ')}${heavy.length>3?', …':''}). Heavy loops are the most likely reason for hangs and reloads. Converting them to 720p H.264 (about 3 Mbit/s) makes it much steadier.`;
+ let useClip=o.clip;
+ if(useClip){try{localStorage.setItem('mm_clip','1')}catch(e){}
+  try{await clipEmbed(L,o,msg)}catch(e){useClip=false;L.forEach(l=>{l.theme=null});j.note='AI matching could not run on this phone, so standard matching was used.'}
+  try{localStorage.removeItem('mm_clip')}catch(e){}}
+ if(j.cancel)throw new Error('Cancelled');
+ const A=await getAudio(j.audio,o.secLen,msg);j.dur=A.dur;if(j.cancel)throw new Error('Cancelled');
+ $('#thumbs').innerHTML=L.map(l=>`<img src="${l.thumb}" alt="">`).join('');
+ const S=normLoops(L,useClip&&L.every(l=>l.emb)?.7:0),P=plan(A,L,S,o,mkrng(o.seed));j.info=`${A.tempo.toFixed(0)} BPM · ${P.slots.length} clips${useClip?' · AI matching':''}${bad?' · '+bad+' unreadable':''}`;msg('');await renderJob(j,A,L,P)}
+document.addEventListener('visibilitychange',()=>{if(document.hidden&&cur&&cur.status=='rendering'){cur.note='Paused because the page was hidden. Come back and press Resume.';cur.ctl.pause()}else if(!document.hidden&&cur&&(cur.status=='rendering'||cur.status=='paused'))wakeOn()});
+addEventListener('beforeunload',e=>{if(jobs.some(j=>['preparing','rendering','paused','finalizing'].includes(j.status))){e.preventDefault();e.returnValue=''}});
+showUI();
+/* ---------------- storage: remove recordings that are no longer needed ---------------- */
+async function purgeOpfs(){try{const r=await navigator.storage.getDirectory();const names=[];for await(const [n] of r.entries())names.push(n);for(const n of names)try{await r.removeEntry(n,{recursive:true})}catch(e){}}catch(e){}}
+async function purgeIdb(){try{if(typeof indexedDB!=='undefined'){let names=['munken-rec'];try{if(indexedDB.databases)names=names.concat((await indexedDB.databases()).map(d=>d.name))}catch(e){}
+  for(const n of [...new Set(names)].filter(n=>n&&n.startsWith('munken-rec')))await new Promise(res=>{const q=indexedDB.deleteDatabase(n);q.onsuccess=q.onerror=q.onblocked=res;setTimeout(res,4000)})}}catch(e){}}
+async function purgeStore(){await purgeOpfs();await purgeIdb()}
+async function stInfo(){let t='';try{const e=await navigator.storage.estimate();t=`This page uses ${e.usage>=1e9?(e.usage/1e9).toFixed(2)+' GB':Math.round(e.usage/1e6)+' MB'} on the phone.`}catch(e){t='Your browser does not report how much storage this page uses.'}$('#stInfo').textContent=t}
+const rendering=()=>jobs.some(j=>['rendering','paused','preparing','finalizing'].includes(j.status));
+$('#storBox').addEventListener('toggle',()=>{if($('#storBox').open)stInfo()});
+$('#stClear').onclick=async()=>{if(rendering()){$('#stInfo').textContent='Wait until the video that is being made is finished, or stop it first.';return}
+ if(!confirm('Delete all videos stored by this page? Download the ones you want first.'))return;jobs.slice().forEach(rmJob);await purgeStore();await stInfo()};
+$('#stModel').onclick=async()=>{try{for(const k of await caches.keys())await caches.delete(k)}catch(e){}await stInfo();$('#stInfo').textContent+=' The AI model will be downloaded again the next time it is used (about 90 MB).'};
+(async()=>{let beat=0;try{beat=+localStorage.getItem('mm_beat')||0}catch(e){}if(Date.now()-beat>30000&&!localStorage.getItem('mm_busy')){await purgeOpfs();try{localStorage.removeItem('mm_beat')}catch(e){}setTimeout(()=>{if(!rendering())purgeIdb()},30000)}})();
+if(localStorage.getItem('mm_clip')){localStorage.removeItem('mm_clip');localStorage.removeItem('mm_busy');st('The page reloaded while the AI (CLIP) was running. The phone probably ran out of memory. Switch Smarter matching off, or try fewer loops and a smaller picture size.',1)}
+else if(localStorage.getItem('mm_busy')){const pos=(localStorage.getItem('mm_pos')||'').split('/'),at=pos[0]?` It stopped at ${fmtT(+pos[0])} of ${fmtT(+pos[1]||0)}.`:'';
+ st('The page reloaded while a video was being made. That usually means the phone ran out of memory or the screen locked. Try 480p, fewer loops or a shorter track, and keep the screen on.'+at,1);
+ (async()=>{let fh=null,best=0;try{const r=await navigator.storage.getDirectory();for await(const [n,h] of r.entries())if(/^\d+-\d+\.(mp4|webm)$/.test(n)){const f=await h.getFile();if(f.size>1e6&&f.lastModified>=best){best=f.lastModified;fh=f}}}catch(e){}
+  const clear=()=>{['mm_busy','mm_pos','mm_lead','mm_beat'].forEach(k=>{try{localStorage.removeItem(k)}catch(e){}});$('#recov').style.display='none'};
+  if(!fh){try{localStorage.removeItem('mm_busy')}catch(e){}return}
+  $('#recov').style.display='';$('#recTxt').textContent=`Part of the video was saved (${(fh.size/1e6).toFixed(0)} MB${at?', up to '+fmtT(+pos[0]):''}). You can still get it as a video file.`;
+  $('#recNo').onclick=async()=>{clear();await purgeStore();stInfo&&stInfo()};
+  $('#recGo').onclick=async()=>{const b=$('#recGo');b.disabled=true;const out=$('#recOut');
+   try{if(!/mp4$/.test(fh.name)&&fh.type!=='video/mp4'&&!fh.name.endsWith('.mp4')){out.innerHTML=`<a class="btn main" href="${URL.createObjectURL(fh)}" download="recovered.webm">Download recovered video</a>`;return}
+    const mp3=$('#recMp3').files[0];let useM=false;if(mp3)try{await mp3Info(mp3);useM=true}catch(e){}
+    const s2=await openSink(`recovered-${Date.now()}.mp4`),ok=await fixMp4(fh,s2,p=>{out.textContent=`Preparing the video… ${Math.round(p*100)} %`},useM?{mp3,lead:+localStorage.getItem('mm_lead')||.3,expected:+pos[0]||0}:null);
+    if(!ok){out.textContent='This recording could not be repaired.';await s2.remove();return}
+    const f2=await s2.close();out.innerHTML=`<a class="btn main" href="${URL.createObjectURL(f2)}" download="recovered.mp4">Download recovered video (${(f2.size/1e6).toFixed(0)} MB)</a> <span class="mute">${useM?'With the original MP3 sound.':'With the sound that was recorded (lower quality).'}</span>`
+   }catch(e){out.textContent='Could not save it: '+(e.message||e)}finally{b.disabled=false}}})()}
+</script>
+<script>
+// report the render jobs to the shared queue page (Queue), and let it stop them
+import('../shared/queue.js').then(Q=>{
+ const ST={waiting:'queued',preparing:'running',rendering:'running',paused:'running',finalizing:'running',done:'done',stopped:'cancelled',failed:'failed'};
+ window.__spkq=j=>{const st=ST[j.status]||'running',act=st=='queued'||st=='running';
+  Q.report({id:j.id,app:'magic-mobile',appLabel:'Magic Mixer (phone)',url:location.pathname,title:j.name||'Video',status:st,progress:j.prog||0,total:0,current:j.msg||(j.status=='paused'?'Paused':''),error:j.err,results:[],canCancel:act})};
+ Q.onCancel((app,id)=>{if(app!='magic-mobile')return;const j=jobs.find(x=>String(x.id)===id);if(!j)return;
+  if(j.ctl&&(j.status=='rendering'||j.status=='paused'))j.ctl.stop();else if(j.status=='waiting'||j.status=='preparing'){j.cancel=true;j.status=j.status=='waiting'?'stopped':j.status;upd(j)}});
+ jobs.forEach(window.__spkq);setInterval(()=>jobs.forEach(j=>['waiting','preparing','rendering','paused','finalizing'].includes(j.status)&&window.__spkq(j)),5000)}).catch(()=>{});
+</script>
+</body></html>

@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Spektronautilus – Output</title>
+<style>
+html,body{margin:0;height:100%;background:#000;color:#8a90b0;font:16px system-ui,sans-serif;overflow:hidden}
+video{width:100vw;height:100vh;object-fit:contain;background:#000;display:block}
+#wait{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;padding:20px;pointer-events:none}
+#hint{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#000a;color:#fff;padding:8px 16px;border-radius:999px;font-size:.95rem;transition:opacity .6s;pointer-events:none}
+body.idle{cursor:none}body.idle #hint{opacity:0}
+</style></head>
+<body>
+<video id="v" autoplay muted playsinline></video>
+<div id="wait">Waiting for the mixer…</div>
+<div id="hint">Double-click or press F for full screen · Esc to leave</div>
+<script>
+const v = document.getElementById('v'), wait = document.getElementById('wait');
+window.setStream = s => { if (v.srcObject !== s) { v.srcObject = s; v.play().catch(() => {}); } wait.style.display = s ? 'none' : 'flex'; };
+try { if (window.opener && window.opener.SPK && window.opener.SPK.stream) window.setStream(window.opener.SPK.stream); } catch (e) {}
+const fs = () => { if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen().catch(() => {}); };
+addEventListener('dblclick', fs); addEventListener('keydown', e => { if (e.key === 'f' || e.key === 'F') fs(); });
+let t; const idle = () => { document.body.classList.remove('idle'); clearTimeout(t); t = setTimeout(() => document.body.classList.add('idle'), 2500); };
+addEventListener('mousemove', idle); idle();
+</script></body></html>

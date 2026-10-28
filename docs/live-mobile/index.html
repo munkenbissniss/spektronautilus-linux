@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Live Mixer Mobile – Spektronautilus</title>
+<meta name="description" content="A simple live video mixer for your phone: two decks, crossfader, effects, text posters and a way to send the picture to another screen.">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<meta name="theme-color" content="#0b0d1e">
+<style>
+:root{--bg:#f3f4f8;--ink:#14182b;--mute:#5a607a;--line:#d5d8e6;--panel:#fff;--a:#2b3af0;--b:#ff3d81;--ok:#12906f;--bad:#d1334a;color-scheme:light}
+:root[data-theme=dark]{--bg:#0b0d1e;--ink:#eceefb;--mute:#a0a6c8;--line:#2a2e57;--panel:#151837;--a:#7f8bff;--b:#ff6fa3;--ok:#3fd6a4;--bad:#ff7088;color-scheme:dark}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;touch-action:manipulation;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
+.wrap{max-width:600px;margin:0 auto;padding:10px 12px 40px}
+a{color:inherit}h1{font-size:1.25rem;margin:0;letter-spacing:-.02em}h2{font-size:1rem;margin:0 0 6px}
+.top{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px}.top .sp{flex:1}.back{display:inline-block;padding:10px 0;font-size:.8rem;color:var(--mute);text-decoration:none}
+button{font:inherit;cursor:pointer;border:2px solid var(--ink);background:transparent;color:var(--ink);padding:8px 14px;border-radius:999px;font-weight:700;min-height:44px}
+button.main,button.on{background:var(--ink);color:var(--bg)}button.sm{min-height:36px;padding:3px 12px;font-size:.9rem}button:disabled{opacity:.4}
+button:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visible{outline:3px solid var(--b);outline-offset:2px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px;margin-bottom:10px}
+#stage{position:relative;background:#000;border-radius:12px;overflow:hidden;aspect-ratio:16/9;border:2px solid var(--line)}
+#stage canvas{width:100%;height:100%;display:block;object-fit:contain;background:#000}
+#stage:fullscreen{border:0;border-radius:0;aspect-ratio:auto;width:100vw;height:100vh}#stage:fullscreen canvas{object-fit:contain}
+#stage .fsx{display:none;position:absolute;right:10px;top:10px;background:#000a;color:#fff;border-color:#fff8}#stage:fullscreen .fsx{display:block}
+.xf input[type=range]{width:100%;height:48px;accent-color:var(--b)}.xf .ab{display:flex;justify-content:space-between;font-weight:900;font-size:1.3rem}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.row>*{flex:0 0 auto}.grow{flex:1!important}
+#mix{width:100%;font-size:1.1rem;min-height:52px}
+.decks{display:grid;grid-template-columns:1fr;gap:10px}
+.deck .th{width:96px;aspect-ratio:16/9;background:#000;border-radius:8px;overflow:hidden;flex:0 0 96px}.deck .th video{width:100%;height:100%;object-fit:cover;display:block}
+.deck .nm{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.chip{font-size:.72rem;font-weight:800;border:1px solid currentColor;border-radius:999px;padding:0 8px;color:var(--mute)}.chip.live{color:var(--ok)}
+input[type=range]{width:100%;accent-color:var(--b)}.seek{accent-color:var(--a)}
+.tm{display:flex;justify-content:space-between;color:var(--mute);font-size:.8rem;font-variant-numeric:tabular-nums}
+.bin{display:flex;flex-direction:column;gap:4px;max-height:240px;overflow:auto}.li{display:flex;gap:6px;align-items:center}.li .t{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fx{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}.fx button{padding:6px 2px;font-size:.78rem;border-radius:12px;min-height:56px;touch-action:none;user-select:none;-webkit-user-select:none}.fx button.hold{background:var(--b);border-color:var(--b);color:#fff}
+.sw{display:flex;gap:8px;flex-wrap:wrap}.sw button{width:40px;height:40px;min-height:40px;padding:0;border-radius:10px;border:3px solid var(--line);font-size:.7rem}.sw button.sel{border-color:var(--ink)}
+label.f{display:block;font-size:.85rem;color:var(--mute);margin:6px 0 2px}input[type=text],select,input[type=number]{width:100%;font:inherit;padding:9px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);min-height:44px}
+details.card>summary{cursor:pointer;font-weight:800;min-height:32px}details.card[open]>summary{margin-bottom:8px}
+.hint{color:var(--mute);font-size:.85rem}.warn{color:var(--bad)}
+textarea{width:100%;font:.75rem ui-monospace,monospace;min-height:90px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);padding:6px}
+#toast{position:fixed;left:50%;bottom:calc(14px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:999px;font-weight:600;max-width:92vw;opacity:0;transition:opacity .25s;pointer-events:none;z-index:9;text-align:center}#toast.show{opacity:1}
+</style>
+<link rel="manifest" href="../manifest.webmanifest">
+<script src="../shared/sw-register.js" defer></script>
+<script src="../shared/i18n.js"></script>
+<script src="../shared/check.js"></script>
+</head>
+<body>
+<div class="wrap" role="main">
+<div class="top"><div><a class="back" href="../">← Spektronautilus</a><h1>Live Mixer <span class="chip">phone</span></h1></div><div class="sp"></div><button id="fs" class="sm">Full screen</button><button id="theme" class="sm" aria-label="Light or dark theme">Theme</button></div>
+
+<div id="stage"><canvas id="prog" width="960" height="540"></canvas><button class="sm fsx" id="fsx">Close</button></div>
+
+<div class="card xf" style="margin-top:10px">
+  <div class="ab"><span>A</span><span>B</span></div>
+  <input type="range" id="xf" min="0" max="1000" value="0" aria-label="Crossfader">
+  <div class="row" style="margin-top:6px"><button id="mix" class="main">Mix → B</button></div>
+  <div class="row" style="margin-top:8px"><span class="hint">Fade time</span><select id="fadeSec" style="width:auto" aria-label="Fade time"><option value="2">2 s</option><option value="4" selected>4 s</option><option value="8">8 s</option><option value="16">16 s</option></select>
+    <label class="hint row" style="gap:6px"><input type="checkbox" id="audioFollow" checked style="width:22px;height:22px"> Sound follows</label></div>
+</div>
+
+<div class="decks" id="decks"></div>
+
+<div class="card"><h2>Effects <span class="hint" style="font-weight:400">(hold)</span></h2>
+  <div class="fx" id="fx"></div></div>
+
+<details class="card" open><summary>Clips</summary>
+  <div class="row"><button id="addBtn" class="main sm">Add videos…</button><input type="file" id="files" accept="video/*" multiple hidden><span class="hint">Then tap → A or → B.</span></div>
+  <div class="bin" id="bin" style="margin-top:8px"><span class="hint">No videos yet.</span></div>
+</details>
+
+<details class="card"><summary>Poster</summary>
+  <label class="f" for="pl1">Big line</label><input type="text" id="pl1" maxlength="50" placeholder="Artist or event">
+  <label class="f" for="pl2">Small line</label><input type="text" id="pl2" maxlength="70" placeholder="Message">
+  <label class="f">Colour</label><div class="sw" id="colors"></div>
+  <div class="row" style="margin-top:10px"><button id="pshow" class="main sm">Show</button><button id="phide" class="sm">Hide</button>
+    <label class="hint row" style="gap:6px"><input type="checkbox" id="autoPoster" style="width:22px;height:22px"> Show track name on mix</label></div>
+</details>
+
+<details class="card"><summary>Logo</summary>
+  <input type="file" id="logoFile" accept="image/*" aria-label="Logo image"><label class="f" for="logoSize">Size</label><input type="range" id="logoSize" min="4" max="30" value="12">
+  <div class="row" style="margin-top:6px"><label class="hint row" style="gap:6px"><input type="checkbox" id="logoOn" checked style="width:22px;height:22px"> Show (upper right)</label><button class="sm" id="logoClear">Remove</button></div>
+</details>
+
+<details class="card" id="castCard"><summary>Send to another screen</summary>
+  <p class="hint" style="margin-top:0">Show the output on a laptop, a TV browser or a projector computer on the same Wi-Fi. It needs one-time codes, because nothing goes through a server.</p>
+  <button id="castStart" class="main sm">1. Make a code</button>
+  <div id="castStep2" style="display:none">
+    <p class="hint">2. Open the link on the other screen (send it to yourself), or copy the code to <b>…/live-mobile/receiver.html</b> there.</p>
+    <div class="row"><button class="sm" id="castShare">Share link</button><button class="sm" id="castCopy">Copy link</button></div>
+    <textarea id="offerBox" readonly aria-label="Code to send"></textarea>
+    <p class="hint">3. The other screen shows an answer code. Paste it here:</p>
+    <textarea id="answerBox" aria-label="Answer code from the other screen" placeholder="Paste the answer code"></textarea>
+    <div class="row" style="margin-top:6px"><button class="sm main" id="castConnect">Connect</button><button class="sm" id="castStop">Stop</button><span class="hint" id="castState"></span></div>
+    <label class="f" for="castSound">Sound plays on</label><select id="castSound"><option value="both">Phone and other screen</option><option value="other">Other screen only</option><option value="phone">Phone only</option></select>
+  </div>
+  <p class="hint">Other ways: use your phone's own Screen Cast / AirPlay mirroring with <b>Full screen</b> on, or capture the picture on a laptop.</p>
+</details>
+
+<details class="card"><summary>Settings</summary>
+  <label class="f" for="res">Picture size (smaller = smoother)</label><select id="res"><option value="640x360">640 × 360</option><option value="960x540" selected>960 × 540</option><option value="1280x720">1280 × 720</option></select>
+  <label class="f" for="fps">Frame rate</label><select id="fps"><option value="24">24</option><option value="30" selected>30</option></select>
+  <label class="f" for="fit">Picture fit</label><select id="fit"><option value="contain">Show whole picture</option><option value="cover">Fill the screen (crops)</option></select>
+  <label class="f" style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="preload" checked style="width:22px;height:22px"> Load videos into memory (safer, uses more memory)</label>
+</details>
+<p class="hint">Keep this page open and the screen awake during a show. Works best in recent Chrome (Android) and Safari (iPhone), with videos in mp4 (H.264).</p>
+</div>
+<div id="toast" role="status" aria-live="polite"></div>
+<script type="module" src="app.js"></script>
+</body></html>

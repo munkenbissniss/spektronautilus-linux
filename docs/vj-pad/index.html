@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script>(function(){try{if(location.search.indexOf('desktop=1')>-1){localStorage.setItem('spk_desktop','1');return}
+if(!localStorage.getItem('spk_desktop')&&matchMedia('(pointer:coarse) and (max-width:900px)').matches)location.replace('../vj-mobile/')}catch(e){}})();</script>
+<title>VJ Mixer – Spektronautilus</title>
+<meta name="description" content="Play your video loops live: two channels with three layers each, crossfader, beat effects, posters, logo and MIDI.">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<style>
+:root{--bg:#f3f4f8;--ink:#14182b;--mute:#5a607a;--line:#d5d8e6;--panel:#fff;--a:#2b3af0;--b:#ff3d81;--ok:#12906f;--bad:#d1334a;color-scheme:light}
+:root[data-theme=dark]{--bg:#0b0d1e;--ink:#eceefb;--mute:#a0a6c8;--line:#2a2e57;--panel:#151837;--a:#7f8bff;--b:#ff6fa3;--ok:#3fd6a4;--bad:#ff7088;color-scheme:dark}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.wrap{max-width:1280px;margin:0 auto;padding:12px 16px 40px}
+a{color:inherit}h1{font-size:1.5rem;letter-spacing:-.03em;margin:0}h2{font-size:1rem;margin:0 0 8px}
+.top{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px}.top .sp{flex:1}
+.back{display:inline-block;padding:10px 0;font-size:.85rem;color:var(--mute);text-decoration:none}
+button,.btn{font:inherit;cursor:pointer;border:2px solid var(--ink);background:transparent;color:var(--ink);padding:5px 14px;border-radius:999px;font-weight:700}
+button.main,button.on{background:var(--ink);color:var(--bg)}button.sm{padding:1px 9px;font-size:.82rem}button:disabled{opacity:.4;cursor:default}
+button.rec.on{background:var(--bad);border-color:var(--bad);color:#fff}
+button:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visible{outline:3px solid var(--b);outline-offset:2px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:12px}
+.mons{display:grid;grid-template-columns:1fr 1.7fr 1fr;gap:10px;margin-bottom:10px}
+@media(max-width:900px){.mons{grid-template-columns:1fr 1fr}.mons .pm{grid-column:1/-1;order:-1}}
+.mon{align-self:start;position:relative;background:#000;border-radius:10px;overflow:hidden;aspect-ratio:16/9;border:2px solid var(--line)}
+.mon video,.mon canvas{width:100%;height:100%;object-fit:contain;display:block;background:#000}
+.mon .lb{position:absolute;left:8px;top:6px;font-size:.72rem;font-weight:800;letter-spacing:.06em;color:#fff;background:#000a;border-radius:999px;padding:0 9px}
+.mon.air{border-color:var(--b)}
+.xf{display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:center}
+.xf input[type=range]{width:100%;accent-color:var(--b);height:34px}
+.xf .big{font-size:1.4rem;font-weight:900;width:2ch;text-align:center}
+.xrow{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-top:8px}
+.xrow label{display:flex;gap:6px;align-items:center;font-size:.9rem}.xrow input[type=number]{width:64px;font:inherit;padding:2px 6px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink)}
+#mix{font-size:1.05rem;padding:8px 22px}
+.decks{display:grid;grid-template-columns:1fr 1fr;gap:12px}@media(max-width:800px){.decks{grid-template-columns:1fr}}
+.deck.over{outline:3px dashed var(--b)}
+.deck h2{display:flex;gap:8px;align-items:center}.deck .nm{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-height:1.4em}
+.chip{display:inline-block;font-size:.72rem;font-weight:800;padding:0 8px;border-radius:999px;border:1px solid currentColor;color:var(--mute)}.chip.live{color:var(--ok)}.chip.cue{color:var(--a)}
+.seek{width:100%;accent-color:var(--a)}.tm{display:flex;justify-content:space-between;color:var(--mute);font-size:.85rem;font-variant-numeric:tabular-nums}
+.drow{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px}.drow input[type=range]{accent-color:var(--b);flex:1;min-width:90px}
+.meter{height:8px;background:var(--line);border-radius:4px;overflow:hidden;flex:1;min-width:80px}.meter i{display:block;height:100%;width:0;background:var(--ok);transition:width .06s}
+.lib{max-height:260px;overflow:auto;display:flex;flex-direction:column;gap:2px}
+.li{display:flex;gap:6px;align-items:center;padding:3px 6px;border-radius:8px}.li:hover{background:var(--bg)}.li .t{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.li.played .t{opacity:.5}.li small{color:var(--mute)}
+.drop{border:2px dashed var(--line);border-radius:10px;padding:10px;text-align:center;color:var(--mute);margin-bottom:8px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px 20px}
+.f label{display:block;font-size:.85rem;margin-bottom:2px}.f input[type=text],.f input[type=number],.f select{width:100%;font:inherit;padding:5px 7px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink)}
+.f input[type=range]{width:100%;accent-color:var(--b)}.f .row{display:flex;gap:8px;align-items:center}
+.sw{display:flex;gap:6px;flex-wrap:wrap}.sw button{width:34px;height:34px;padding:0;border-radius:8px;border:3px solid var(--line);font-size:.7rem}.sw button.sel{border-color:var(--ink)}
+.slots{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:6px}.slots button{border-radius:8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:6px 4px;font-size:.82rem}.slots button.sel{outline:3px solid var(--b)}
+details.card>summary{cursor:pointer;font-weight:800;font-size:1rem;margin:-2px 0 4px}details.card[open]>summary{margin-bottom:10px}
+.mtbl{width:100%;border-collapse:collapse;font-size:.88rem}.mtbl td{padding:3px 4px;border-top:1px solid var(--line)}.mtbl td.k{color:var(--mute);font-family:ui-monospace,monospace}
+.hint{color:var(--mute);font-size:.85rem}.warn{color:var(--bad)}
+#toast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:8px 16px;border-radius:999px;font-weight:600;max-width:90vw;opacity:0;transition:opacity .25s;pointer-events:none;z-index:9}#toast.show{opacity:1}
+kbd{border:1px solid var(--line);border-radius:5px;padding:0 5px;font:inherit;font-size:.8rem;background:var(--panel)}
+
+.mons{grid-template-columns:1fr 1.7fr 1fr}
+.mon canvas{width:100%;height:100%;object-fit:contain}
+.beat{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.beat input[type=number]{width:84px;font:inherit;padding:3px 6px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);font-size:1.2rem;font-weight:800}
+.dots{display:flex;gap:6px}.dots i{width:16px;height:16px;border-radius:50%;background:var(--line);display:block}.dots i.on{background:var(--b)}.dots i.one.on{background:var(--ok)}
+.fx{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:8px;margin-top:8px}.fx button{border-radius:10px;padding:8px 6px;display:flex;flex-direction:column;align-items:center;gap:0;line-height:1.15}.fx button small{font-weight:600;opacity:.7}
+.chans{display:grid;grid-template-columns:1fr 1fr;gap:12px}@media(max-width:800px){.chans{grid-template-columns:1fr}}
+.lay{display:grid;grid-template-columns:auto 56px 1fr auto;gap:6px 8px;align-items:center;padding:6px;border:2px solid var(--line);border-radius:10px;margin-bottom:6px;background:var(--bg)}
+.lay.sel{border-color:var(--b)}.lay .th{width:56px;height:32px;background:#000;border-radius:5px;overflow:hidden}.lay .th canvas{width:100%;height:100%;display:block}
+.lay .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.85rem}.lay .lb{font-weight:900;cursor:pointer;border:0;background:none;padding:2px 4px;color:var(--ink);font-size:1rem}
+.lay .row2{grid-column:1/-1;display:flex;gap:8px;align-items:center;flex-wrap:wrap}.lay input[type=range]{accent-color:var(--b);flex:1;min-width:80px}.lay select{font:inherit;font-size:.82rem;padding:1px 4px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--ink)}
+.pads{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}@media(max-width:700px){.pads{grid-template-columns:repeat(4,1fr)}}
+.pad{position:relative;aspect-ratio:16/9;border:2px dashed var(--line);border-radius:10px;overflow:hidden;background:var(--bg);cursor:pointer;padding:0;display:block;color:var(--mute)}
+.pad.has{border:2px solid var(--line);background:#000}.pad.live{border-color:var(--b)}.pad canvas{width:100%;height:100%;display:block}
+.pad .k{position:absolute;left:4px;top:3px;font-size:.7rem;font-weight:800;background:#000b;color:#fff;border-radius:5px;padding:0 5px}.pad .pn{position:absolute;left:0;right:0;bottom:0;font-size:.68rem;background:#000b;color:#fff;padding:0 4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pad .x{position:absolute;right:3px;top:3px;width:20px;height:20px;border-radius:50%;background:#000b;color:#fff;border:0;font-size:.7rem;padding:0;cursor:pointer;line-height:20px}
+.pad .plus{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:1.6rem}
+.mscroll{max-height:320px;overflow:auto}</style>
+<link rel="manifest" href="../manifest.webmanifest">
+<script src="../shared/sw-register.js" defer></script>
+<script src="../shared/i18n.js"></script>
+<script src="../shared/check.js"></script>
+</head>
+<body>
+<div class="wrap" role="main">
+<div class="top">
+  <div><a class="back" href="../">← Spektronautilus</a><h1>VJ Mixer</h1></div>
+  <div class="sp"></div>
+  <span id="outstate" class="hint"></span>
+  <button id="openOut" class="main" title="Opens the clean output for your projector. Drag it to the projector screen and press F.">Open output window</button>
+  <button id="theme" class="sm" aria-label="Switch light or dark theme">Theme</button>
+</div>
+
+<div class="mons">
+  <div class="mon" id="monA"><span class="lb">CHANNEL A · PREVIEW</span><canvas id="cvA"></canvas></div>
+  <div class="mon pm" id="monP"><span class="lb">OUTPUT</span><canvas id="prog"></canvas></div>
+  <div class="mon" id="monB"><span class="lb">CHANNEL B · PREVIEW</span><canvas id="cvB"></canvas></div>
+</div>
+
+<div class="card">
+  <div class="xf"><span class="big">A</span><input type="range" id="xf" min="0" max="1000" value="0" aria-label="Crossfader"><span class="big">B</span></div>
+  <div class="xrow">
+    <button id="mix" class="main">Mix → B</button>
+    <label>Fade time <input type="number" id="fadeSec" min="0.5" max="60" step="0.5" value="4"> s</label>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Beat</h2>
+  <div class="beat">
+    <input type="number" id="bpm" min="40" max="220" step="0.1" value="120" aria-label="Beats per minute"><span class="hint">BPM</span>
+    <button id="tap" class="main">Tap</button><button id="half" class="sm">÷2</button><button id="dbl" class="sm">×2</button><button id="beat1" class="sm" title="Make this moment beat 1">Beat 1 now</button>
+    <div class="dots" id="dots"><i class="one"></i><i></i><i></i><i></i></div>
+    <label class="hint">Beat from <select id="bsrc"><option value="clock">Tap / BPM</option><option value="audio">Audio input (kick drum)</option></select></label>
+    <label class="hint" id="sensL" style="display:none">Sensitivity <input type="range" id="sens" min="0" max="100" value="50" style="width:90px"></label>
+    <span class="hint" id="bnote"></span>
+  </div>
+  <div class="drow"><label class="hint">Effect amount <input type="range" id="fxAmt" min="0" max="100" value="60" style="width:150px"></label>
+    <label class="hint">Pulse every <select id="every"><option value="1">1 beat</option><option value="2">2 beats</option><option value="4">4 beats</option></select></label></div>
+  <div class="fx" id="fx"></div>
+  <p class="hint" style="margin:6px 0 0">Careful with Flash, Strobe and Invert at a fast tempo: flashing light can trigger seizures in some people. Keep it slow at public events.</p>
+</div>
+
+<div class="chans" id="chans"></div>
+
+<details class="card" open><summary>Loops <span class="hint" style="font-weight:400">(20 pads — click a pad to play it on the selected layer, or press its key)</span></summary>
+  <div class="pads" id="pads"></div>
+  <div class="drow"><button class="sm" id="addBtn">Add loops…</button><input type="file" id="files" accept="video/*,.mp4,.mov,.m4v,.webm,.mkv" multiple hidden><input type="file" id="padFile" accept="video/*,.mp4,.mov,.m4v,.webm,.mkv" hidden>
+    <span class="hint">Drop files on the grid to fill empty pads. Loops play muted and repeat.</span></div>
+</details>
+
+<details class="card" open><summary>Posters</summary>
+  <div class="grid">
+    <div class="f"><label for="pl1">Big line</label><input type="text" id="pl1" maxlength="60" placeholder="Artist or event"><label for="pl2" style="margin-top:6px">Small line</label><input type="text" id="pl2" maxlength="80" placeholder="Message"></div>
+    <div class="f"><label>Colour</label><div class="sw" id="colors"></div>
+      <details style="margin-top:6px"><summary class="hint">Custom colours</summary><div class="row"><label>Back <input type="color" id="cbg" value="#ff2d7a"></label><label>Text <input type="color" id="cfg" value="#ffffff"></label></div></details></div>
+    <div class="f"><label for="pfrom">Slides in from</label><select id="pfrom"><option value="left">Left</option><option value="right">Right</option><option value="bottom">Below</option></select>
+      <label for="ppos" style="margin-top:6px">Position</label><select id="ppos"><option value="bl">Lower left</option><option value="br">Lower right</option><option value="bc">Lower centre</option><option value="tl">Upper left</option></select></div>
+    <div class="f"><label for="phold">Stays for (seconds, 0 = until hidden)</label><input type="number" id="phold" min="0" max="600" value="8"></div>
+  </div>
+  <div class="drow"><button id="pshow" class="main">Show poster</button><button id="phide">Hide</button><span class="hint">Slots (click to show, <b>Save</b> stores the current poster in the selected slot):</span><button id="psave" class="sm">Save</button></div>
+  <div class="slots" id="slots"></div>
+</details>
+
+<details class="card"><summary>Logo</summary>
+  <div class="grid"><div class="f"><label for="logoFile">Logo image (PNG with transparency works best)</label><input type="file" id="logoFile" accept="image/*" aria-label="Logo image"></div>
+  <div class="f"><label for="logoSize">Size</label><input type="range" id="logoSize" min="4" max="30" value="10"><label for="logoOp" style="margin-top:6px">Opacity</label><input type="range" id="logoOp" min="10" max="100" value="100"></div>
+  <div class="f"><label><input type="checkbox" id="logoOn" checked> Show logo (upper right)</label><div class="drow"><button class="sm" id="logoClear">Remove logo</button></div></div></div>
+</details>
+
+<details class="card"><summary>MIDI control</summary>
+  <p class="hint" style="margin-top:0">Works in Chrome and Edge on a computer. Plug in your controller, press <b>Enable MIDI</b>, then <b>Learn</b> next to a function and move or press the control you want.</p>
+  <div class="drow" style="margin:0 0 8px"><button id="midiOn">Enable MIDI</button><span id="midiStatus" class="hint">Off</span><span class="hint" style="margin-left:auto" id="midiLast"></span></div>
+  <div class="mscroll"><table class="mtbl" id="mtbl"></table></div>
+</details>
+
+<details class="card"><summary>Advanced</summary>
+  <div class="grid">
+    <div class="f"><label for="res">Output size</label><select id="res"><option value="960x540">960 × 540 (light)</option><option value="1280x720" selected>1280 × 720 (HD)</option><option value="1920x1080">1920 × 1080 (Full HD)</option></select><div class="hint">Lower sizes run smoother on weaker computers.</div></div>
+    <div class="f"><label for="fps">Frame rate</label><select id="fps"><option value="30" selected>30 per second</option><option value="60">60 per second</option><option value="24">24 per second</option></select></div>
+    <div class="f"><label for="fit">Picture fit</label><select id="fit"><option value="cover">Fill the screen (crops)</option><option value="contain">Show whole picture (black bars)</option></select></div>
+    <div class="f"><label><input type="checkbox" id="remember"> Remember my loops on this computer</label><div class="hint">Keeps the 20 pads after you close the page. Stored in this browser only.</div></div>
+  </div>
+</details>
+
+<div class="card hint">
+  <b>Keys</b> (when not typing): pads <kbd>1</kbd>–<kbd>0</kbd> and <kbd>Q</kbd>–<kbd>P</kbd> · layers <kbd>Z</kbd> <kbd>X</kbd> <kbd>C</kbd> (channel A) and <kbd>V</kbd> <kbd>B</kbd> <kbd>N</kbd> (channel B) · effects <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> <kbd>F</kbd> <kbd>G</kbd> <kbd>H</kbd> <kbd>J</kbd> <kbd>K</kbd> · <kbd>Space</kbd> mix · <kbd>←</kbd> <kbd>→</kbd> crossfader · <kbd>`</kbd> or <kbd>.</kbd> tap tempo · <kbd>Enter</kbd> show poster · <kbd>Esc</kbd> hide poster · <kbd>L</kbd> logo · <kbd>Tab</kbd> next layer · <kbd>Backspace</kbd> clear selected layer.<br>
+  <b>Projector:</b> open the output window, drag it to the projector screen, press <kbd>F</kbd> for full screen. <b>Streaming or casting:</b> capture the output window in OBS (Window Capture) or use Chrome's “Cast…”. Keep this control window open during the show.
+</div>
+</div>
+<div id="toast" role="status" aria-live="polite"></div>
+<script type="module" src="app.js"></script>
+</body></html>

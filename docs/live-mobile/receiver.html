@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Receiver – Spektronautilus</title>
+<style>
+:root{color-scheme:dark}*{box-sizing:border-box}html,body{margin:0;height:100%;background:#000;color:#eceefb;font:16px/1.45 system-ui,sans-serif}
+#setup{max-width:560px;margin:0 auto;padding:20px}h1{font-size:1.3rem}textarea{width:100%;min-height:110px;font:.75rem ui-monospace,monospace;background:#151837;color:#eceefb;border:1px solid #2a2e57;border-radius:8px;padding:6px}
+button{font:inherit;font-weight:700;border:2px solid #eceefb;background:#eceefb;color:#0b0d1e;border-radius:999px;padding:8px 18px;cursor:pointer;margin:6px 6px 6px 0}button.ghost{background:none;color:#eceefb}
+video{display:none;width:100vw;height:100vh;object-fit:contain;background:#000}body.live video{display:block}body.live #setup{display:none}
+.hint{color:#a0a6c8;font-size:.9rem}.warn{color:#ff7088}
+</style></head>
+<body>
+<div id="setup">
+  <h1>Spektronautilus receiver</h1>
+  <p class="hint">Shows the picture from your phone mixer on this screen.</p>
+  <p><b>1.</b> Paste the code from the phone (or open the link the phone made):</p>
+  <textarea id="offer" placeholder="Code from the phone"></textarea>
+  <button id="go">2. Make answer code</button>
+  <div id="step2" style="display:none"><p><b>3.</b> Copy this answer code back into the phone mixer, then press Connect there:</p>
+    <textarea id="answer" readonly></textarea><button class="ghost" id="copy">Copy answer</button></div>
+  <p id="msg" class="hint"></p>
+</div>
+<video id="v" autoplay playsinline></video>
+<script type="module">
+import { makeAnswer } from './cast.js';
+const $ = s => document.querySelector(s), v = $('#v'); let pc = null;
+async function go() {
+  $('#msg').textContent = 'Working…'; $('#msg').className = 'hint';
+  try {
+    if (pc) pc.close();
+    const r = await makeAnswer($('#offer').value, st => { v.srcObject = st; v.play().catch(() => {}); });
+    pc = r.pc; $('#answer').value = r.code; $('#step2').style.display = '';
+    pc.onconnectionstatechange = () => { const s = pc.connectionState; $('#msg').textContent = 'Connection: ' + s; if (s === 'connected') document.body.classList.add('live'); if (s === 'failed' || s === 'disconnected') document.body.classList.remove('live'); };
+    $('#msg').textContent = 'Now copy the answer code to the phone.';
+  } catch (e) { $('#msg').textContent = e.message; $('#msg').className = 'warn'; }
+}
+$('#go').onclick = go;
+$('#copy').onclick = () => { $('#answer').select(); navigator.clipboard && navigator.clipboard.writeText($('#answer').value).catch(() => {}); };
+addEventListener('dblclick', () => { if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen().catch(() => {}); });
+addEventListener('keydown', e => { if (e.key === 'f' || e.key === 'F') { if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen().catch(() => {}); } });
+const m = location.hash.match(/o=([^&]+)/); if (m) { $('#offer').value = decodeURIComponent(m[1]); go(); }
+window.__rx = { video: v, get pc() { return pc; } };
+</script></body></html>

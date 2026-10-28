@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Live Video DJ Mixer – Spektronautilus</title>
+<meta name="description" content="Mix music videos on two channels like a DJ, with crossfader, preview, logo, text posters, MIDI and an output window for an HDMI projector.">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<script>(function(){try{if(location.search.indexOf('desktop=1')>-1){localStorage.setItem('spk_desktop','1');return}
+if(!localStorage.getItem('spk_desktop')&&matchMedia('(pointer:coarse) and (max-width:900px)').matches)location.replace('../live-mobile/')}catch(e){}})();</script>
+<style>
+:root{--bg:#f3f4f8;--ink:#14182b;--mute:#5a607a;--line:#d5d8e6;--panel:#fff;--a:#2b3af0;--b:#ff3d81;--ok:#12906f;--bad:#d1334a;color-scheme:light}
+:root[data-theme=dark]{--bg:#0b0d1e;--ink:#eceefb;--mute:#a0a6c8;--line:#2a2e57;--panel:#151837;--a:#7f8bff;--b:#ff6fa3;--ok:#3fd6a4;--bad:#ff7088;color-scheme:dark}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.wrap{max-width:1280px;margin:0 auto;padding:12px 16px 40px}
+a{color:inherit}h1{font-size:1.5rem;letter-spacing:-.03em;margin:0}h2{font-size:1rem;margin:0 0 8px}
+.top{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px}.top .sp{flex:1}
+.back{display:inline-block;padding:10px 0;font-size:.85rem;color:var(--mute);text-decoration:none}
+button,.btn{font:inherit;cursor:pointer;border:2px solid var(--ink);background:transparent;color:var(--ink);padding:5px 14px;border-radius:999px;font-weight:700}
+button.main,button.on{background:var(--ink);color:var(--bg)}button.sm{padding:1px 9px;font-size:.82rem}button:disabled{opacity:.4;cursor:default}
+button.rec.on{background:var(--bad);border-color:var(--bad);color:#fff}
+button:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visible{outline:3px solid var(--b);outline-offset:2px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:12px}
+.mons{display:grid;grid-template-columns:1fr 1.7fr 1fr;gap:10px;margin-bottom:10px}
+@media(max-width:900px){.mons{grid-template-columns:1fr 1fr}.mons .pm{grid-column:1/-1;order:-1}}
+.mon{align-self:start;position:relative;background:#000;border-radius:10px;overflow:hidden;aspect-ratio:16/9;border:2px solid var(--line)}
+.mon video,.mon canvas{width:100%;height:100%;object-fit:contain;display:block;background:#000}
+.mon .lb{position:absolute;left:8px;top:6px;font-size:.72rem;font-weight:800;letter-spacing:.06em;color:#fff;background:#000a;border-radius:999px;padding:0 9px}
+.mon.air{border-color:var(--b)}
+.xf{display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:center}
+.xf input[type=range]{width:100%;accent-color:var(--b);height:34px}
+.xf .big{font-size:1.4rem;font-weight:900;width:2ch;text-align:center}
+.xrow{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-top:8px}
+.xrow label{display:flex;gap:6px;align-items:center;font-size:.9rem}.xrow input[type=number]{width:64px;font:inherit;padding:2px 6px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink)}
+#mix{font-size:1.05rem;padding:8px 22px}
+.decks{display:grid;grid-template-columns:1fr 1fr;gap:12px}@media(max-width:800px){.decks{grid-template-columns:1fr}}
+.deck.over{outline:3px dashed var(--b)}
+.deck h2{display:flex;gap:8px;align-items:center}.deck .nm{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-height:1.4em}
+.chip{display:inline-block;font-size:.72rem;font-weight:800;padding:0 8px;border-radius:999px;border:1px solid currentColor;color:var(--mute)}.chip.live{color:var(--ok)}.chip.cue{color:var(--a)}
+.seek{width:100%;accent-color:var(--a)}.tm{display:flex;justify-content:space-between;color:var(--mute);font-size:.85rem;font-variant-numeric:tabular-nums}
+.drow{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px}.drow input[type=range]{accent-color:var(--b);flex:1;min-width:90px}
+.meter{height:8px;background:var(--line);border-radius:4px;overflow:hidden;flex:1;min-width:80px}.meter i{display:block;height:100%;width:0;background:var(--ok);transition:width .06s}
+.lib{max-height:260px;overflow:auto;display:flex;flex-direction:column;gap:2px}
+.li{display:flex;gap:6px;align-items:center;padding:3px 6px;border-radius:8px}.li:hover{background:var(--bg)}.li .t{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.li.played .t{opacity:.5}.li small{color:var(--mute)}
+.drop{border:2px dashed var(--line);border-radius:10px;padding:10px;text-align:center;color:var(--mute);margin-bottom:8px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px 20px}
+.f label{display:block;font-size:.85rem;margin-bottom:2px}.f input[type=text],.f input[type=number],.f select{width:100%;font:inherit;padding:5px 7px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink)}
+.f input[type=range]{width:100%;accent-color:var(--b)}.f .row{display:flex;gap:8px;align-items:center}
+.sw{display:flex;gap:6px;flex-wrap:wrap}.sw button{width:34px;height:34px;padding:0;border-radius:8px;border:3px solid var(--line);font-size:.7rem}.sw button.sel{border-color:var(--ink)}
+.slots{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:6px}.slots button{border-radius:8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:6px 4px;font-size:.82rem}.slots button.sel{outline:3px solid var(--b)}
+details.card>summary{cursor:pointer;font-weight:800;font-size:1rem;margin:-2px 0 4px}details.card[open]>summary{margin-bottom:10px}
+.mtbl{width:100%;border-collapse:collapse;font-size:.88rem}.mtbl td{padding:3px 4px;border-top:1px solid var(--line)}.mtbl td.k{color:var(--mute);font-family:ui-monospace,monospace}
+.hint{color:var(--mute);font-size:.85rem}.warn{color:var(--bad)}
+#toast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:8px 16px;border-radius:999px;font-weight:600;max-width:90vw;opacity:0;transition:opacity .25s;pointer-events:none;z-index:9}#toast.show{opacity:1}
+kbd{border:1px solid var(--line);border-radius:5px;padding:0 5px;font:inherit;font-size:.8rem;background:var(--panel)}
+</style>
+<link rel="manifest" href="../manifest.webmanifest">
+<script src="../shared/sw-register.js" defer></script>
+<script src="../shared/i18n.js"></script>
+<script src="../shared/check.js"></script>
+</head>
+<body>
+<div class="wrap" role="main">
+<div class="top">
+  <div><a class="back" href="../">← Spektronautilus</a><h1>Live Video DJ Mixer</h1></div>
+  <div class="sp"></div>
+  <span id="outstate" class="hint"></span>
+  <button id="openOut" class="main" title="Opens the clean output for your projector. Drag it to the projector screen and press F.">Open output window</button>
+  <button id="rec" class="rec" title="Record the mix (picture and sound) to a file">● Record</button>
+  <button id="theme" class="sm" aria-label="Switch light or dark theme">Theme</button>
+</div>
+
+<div class="mons">
+  <div class="mon" id="monA"><span class="lb">DECK A · PREVIEW</span><video id="vA" playsinline preload="auto"></video></div>
+  <div class="mon pm" id="monP"><span class="lb">OUTPUT</span><canvas id="prog" width="1920" height="1080"></canvas></div>
+  <div class="mon" id="monB"><span class="lb">DECK B · PREVIEW</span><video id="vB" playsinline preload="auto"></video></div>
+</div>
+
+<div class="card">
+  <div class="xf"><span class="big">A</span><input type="range" id="xf" min="0" max="1000" value="0" aria-label="Crossfader"><span class="big">B</span></div>
+  <div class="xrow">
+    <button id="mix" class="main">Mix → B</button>
+    <label>Fade time <input type="number" id="fadeSec" min="1" max="60" value="8"> s</label>
+    <label><input type="checkbox" id="audioFollow" checked> Sound follows the crossfader</label>
+    <label><input type="checkbox" id="autoMix"> Auto-mix to the next track</label>
+    <span class="hint" id="autoNote"></span>
+    <span class="hint" style="margin-left:auto">Master</span><div class="meter" style="max-width:180px"><i id="mMaster"></i></div>
+  </div>
+</div>
+
+<div class="decks" id="decks"></div>
+
+<details class="card" open><summary>Tracks</summary>
+  <div class="drop" id="drop">Drop music videos here, or <button class="sm" id="addBtn">Add files…</button> <input type="file" id="files" accept="video/*,.mp4,.mov,.m4v,.webm,.mkv" multiple hidden>
+    <div class="hint">Drop on a deck to load it straight away. Names like “Artist - Title.mp4” become the poster text.</div></div>
+  <div class="lib" id="lib"><span class="hint">No tracks yet.</span></div>
+</details>
+
+<details class="card" open><summary>Posters</summary>
+  <div class="grid">
+    <div class="f"><label for="pl1">Big line (song or artist)</label><input type="text" id="pl1" maxlength="60" placeholder="Artist"><label for="pl2" style="margin-top:6px">Small line</label><input type="text" id="pl2" maxlength="80" placeholder="Title or message"></div>
+    <div class="f"><label>Colour</label><div class="sw" id="colors"></div>
+      <details style="margin-top:6px"><summary class="hint">Custom colours</summary><div class="row"><label>Back <input type="color" id="cbg" value="#ff2d7a"></label><label>Text <input type="color" id="cfg" value="#ffffff"></label></div></details></div>
+    <div class="f"><label for="pfrom">Slides in from</label><select id="pfrom"><option value="left">Left</option><option value="right">Right</option><option value="bottom">Below</option></select>
+      <label for="ppos" style="margin-top:6px">Position</label><select id="ppos"><option value="bl">Lower left</option><option value="br">Lower right</option><option value="bc">Lower centre</option><option value="tl">Upper left</option></select></div>
+    <div class="f"><label for="phold">Stays for (seconds, 0 = until hidden)</label><input type="number" id="phold" min="0" max="600" value="8">
+      <label style="margin-top:8px"><input type="checkbox" id="autoPoster"> Show the track name when a track mixes in</label></div>
+  </div>
+  <div class="drow"><button id="pshow" class="main">Show poster</button><button id="phide">Hide</button><span class="hint">Slots (click to show, <b>Save</b> stores the current poster in the selected slot):</span><button id="psave" class="sm">Save</button></div>
+  <div class="slots" id="slots"></div>
+</details>
+
+<details class="card"><summary>Logo</summary>
+  <div class="grid"><div class="f"><label for="logoFile">Logo image (PNG with transparency works best)</label><input type="file" id="logoFile" accept="image/*" aria-label="Logo image"></div>
+  <div class="f"><label for="logoSize">Size</label><input type="range" id="logoSize" min="4" max="30" value="10"><label for="logoOp" style="margin-top:6px">Opacity</label><input type="range" id="logoOp" min="10" max="100" value="100"></div>
+  <div class="f"><label><input type="checkbox" id="logoOn" checked> Show logo (upper right)</label><div class="drow"><button class="sm" id="logoClear">Remove logo</button></div></div></div>
+</details>
+
+<details class="card"><summary>MIDI control</summary>
+  <p class="hint" style="margin-top:0">Works in Chrome and Edge on a computer. Plug in your controller, press <b>Enable MIDI</b>, then <b>Learn</b> next to a function and move or press the control you want.</p>
+  <div class="drow" style="margin:0 0 8px"><button id="midiOn">Enable MIDI</button><span id="midiStatus" class="hint">Off</span><span class="hint" style="margin-left:auto" id="midiLast"></span></div>
+  <table class="mtbl" id="mtbl"></table>
+</details>
+
+<details class="card"><summary>Advanced</summary>
+  <div class="grid">
+    <div class="f"><label for="res">Output size</label><select id="res"><option value="1280x720">1280 × 720</option><option value="1920x1080" selected>1920 × 1080 (HD)</option><option value="2560x1440">2560 × 1440</option></select></div>
+    <div class="f"><label for="fps">Frame rate</label><select id="fps"><option value="30" selected>30 per second</option><option value="60">60 per second</option><option value="24">24 per second</option></select></div>
+    <div class="f"><label for="fit">Picture fit</label><select id="fit"><option value="contain">Show whole picture (black bars)</option><option value="cover">Fill the screen (crops)</option></select></div>
+    <div class="f"><label for="curve">Sound crossfade</label><select id="curve"><option value="power">Smooth (equal power)</option><option value="linear">Linear</option></select></div>
+    <div class="f"><label for="autoSec">Auto-mix starts this many seconds before the end</label><input type="number" id="autoSec" min="2" max="120" value="12"></div>
+    <div class="f"><label for="sink">Sound output</label><select id="sink"><option value="">Default</option></select><div class="hint" id="sinkNote"></div></div>
+    <div class="f"><label><input type="checkbox" id="preload" checked> Load tracks fully into memory (safer on shows)</label><div class="hint">Skips a track's disk reads while it plays. Files over 1.5 GB are streamed instead.</div></div>
+    <div class="f"><label><input type="checkbox" id="limiter" checked> Soft limiter on the master sound</label><div class="hint">Stops two loud tracks from clipping when they overlap.</div></div>
+  </div>
+</details>
+
+<div class="card hint">
+  <b>Keys</b> (when not typing): <kbd>1</kbd> play/pause A · <kbd>2</kbd> play/pause B · <kbd>Space</kbd> mix · <kbd>←</kbd> <kbd>→</kbd> crossfader · <kbd>P</kbd> show poster · <kbd>H</kbd> hide poster · <kbd>L</kbd> logo · <kbd>O</kbd> output window.<br>
+  <b>Projector:</b> open the output window, drag it to the projector screen, press <kbd>F</kbd> for full screen. <b>Streaming or casting:</b> capture the output window in OBS (Window Capture), or use Chrome's “Cast…” → Cast tab/window and choose the output window. Keep this control window open during the show.
+</div>
+</div>
+<div id="toast" role="status" aria-live="polite"></div>
+<script type="module" src="app.js"></script>
+</body></html>

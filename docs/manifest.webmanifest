@@ -1,0 +1,21 @@
+{
+  "name": "Spektronautilus – The magic video mixer",
+  "short_name": "Spektronautilus",
+  "description": "Live video mixers and loop tools for VJs, visual artists and music lovers.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#14182b",
+  "theme_color": "#14182b",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Live DJ Mixer", "url": "live-dj/" },
+    { "name": "VJ Mixer", "url": "vj-pad/" },
+    { "name": "Magic Mixer", "url": "mixer/" },
+    { "name": "Loop tools", "url": "tools/app/" }
+  ]
+}
