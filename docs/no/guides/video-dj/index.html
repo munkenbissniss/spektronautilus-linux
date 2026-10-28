@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Video DJ: miks musikkvideoer på to dekk | Spektronautilus</title>
+<meta name="description" content="Miks hele musikkvideoer som en DJ, med to dekk, crossfader, forhåndsvisning, logo, tekstplakater, MIDI og et rent utgangsvindu til projektoren.">
+
+<link rel="canonical" href="https://munkenbissniss.github.io/spektronautilus/no/guides/video-dj/">
+<link rel="alternate" hreflang="en" href="https://munkenbissniss.github.io/spektronautilus/guides/video-dj/"><link rel="alternate" hreflang="de" href="https://munkenbissniss.github.io/spektronautilus/de/guides/video-dj/"><link rel="alternate" hreflang="es" href="https://munkenbissniss.github.io/spektronautilus/es/guides/video-dj/"><link rel="alternate" hreflang="no" href="https://munkenbissniss.github.io/spektronautilus/no/guides/video-dj/"><link rel="alternate" hreflang="pt" href="https://munkenbissniss.github.io/spektronautilus/pt/guides/video-dj/"><link rel="alternate" hreflang="x-default" href="https://munkenbissniss.github.io/spektronautilus/guides/video-dj/">
+<meta property="og:site_name" content="Spektronautilus"><meta property="og:type" content="website"><meta property="og:title" content="Video DJ: miks musikkvideoer på to dekk | Spektronautilus"><meta property="og:description" content="Miks hele musikkvideoer som en DJ, med to dekk, crossfader, forhåndsvisning, logo, tekstplakater, MIDI og et rent utgangsvindu til projektoren."><meta property="og:url" content="https://munkenbissniss.github.io/spektronautilus/no/guides/video-dj/"><meta property="og:locale" content="nb_NO">
+<meta name="twitter:card" content="summary">
+<meta name="theme-color" content="#14182b">
+<link rel="icon" href="../../../favicon.svg" type="image/svg+xml">
+<link rel="manifest" href="../../../manifest.webmanifest">
+<style>:root{--bt:#c4155a;--okt:#0b7358;--bg:#f3f4f8;--ink:#14182b;--mute:#5a607a;--line:#d5d8e6;--panel:#fff;--a:#2b3af0;--b:#ff3d81;--ok:#12906f;color-scheme:light}
+@media (prefers-color-scheme:dark){:root{--bt:#ff6fa3;--okt:#3fd6a4;--bg:#10122a;--ink:#eceefb;--mute:#a0a6c8;--line:#2a2e57;--panel:#171a3a;--a:#7f8bff;--b:#ff6fa3;--ok:#3fd6a4;color-scheme:dark}}
+*{box-sizing:border-box}html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+a{color:var(--a)}a:focus-visible,summary:focus-visible,button:focus-visible{outline:3px solid var(--b);outline-offset:2px;border-radius:6px}
+.wrap{max-width:1060px;margin:0 auto;padding:0 20px}
+header.top{border-bottom:1px solid var(--line);background:var(--bg);position:sticky;top:0;z-index:5}
+header.top .wrap{display:flex;align-items:center;gap:18px;flex-wrap:wrap;padding-top:10px;padding-bottom:10px}
+.brand{display:flex;align-items:center;gap:8px;font-weight:800;letter-spacing:-.02em;text-decoration:none;color:var(--ink);font-size:1.1rem}
+.brand svg{width:30px;height:30px}
+nav.main{display:flex;gap:2px 14px;flex-wrap:wrap;flex:1}
+nav.main a{color:var(--ink);text-decoration:none;padding:4px 2px;border-bottom:2px solid transparent;font-size:.95rem}
+nav.main a:hover,nav.main a[aria-current]{border-color:var(--b)}
+.lang{display:flex;gap:6px;font-size:.85rem}.lang a{color:var(--mute);text-decoration:none;border:1px solid var(--line);border-radius:999px;padding:1px 9px}.lang a[aria-current]{color:var(--ink);border-color:var(--ink)}
+main{padding:28px 0 40px}
+h1{font-size:2.2rem;letter-spacing:-.03em;line-height:1.15;margin:6px 0 8px}h2{font-size:1.25rem;margin:26px 0 8px}h3{font-size:1.05rem;margin:0 0 4px}
+.lead{font-size:1.15rem;color:var(--mute);max-width:46em;margin:0 0 20px}
+.hero{padding:26px 0 8px}.hero h1{font-size:clamp(2.2rem,6vw,3.6rem)}
+.hero .tag{font-weight:700;color:var(--bt);letter-spacing:.04em;text-transform:uppercase;font-size:.85rem}
+.cta{display:flex;gap:10px;flex-wrap:wrap;margin:18px 0}
+.btn{font:inherit;display:inline-block;cursor:pointer;border:2px solid var(--ink);background:transparent;color:var(--ink);padding:7px 18px;border-radius:999px;font-weight:700;text-decoration:none}
+.btn.main{background:var(--ink);color:var(--bg)}.btn:hover{border-color:var(--b)}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px;margin:12px 0}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;color:inherit;text-decoration:none;display:block}
+a.card:hover{border-color:var(--b)}.card p{margin:0;color:var(--mute);font-size:.93rem}
+.badge{display:inline-block;font-size:.72rem;font-weight:700;border:1px solid currentColor;border-radius:999px;padding:0 8px;margin-left:6px;vertical-align:middle;color:var(--mute)}
+.badge.live{color:var(--okt)}
+ul.spec{padding-left:1.2em}ul.spec li{margin:3px 0}
+details{border-top:1px solid var(--line);padding:8px 0}summary{cursor:pointer;font-weight:700}
+.note{border-left:4px solid var(--b);background:var(--panel);padding:10px 14px;border-radius:0 10px 10px 0;color:var(--mute);margin:16px 0}
+.pack{display:flex;gap:14px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+.post time{color:var(--mute);font-size:.85rem}.post .body p{max-width:46em}
+footer{border-top:1px solid var(--line);color:var(--mute);font-size:.88rem;padding:18px 0 30px}
+footer .wrap{display:flex;gap:10px 24px;flex-wrap:wrap;justify-content:space-between}
+@media(max-width:760px){header.top .wrap{gap:6px 12px}nav.main{flex-basis:100%;order:3;gap:0 14px}.lang{margin-left:auto}h1{font-size:1.8rem}}
+
+.qn{display:inline-block;margin-left:6px;min-width:1.3em;padding:0 6px;border-radius:999px;background:var(--b,#ff3d81);color:#fff;font-size:.75em;font-weight:800;text-align:center}.qn[hidden]{display:none}
+
+/* guides */
+.docs{display:grid;grid-template-columns:230px minmax(0,1fr);gap:34px;align-items:start}
+.dnav{position:sticky;top:76px;max-height:calc(100vh - 96px);overflow:auto;font-size:.93rem}
+.dnav summary{font-weight:800;list-style:none;cursor:pointer;padding:6px 0}.dnav summary::-webkit-details-marker{display:none}
+.dnav details{border:0;padding:0}
+.dg{margin:8px 0 14px}.dgt{font-size:.74rem;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:var(--mute);margin:0 0 4px}
+.dnav a{display:flex;gap:8px;align-items:center;padding:6px 10px;margin:1px 0;border-radius:9px;color:var(--ink);text-decoration:none;border-left:3px solid transparent}
+.dnav a:hover{background:var(--panel)}.dnav a[aria-current]{background:var(--panel);border-left-color:var(--b);font-weight:700}
+.doc{min-width:0;max-width:47em}.doc h1{font-size:2rem;display:flex;gap:12px;align-items:center}
+.gi{font-size:1.5em;line-height:1}.doc h1 .gi{font-size:1.1em}
+.crumb{font-size:.88rem;color:var(--mute);margin:0 0 4px}.crumb a{color:var(--mute)}
+.doc .body h2{margin:34px 0 8px;padding-top:6px;border-top:1px solid var(--line);scroll-margin-top:80px}.doc .body h3{margin:20px 0 4px;scroll-margin-top:80px}
+.doc .body p,.doc .body li{max-width:44em}.doc .body li{margin:4px 0}.doc .body ul,.doc .body ol{padding-left:1.35em}
+.doc .body code{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:0 5px;font-size:.92em}
+.tip{border-left:4px solid var(--ok);background:var(--panel);padding:10px 14px;border-radius:0 10px 10px 0;margin:14px 0}
+.toc{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 16px;margin:12px 0 4px;display:flex;flex-wrap:wrap;gap:4px 18px}
+.toc .dgt{flex-basis:100%}.toc a{color:var(--ink);text-decoration:none;font-size:.93rem;border-bottom:1px dashed var(--line)}.toc a:hover{border-color:var(--b)}
+.gcard{position:relative;transition:transform .12s,border-color .12s}.gcard:hover{transform:translateY(-2px)}.gcard .gi{font-size:1.8rem;margin-bottom:6px}
+.gcard .more{display:inline-block;margin-top:10px;font-weight:700;font-size:.88rem;color:var(--a)}
+.tasks{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px;margin:10px 0 6px}
+.task{display:flex;gap:12px;align-items:center;padding:12px 14px;background:var(--panel);border:1px solid var(--line);border-radius:12px;color:var(--ink);text-decoration:none;font-weight:600}
+.task span{font-size:1.4rem}.task:hover{border-color:var(--b)}
+.gfb{margin:34px 0 8px;display:flex;gap:6px 12px;align-items:center;flex-wrap:wrap}.gfb .btn{padding:3px 14px;font-size:.9rem}
+.pager{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:18px 0 6px}
+.pg{display:block;padding:12px 16px;border:1px solid var(--line);border-radius:12px;background:var(--panel);color:var(--ink);text-decoration:none;font-weight:700}.pg small{display:block;color:var(--mute);font-weight:500}
+.pg.next{text-align:right;grid-column:2}.pg:hover{border-color:var(--b)}
+footer .spkx{opacity:.85}
+@media(max-width:899px){.docs{grid-template-columns:1fr;gap:10px}.dnav{position:static;max-height:none;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:2px 14px}.dnav summary::after{content:" ▾"}.doc h1{font-size:1.6rem}}
+@media(min-width:900px){.dnav summary{pointer-events:none}}
+.ui{font-weight:600;background:var(--panel);border:1px solid var(--line);border-radius:7px;padding:0 6px;white-space:nowrap}
+kbd{font:inherit;font-size:.88em;font-weight:700;background:var(--panel);border:1px solid var(--line);border-bottom-width:2px;border-radius:6px;padding:0 6px}
+</style>
+<script type="application/ld+json">[{"@context": "https://schema.org", "@type": "WebSite", "name": "Spektronautilus", "url": "https://munkenbissniss.github.io/spektronautilus/", "inLanguage": "no"}, {"@context": "https://schema.org", "@type": "TechArticle", "headline": "Video DJ: miks musikkvideoer på to dekk", "description": "Miks hele musikkvideoer som en DJ, med to dekk, crossfader, forhåndsvisning, logo, tekstplakater, MIDI og et rent utgangsvindu til projektoren.", "inLanguage": "no", "url": "https://munkenbissniss.github.io/spektronautilus/no/guides/video-dj/", "publisher": {"@type": "Organization", "name": "Spektronautilus"}}]</script>
+<script>(function(){try{var q=location.search.indexOf('desktop=1')>-1;if(q)localStorage.setItem('spk_desktop','1');
+var m=!localStorage.getItem('spk_desktop')&&matchMedia('(pointer:coarse) and (max-width:900px)').matches;if(!m)return;
+var map=[[/(^|\/)mixer\/$/,'$1mixer-mobile/'],[/(^|\/)live-dj\/$/,'$1live-mobile/'],[/(^|\/)vj-pad\/$/,'$1vj-mobile/']];
+document.addEventListener('DOMContentLoaded',function(){document.querySelectorAll('a[data-app]').forEach(function(a){map.forEach(function(r){a.href=a.href.replace(r[0],r[1])})})})}catch(e){}})();</script>
+<script>document.addEventListener('DOMContentLoaded',function(){function u(){try{var o=JSON.parse(localStorage.getItem('spk_q')||'{}'),n=Date.now()-(o.t||0)<30000?o.n||0:0;document.querySelectorAll('.qn').forEach(function(b){b.hidden=!n;b.textContent=n})}catch(e){}}u();addEventListener('storage',u);setInterval(u,4000)});try{localStorage.setItem('spk_lang','no')}catch(e){}</script>
+<script src="../../../shared/sw-register.js" defer></script>
+<script src="../../../shared/extras.js" defer></script>
+</head>
+<body>
+<a href="#main" class="sr" style="position:absolute;left:-999px">Hopp til innhold</a>
+<header class="top"><div class="wrap">
+<a class="brand" href="../../../no/"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Spektronautilus"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2b3af0"/><stop offset="1" stop-color="#ff3d81"/></linearGradient></defs><path d="M32 8a24 24 0 1 1-24 24c0-13 10-20 21-20 10 0 17 7 17 16 0 8-6 13-13 13-6 0-10-4-10-9 0-4 3-7 7-7 3 0 5 2 5 4" fill="none" stroke="url(#g)" stroke-width="5" stroke-linecap="round"/></svg><span>Spektronautilus</span></a>
+<nav class="main" aria-label="Main"><a href="../../../no/">Hjem</a><a href="../../../no/magic-mixer/">Magisk mikser</a><a href="../../../no/live-mixer/">Video DJ</a><a href="../../../no/vj-mixer/">VJ-mikser</a><a href="../../../no/tools/">Verktøy</a><a href="../../../no/packs/">Loop-pakker</a><a href="../../../no/guides/" aria-current=page>Guider</a><a href="../../../no/about/">Om</a><a href="../../../queue/" class="qlink">Kø<span class="qn" hidden></span></a></nav>
+<div class="lang" role="navigation" aria-label="Språk"><a href="../../../guides/video-dj/" hreflang="en" lang="en">English</a><a href="../../../de/guides/video-dj/" hreflang="de" lang="de">Deutsch</a><a href="../../../es/guides/video-dj/" hreflang="es" lang="es">Español</a><a href="../../../no/guides/video-dj/" hreflang="no" lang="no" aria-current=true>Norsk</a><a href="../../../pt/guides/video-dj/" hreflang="pt" lang="pt">Português</a></div>
+</div></header>
+<main id="main"><div class="wrap">
+<div class="docs"><nav class="dnav" aria-label="Alle guider"><details><summary>Alle guider</summary><div class="dg"><div class="dgt">Start her</div><a href="../../../no/guides/start/"><span>🧭</span> Start her</a></div><div class="dg"><div class="dgt">Mikserne</div><a href="../../../no/guides/magic-mixer/"><span>🪄</span> Magisk videomikser</a><a href="../../../no/guides/video-dj/" aria-current=page><span>🎛️</span> Video DJ</a><a href="../../../no/guides/vj-mixer/"><span>🎚️</span> VJ-mikser</a></div><div class="dg"><div class="dgt">Loop-verktøy</div><a href="../../../no/guides/tools/"><span>🧰</span> Loop-verktøy</a></div><div class="dg"><div class="dgt">Greit å vite</div><a href="../../../no/guides/queue/"><span>📋</span> Kø</a><a href="../../../no/guides/show-check/"><span>✅</span> Klar for showet?</a><a href="../../../no/guides/offline-linux/"><span>📲</span> Uten internett og Linux</a><a href="../../../no/guides/help/"><span>🛟</span> Hjelp og feilsøking</a></div></details></nav><script>(function(){var d=document.querySelector('.dnav details');if(d&&matchMedia('(min-width:900px)').matches)d.open=true})()</script><article class="doc"><p class="crumb"><a href="../../../no/guides/">Guider</a> › Video DJ</p><h1><span class="gi">🎛️</span> Video DJ: miks musikkvideoer på to dekk</h1><p class="lead">Miks hele musikkvideoer som en DJ, med to dekk, crossfader, forhåndsvisning, logo, tekstplakater, MIDI og et rent utgangsvindu til projektoren.</p><div class="cta"><a class="btn main" data-app=1 href="../../../live-dj/">Åpne verktøyet</a><a class="btn" href="../../../live-mobile/">Mobilversjon</a></div><nav class="toc" aria-label="På denne siden"><div class="dgt">På denne siden</div><a href="#what">Hva det er</a><a href="#first">Din første miks</a><a href="#automix">Auto-mix</a><a href="#sound">Lyd</a><a href="#posters">Logo og plakater</a><a href="#midi">MIDI-kontroller</a><a href="#record">Ta opp og strøm</a><a href="#safe">Laget for å ikke krasje</a><a href="#phone">Mobilversjonen</a></nav><div class="body"><h2 id="what">Hva det er</h2>
+<p>Video DJ har to dekk for musikkvideoer (mp4, mov, webm). Bilde og lyd mikses sammen. Du ser en forhåndsvisning av begge dekkene ved siden av utgangen, og et eget utgangsvindu går til projektoren eller TV-en.</p>
+<p class="tip">Verktøyet er laget for en datamaskin med Chrome eller Edge. På mobil får du en enklere versjon med to dekk, crossfader, effekter, plakater og en måte å sende bildet til en annen skjerm.</p>
+<h2 id="first">Din første miks</h2>
+<ol><li><strong>Legg til videoer.</strong> Slipp musikkvideoer på siden, eller trykk <span class="ui">Legg til filer…</span>. Navn som «Artist - Tittel.mp4» blir til plakattekst. Slipp en video rett på et dekk for å laste den med en gang.</li><li><strong>Last dekkene.</strong> Legg en video på dekk A og en på dekk B. Trykk play på begge.</li><li><strong>Åpne utgangsvinduet.</strong> Trykk <span class="ui">Åpne utgangsvindu</span>, dra det nye vinduet til projektoren og trykk <kbd>F</kbd> for fullskjerm. Ha kontrollvinduet åpent under showet.</li><li><strong>Miks.</strong> Flytt crossfaderen for hånd, eller trykk <span class="ui">Miks til den andre decken (auto-overgang)</span> for en myk overgang. <span class="ui">Overgangstid</span> bestemmer hvor lenge den varer.</li></ol>
+<h2 id="automix">Auto-mix</h2>
+<p>Slå på <span class="ui">Auto-miks til neste låt</span>, så starter mikseren neste spor på det ledige dekket for deg, et antall sekunder før det som spilles er ferdig. Du bestemmer antallet. Bruk det til lange sett, eller når du trenger en pause.</p>
+<h2 id="sound">Lyd</h2>
+<ul><li><span class="ui">Lyden følger crossfaderen</span> fader lyden sammen med bildet.</li><li><span class="ui">Myk (lik effekt)</span> eller <span class="ui">Lineær</span> bestemmer kurven på lydfadingen.</li><li>En myk limiter på masteren hindrer at to høye spor klipper når de overlapper.</li><li><span class="ui">Lydutgang</span> lar deg velge en annen lydenhet (Chrome eller Edge).</li></ul>
+<h2 id="posters">Logo og plakater</h2>
+<ul><li><strong>Logo.</strong> Legg til en PNG med gjennomsiktighet (det fungerer best). Logoen står øverst til høyre i bildet. Velg størrelse, og slå den av og på med én knapp.</li><li><strong>Plakater.</strong> En plakat er tekst som glir inn, med en stor og en liten linje. Velg fargeforhåndsvalg, hvor den glir inn fra og hvor lenge den blir stående. Lagre plakater i plasser og vis dem med ett klikk eller en tast.</li><li><strong>Sporets navn.</strong> Slå på <span class="ui">Vis sportittelen når et spor mikses inn</span>, så dukker plakaten opp av seg selv.</li></ul>
+<h2 id="midi">MIDI-kontroller</h2>
+<p>Koble til kontrolleren, trykk <span class="ui">Slå på MIDI</span> (Chrome eller Edge på datamaskin), trykk <span class="ui">Lær</span> ved siden av en funksjon og beveg kontrollen du vil bruke.</p>
+<h2 id="record">Ta opp og strøm</h2>
+<ul><li><span class="ui">● Ta opp</span> lagrer miksen, bilde og lyd, til en fil.</li><li>For å strømme tar du opp utgangsvinduet i OBS (Window Capture), eller bruker Chromes «Cast…» og velger utgangsvinduet. Mikseren sender ikke video over internett selv.</li></ul>
+<h2 id="safe">Laget for å ikke krasje</h2>
+<ul><li>Spor lastes helt inn i minnet før de spilles (filer over 1,5 GB strømmes i stedet), så disken kan ikke avbryte et spor.</li><li>Et problem med én fil gir en melding og stopper aldri det andre dekket.</li><li>Bildet fortsetter å gå når kontrollvinduet ligger i bakgrunnen, og hvis du lukker vinduet ved en feil, blir du spurt først.</li><li>Kjør sjekken <a href="../../../no/guides/show-check/">Klar for showet?</a> før hvert arrangement.</li></ul>
+<h2 id="phone">Mobilversjonen</h2>
+<p>To dekk, crossfader, effekter (Zoom, Flash, Strobe, Invert, Mirror), plakater og fullskjerm. For å vise bildet på en annen skjerm åpner du <span class="ui">Send til en annen skjerm</span>: lag en kode, åpne lenken på den andre skjermen (en laptop, en TV-nettleser eller en projektor-PC på samme Wi-Fi), og lim inn svarkoden. Ingenting går via en server.</p>
+<p class="tip">Blinkende effekter kan utløse anfall hos noen. Hold dem rolige på offentlige arrangementer.</p></div><div class="note gfb"><strong>Mangler noe, eller er noe uklart?</strong> Si fra, så forbedrer jeg guiden. <button class="btn" type="button" data-spk-feedback>💬 Tilbakemelding</button></div><div class="pager"><a class="pg prev" href="../../../no/guides/magic-mixer/"><small>← Forrige</small>Magisk videomikser</a><a class="pg next" href="../../../no/guides/vj-mixer/"><small>Neste →</small>VJ-mikser</a></div></article></div>
+</div></main>
+<footer><div class="wrap"><span>Gratis verktøy for VJ-er, visuelle kunstnere og musikkelskere. Filene dine blir på enheten din.</span><span data-spk-feedback-slot></span><span>© Spektronautilus · MIT</span></div></footer>
+</body></html>

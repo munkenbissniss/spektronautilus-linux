@@ -3,17 +3,16 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Mixer de vídeo DJ ao vivo – misture videoclipes em dois canais | Spektronautilus</title>
-<meta name="description" content="Mixer de vídeo DJ ao vivo gratuito no navegador: dois canais de videoclipes, crossfader, prévia, logotipo, cartazes de texto e MIDI, com uma janela de saída para um projetor HDMI.">
+<title>Video DJ – misture videoclipes em dois canais | Spektronautilus</title>
+<meta name="description" content="Video DJ gratuito no navegador: dois canais de videoclipes, crossfader, prévia, logotipo, cartazes de texto e MIDI, com uma janela de saída para um projetor HDMI.">
 
 <link rel="canonical" href="https://munkenbissniss.github.io/spektronautilus/pt/live-mixer/">
 <link rel="alternate" hreflang="en" href="https://munkenbissniss.github.io/spektronautilus/live-mixer/"><link rel="alternate" hreflang="de" href="https://munkenbissniss.github.io/spektronautilus/de/live-mixer/"><link rel="alternate" hreflang="es" href="https://munkenbissniss.github.io/spektronautilus/es/live-mixer/"><link rel="alternate" hreflang="no" href="https://munkenbissniss.github.io/spektronautilus/no/live-mixer/"><link rel="alternate" hreflang="pt" href="https://munkenbissniss.github.io/spektronautilus/pt/live-mixer/"><link rel="alternate" hreflang="x-default" href="https://munkenbissniss.github.io/spektronautilus/live-mixer/">
-<meta property="og:site_name" content="Spektronautilus"><meta property="og:type" content="website"><meta property="og:title" content="Mixer de vídeo DJ ao vivo – misture videoclipes em dois canais | Spektronautilus"><meta property="og:description" content="Mixer de vídeo DJ ao vivo gratuito no navegador: dois canais de videoclipes, crossfader, prévia, logotipo, cartazes de texto e MIDI, com uma janela de saída para um projetor HDMI."><meta property="og:url" content="https://munkenbissniss.github.io/spektronautilus/pt/live-mixer/"><meta property="og:locale" content="pt_BR">
+<meta property="og:site_name" content="Spektronautilus"><meta property="og:type" content="website"><meta property="og:title" content="Video DJ – misture videoclipes em dois canais | Spektronautilus"><meta property="og:description" content="Video DJ gratuito no navegador: dois canais de videoclipes, crossfader, prévia, logotipo, cartazes de texto e MIDI, com uma janela de saída para um projetor HDMI."><meta property="og:url" content="https://munkenbissniss.github.io/spektronautilus/pt/live-mixer/"><meta property="og:locale" content="pt_BR">
 <meta name="twitter:card" content="summary">
 <meta name="theme-color" content="#14182b">
 <link rel="icon" href="../../favicon.svg" type="image/svg+xml">
 <link rel="manifest" href="../../manifest.webmanifest">
-<link rel="alternate" type="application/rss+xml" title="Spektronautilus blog" href="https://munkenbissniss.github.io/spektronautilus/feed.xml">
 <style>:root{--bt:#c4155a;--okt:#0b7358;--bg:#f3f4f8;--ink:#14182b;--mute:#5a607a;--line:#d5d8e6;--panel:#fff;--a:#2b3af0;--b:#ff3d81;--ok:#12906f;color-scheme:light}
 @media (prefers-color-scheme:dark){:root{--bt:#ff6fa3;--okt:#3fd6a4;--bg:#10122a;--ink:#eceefb;--mute:#a0a6c8;--line:#2a2e57;--panel:#171a3a;--a:#7f8bff;--b:#ff6fa3;--ok:#3fd6a4;color-scheme:dark}}
 *{box-sizing:border-box}html{scroll-behavior:smooth}
@@ -51,6 +50,38 @@ footer .wrap{display:flex;gap:10px 24px;flex-wrap:wrap;justify-content:space-bet
 @media(max-width:760px){header.top .wrap{gap:6px 12px}nav.main{flex-basis:100%;order:3;gap:0 14px}.lang{margin-left:auto}h1{font-size:1.8rem}}
 
 .qn{display:inline-block;margin-left:6px;min-width:1.3em;padding:0 6px;border-radius:999px;background:var(--b,#ff3d81);color:#fff;font-size:.75em;font-weight:800;text-align:center}.qn[hidden]{display:none}
+
+/* guides */
+.docs{display:grid;grid-template-columns:230px minmax(0,1fr);gap:34px;align-items:start}
+.dnav{position:sticky;top:76px;max-height:calc(100vh - 96px);overflow:auto;font-size:.93rem}
+.dnav summary{font-weight:800;list-style:none;cursor:pointer;padding:6px 0}.dnav summary::-webkit-details-marker{display:none}
+.dnav details{border:0;padding:0}
+.dg{margin:8px 0 14px}.dgt{font-size:.74rem;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:var(--mute);margin:0 0 4px}
+.dnav a{display:flex;gap:8px;align-items:center;padding:6px 10px;margin:1px 0;border-radius:9px;color:var(--ink);text-decoration:none;border-left:3px solid transparent}
+.dnav a:hover{background:var(--panel)}.dnav a[aria-current]{background:var(--panel);border-left-color:var(--b);font-weight:700}
+.doc{min-width:0;max-width:47em}.doc h1{font-size:2rem;display:flex;gap:12px;align-items:center}
+.gi{font-size:1.5em;line-height:1}.doc h1 .gi{font-size:1.1em}
+.crumb{font-size:.88rem;color:var(--mute);margin:0 0 4px}.crumb a{color:var(--mute)}
+.doc .body h2{margin:34px 0 8px;padding-top:6px;border-top:1px solid var(--line);scroll-margin-top:80px}.doc .body h3{margin:20px 0 4px;scroll-margin-top:80px}
+.doc .body p,.doc .body li{max-width:44em}.doc .body li{margin:4px 0}.doc .body ul,.doc .body ol{padding-left:1.35em}
+.doc .body code{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:0 5px;font-size:.92em}
+.tip{border-left:4px solid var(--ok);background:var(--panel);padding:10px 14px;border-radius:0 10px 10px 0;margin:14px 0}
+.toc{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 16px;margin:12px 0 4px;display:flex;flex-wrap:wrap;gap:4px 18px}
+.toc .dgt{flex-basis:100%}.toc a{color:var(--ink);text-decoration:none;font-size:.93rem;border-bottom:1px dashed var(--line)}.toc a:hover{border-color:var(--b)}
+.gcard{position:relative;transition:transform .12s,border-color .12s}.gcard:hover{transform:translateY(-2px)}.gcard .gi{font-size:1.8rem;margin-bottom:6px}
+.gcard .more{display:inline-block;margin-top:10px;font-weight:700;font-size:.88rem;color:var(--a)}
+.tasks{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px;margin:10px 0 6px}
+.task{display:flex;gap:12px;align-items:center;padding:12px 14px;background:var(--panel);border:1px solid var(--line);border-radius:12px;color:var(--ink);text-decoration:none;font-weight:600}
+.task span{font-size:1.4rem}.task:hover{border-color:var(--b)}
+.gfb{margin:34px 0 8px;display:flex;gap:6px 12px;align-items:center;flex-wrap:wrap}.gfb .btn{padding:3px 14px;font-size:.9rem}
+.pager{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:18px 0 6px}
+.pg{display:block;padding:12px 16px;border:1px solid var(--line);border-radius:12px;background:var(--panel);color:var(--ink);text-decoration:none;font-weight:700}.pg small{display:block;color:var(--mute);font-weight:500}
+.pg.next{text-align:right;grid-column:2}.pg:hover{border-color:var(--b)}
+footer .spkx{opacity:.85}
+@media(max-width:899px){.docs{grid-template-columns:1fr;gap:10px}.dnav{position:static;max-height:none;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:2px 14px}.dnav summary::after{content:" ▾"}.doc h1{font-size:1.6rem}}
+@media(min-width:900px){.dnav summary{pointer-events:none}}
+.ui{font-weight:600;background:var(--panel);border:1px solid var(--line);border-radius:7px;padding:0 6px;white-space:nowrap}
+kbd{font:inherit;font-size:.88em;font-weight:700;background:var(--panel);border:1px solid var(--line);border-bottom-width:2px;border-radius:6px;padding:0 6px}
 </style>
 <script type="application/ld+json">[{"@context": "https://schema.org", "@type": "WebSite", "name": "Spektronautilus", "url": "https://munkenbissniss.github.io/spektronautilus/", "inLanguage": "pt"}]</script>
 <script>(function(){try{var q=location.search.indexOf('desktop=1')>-1;if(q)localStorage.setItem('spk_desktop','1');
@@ -59,17 +90,18 @@ var map=[[/(^|\/)mixer\/$/,'$1mixer-mobile/'],[/(^|\/)live-dj\/$/,'$1live-mobile
 document.addEventListener('DOMContentLoaded',function(){document.querySelectorAll('a[data-app]').forEach(function(a){map.forEach(function(r){a.href=a.href.replace(r[0],r[1])})})})}catch(e){}})();</script>
 <script>document.addEventListener('DOMContentLoaded',function(){function u(){try{var o=JSON.parse(localStorage.getItem('spk_q')||'{}'),n=Date.now()-(o.t||0)<30000?o.n||0:0;document.querySelectorAll('.qn').forEach(function(b){b.hidden=!n;b.textContent=n})}catch(e){}}u();addEventListener('storage',u);setInterval(u,4000)});try{localStorage.setItem('spk_lang','pt')}catch(e){}</script>
 <script src="../../shared/sw-register.js" defer></script>
+<script src="../../shared/extras.js" defer></script>
 </head>
 <body>
 <a href="#main" class="sr" style="position:absolute;left:-999px">Ir para o conteúdo</a>
 <header class="top"><div class="wrap">
 <a class="brand" href="../../pt/"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Spektronautilus"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2b3af0"/><stop offset="1" stop-color="#ff3d81"/></linearGradient></defs><path d="M32 8a24 24 0 1 1-24 24c0-13 10-20 21-20 10 0 17 7 17 16 0 8-6 13-13 13-6 0-10-4-10-9 0-4 3-7 7-7 3 0 5 2 5 4" fill="none" stroke="url(#g)" stroke-width="5" stroke-linecap="round"/></svg><span>Spektronautilus</span></a>
-<nav class="main" aria-label="Main"><a href="../../pt/">Início</a><a href="../../pt/magic-mixer/">Mixer mágico</a><a href="../../pt/live-mixer/" aria-current=page>Mixer DJ ao vivo</a><a href="../../pt/vj-mixer/">Mixer VJ</a><a href="../../pt/tools/">Ferramentas</a><a href="../../pt/packs/">Pacotes de loops</a><a href="../../pt/blog/">Blog</a><a href="../../pt/about/">Sobre</a><a href="../../queue/" class="qlink">Fila<span class="qn" hidden></span></a></nav>
+<nav class="main" aria-label="Main"><a href="../../pt/">Início</a><a href="../../pt/magic-mixer/">Mixer mágico</a><a href="../../pt/live-mixer/" aria-current=page>Video DJ</a><a href="../../pt/vj-mixer/">Mixer VJ</a><a href="../../pt/tools/">Ferramentas</a><a href="../../pt/packs/">Pacotes de loops</a><a href="../../pt/guides/">Guias</a><a href="../../pt/about/">Sobre</a><a href="../../queue/" class="qlink">Fila<span class="qn" hidden></span></a></nav>
 <div class="lang" role="navigation" aria-label="Idioma"><a href="../../live-mixer/" hreflang="en" lang="en">English</a><a href="../../de/live-mixer/" hreflang="de" lang="de">Deutsch</a><a href="../../es/live-mixer/" hreflang="es" lang="es">Español</a><a href="../../no/live-mixer/" hreflang="no" lang="no">Norsk</a><a href="../../pt/live-mixer/" hreflang="pt" lang="pt" aria-current=true>Português</a></div>
 </div></header>
 <main id="main"><div class="wrap">
-<h1>Mixer de vídeo DJ ao vivo</h1><p class="lead">Misture videoclipes completos como um DJ. Feito para ser sólido em eventos, com uma saída preparada para um projetor HDMI.</p>
-<div class="cta"><a class="btn main" data-app="live" href="../../live-dj/">Abrir o mixer</a><a class="btn" href="../../live-mobile/">Versão para celular</a></div>
+<h1>Video DJ</h1><p class="lead">Misture videoclipes completos como um DJ. Feito para ser sólido em eventos, com uma saída preparada para um projetor HDMI.</p>
+<div class="cta"><a class="btn main" data-app="live" href="../../live-dj/">Abrir o mixer</a><a class="btn" href="../../live-mobile/">Versão para celular</a><a class="btn" href="../../pt/guides/video-dj/">📖 Guia</a></div>
 <p class="note">O mixer completo é feito para um computador com Chrome ou Edge. Em um celular você é enviado a uma versão mais simples com dois decks, crossfader, efeitos, cartazes, tela cheia e uma forma de enviar a imagem para outra tela. Ele é novo: teste em casa antes de um show e tenha um plano B.</p>
 <h2>O que ele faz</h2>
 <ul class="spec"><li>Dois decks para videoclipes (mp4, mov, webm). Som e imagem são mixados juntos.</li><li>Crossfader manual ou um botão para uma fusão automática. A mixagem automática até deixa a próxima faixa pronta para você.</li><li>Prévia dos dois decks ao lado da saída.</li><li>Seu próprio logotipo no canto superior direito.</li><li>Cartazes de texto deslizantes em cores predefinidas, salvos em posições. Eles podem mostrar o nome da faixa sozinhos.</li><li>Controle MIDI com aprendizado.</li><li>Uma janela de saída limpa para o projetor e um gravador.</li><li>Uma verificação “Pronto para o show?” que confere seu computador, navegador e tela antes de entrar.</li></ul>
@@ -77,5 +109,5 @@ document.addEventListener('DOMContentLoaded',function(){document.querySelectorAl
 <p>As faixas são carregadas inteiras na memória antes de tocar. Um problema com um arquivo mostra uma mensagem e nunca para o outro deck. A imagem continua rodando mesmo com a janela de controle em segundo plano, e fechar a janela por engano pergunta antes.</p>
 <details><summary>Streaming e transmissão</summary><p>Capture a janela de saída no OBS (Window Capture) para fazer streaming, ou use a opção Transmitir do Chrome e escolha a janela de saída. O mixer em si não envia vídeo pela internet.</p></details>
 </div></main>
-<footer><div class="wrap"><span>Ferramentas gratuitas para VJs, artistas visuais e amantes da música. Seus arquivos ficam no seu dispositivo.</span><span>© Spektronautilus · MIT</span></div></footer>
+<footer><div class="wrap"><span>Ferramentas gratuitas para VJs, artistas visuais e amantes da música. Seus arquivos ficam no seu dispositivo.</span><span data-spk-feedback-slot></span><span>© Spektronautilus · MIT</span></div></footer>
 </body></html>

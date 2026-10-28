@@ -366,8 +366,6 @@ window.SPK_DICT=window.SPK_DICT||{};SPK_DICT.no={
 "Link copied.": "Lenke kopiert.",
 "Listening… the beat follows the kick drum.": "Lytter… beaten følger bassdrummen.",
 "Little free space ({a} GB). Free up disk space before you record.": "Lite ledig plass ({a} GB). Frigjør diskplass før du tar opp.",
-"Live Mixer": "Live-mikser",
-"Live Video DJ Mixer": "Live Video DJ-mikser",
 "Load a track on deck {a} first.": "Last først inn et spor på deck {a}.",
 "Load a video on deck {a} first.": "Last først inn en video på deck {a}.",
 "Load more results": "Last flere resultater",

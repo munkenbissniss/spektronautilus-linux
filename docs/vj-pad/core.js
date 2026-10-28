@@ -1,4 +1,4 @@
-// Pure logic for the VJ mixer (Spektropad). Shares the fade, poster and MIDI helpers with the Live DJ mixer.
+// Pure logic for the VJ mixer (Spektropad). Shares the fade, poster and MIDI helpers with the Video DJ mixer.
 import { clamp, ease, posterFrame, POSTER_COLORS, parseTitle, fmtTime, autoFadePos, parseMidi, midiKey, routeMidi } from '../live-dj/core.js';
 export { clamp, ease, posterFrame, POSTER_COLORS, parseTitle, fmtTime, autoFadePos, parseMidi, midiKey, routeMidi };
 

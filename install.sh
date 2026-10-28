@@ -24,7 +24,7 @@ Categories=AudioVideo;Video;
 Actions=live;vj;tools;
 
 [Desktop Action live]
-Name=Live DJ Mixer
+Name=Video DJ
 Exec=python3 "$DEST/spektronautilus.py" --path live-dj/
 
 [Desktop Action vj]

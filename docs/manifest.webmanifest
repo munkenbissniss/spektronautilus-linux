@@ -13,7 +13,7 @@
     { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ],
   "shortcuts": [
-    { "name": "Live DJ Mixer", "url": "live-dj/" },
+    { "name": "Video DJ", "url": "live-dj/" },
     { "name": "VJ Mixer", "url": "vj-pad/" },
     { "name": "Magic Mixer", "url": "mixer/" },
     { "name": "Loop tools", "url": "tools/app/" }

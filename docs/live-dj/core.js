@@ -1,4 +1,4 @@
-// Pure logic for the Live Video DJ Mixer. No DOM here, so it can be tested in Node.
+// Pure logic for the Video DJ. No DOM here, so it can be tested in Node.
 export const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
 export const ease = t => (t = clamp(t), t * t * (3 - 2 * t));            // smoothstep for automatic fades
 const easeOut = t => 1 - Math.pow(1 - clamp(t), 3);

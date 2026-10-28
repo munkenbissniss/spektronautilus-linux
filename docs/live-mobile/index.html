@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Live Mixer Mobile – Spektronautilus</title>
-<meta name="description" content="A simple live video mixer for your phone: two decks, crossfader, effects, text posters and a way to send the picture to another screen.">
+<title>Video DJ Mobile – Spektronautilus</title>
+<meta name="description" content="A simple video DJ mixer for your phone: two decks, crossfader, effects, text posters and a way to send the picture to another screen.">
 <link rel="icon" href="../favicon.svg" type="image/svg+xml">
 <meta name="theme-color" content="#0b0d1e">
 <style>
@@ -42,12 +42,12 @@ textarea{width:100%;font:.75rem ui-monospace,monospace;min-height:90px;border:1p
 </style>
 <link rel="manifest" href="../manifest.webmanifest">
 <script src="../shared/sw-register.js" defer></script>
-<script src="../shared/i18n.js"></script>
+<script src="../shared/i18n.js"></script><script src="../shared/extras.js" data-guide="video-dj" defer></script>
 <script src="../shared/check.js"></script>
 </head>
 <body>
 <div class="wrap" role="main">
-<div class="top"><div><a class="back" href="../">← Spektronautilus</a><h1>Live Mixer <span class="chip">phone</span></h1></div><div class="sp"></div><button id="fs" class="sm">Full screen</button><button id="theme" class="sm" aria-label="Light or dark theme">Theme</button></div>
+<div class="top"><div><a class="back" href="../">← Spektronautilus</a><h1>Video DJ <span class="chip">phone</span></h1></div><div class="sp"></div><button id="fs" class="sm">Full screen</button><button id="theme" class="sm" aria-label="Light or dark theme">Theme</button></div>
 
 <div id="stage"><canvas id="prog" width="960" height="540"></canvas><button class="sm fsx" id="fsx">Close</button></div>
 

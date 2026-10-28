@@ -366,8 +366,6 @@ window.SPK_DICT=window.SPK_DICT||{};SPK_DICT.de={
 "Link copied.": "Link kopiert.",
 "Listening… the beat follows the kick drum.": "Höre zu… der Beat folgt der Bassdrum.",
 "Little free space ({a} GB). Free up disk space before you record.": "Wenig freier Speicher ({a} GB). Schaffe Platz auf der Festplatte, bevor du aufnimmst.",
-"Live Mixer": "Live-Mixer",
-"Live Video DJ Mixer": "Live-Video-DJ-Mixer",
 "Load a track on deck {a} first.": "Lade zuerst einen Titel auf Deck {a}.",
 "Load a video on deck {a} first.": "Lade zuerst ein Video auf Deck {a}.",
 "Load more results": "Mehr Ergebnisse laden",
