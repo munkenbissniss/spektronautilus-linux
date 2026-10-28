@@ -76,6 +76,19 @@ export class NativeEngine {
     if (!out) throw new Error('The local engine stopped. If you pressed Stop this is normal.');
     return { code: out.code, log: out.log };
   }
+  // AI upscaling: runs the separate program Video2X on this computer (only when it is installed; see info.v2x)
+  async v2x(args, { onProgress } = {}) {
+    const r = await fetch('/api/v2x-exec', { method: 'POST', headers: { 'X-Spk': '1', 'Content-Type': 'application/json' }, body: JSON.stringify(args) });
+    if (!r.ok || !r.body) throw new Error('The local engine did not start Video2X (' + r.status + ').');
+    const rd = r.body.getReader(), dec = new TextDecoder(); let buf = '', out = null;
+    for (;;) {
+      const { value, done } = await rd.read(); if (done) break; buf += dec.decode(value, { stream: true });
+      let i; while ((i = buf.indexOf('\n')) >= 0) { const line = buf.slice(0, i); buf = buf.slice(i + 1); if (!line) continue; const m = JSON.parse(line); if (m.p != null) onProgress && onProgress(m.p); else out = m; }
+    }
+    if (!out) throw new Error('The local engine stopped. If you pressed Stop this is normal.');
+    return { code: out.code, log: out.log };
+  }
+  async v2xGpus() { const r = await fetch('/api/v2x-gpus', { headers: { 'X-Spk': '1' } }); return r.ok ? r.json() : { ok: false }; }
   async write(path, data) { await this._put(path, data); }
   async read(path) { const r = await fetch('/api/fs/' + encodeURI(path), { headers: { 'X-Spk': '1' } }); if (!r.ok) throw new Error('Could not read ' + path + ' from the local engine.'); return new Uint8Array(await r.arrayBuffer()); }
   async remove(path) { try { await fetch('/api/fs/' + encodeURI(path), { method: 'DELETE', headers: { 'X-Spk': '1' } }); } catch (e) { /* ignore */ } }
@@ -98,6 +111,8 @@ class AutoEngine {
   }
   async load(onStatus) { const e = await this.pick(); return e.load(onStatus); }
   async exec(a, o) { return (await this.pick()).exec(a, o); }
+  async v2x(a, o) { const e = await this.pick(); if (!e.v2x) throw new Error('AI upscaling needs the Linux (local) version.'); return e.v2x(a, o); }
+  async v2xGpus() { const e = await this.pick(); return e.v2xGpus ? e.v2xGpus() : { ok: false }; }
   async write(p, d) { return (await this.pick()).write(p, d); }
   async read(p) { return (await this.pick()).read(p); }
   async remove(p) { return (await this.pick()).remove(p); }

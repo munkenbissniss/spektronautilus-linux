@@ -13,7 +13,7 @@ Only Python 3.8+ is needed (nothing to pip install). ffmpeg is optional but reco
   spektronautilus.py --window        open in a normal browser window instead of an app window
   spektronautilus.py --port 9000     use another port (the browser remembers your settings per port, so keep it the same)
 """
-import argparse, atexit, http.server, json, os, re, shutil, signal, socket, subprocess, sys, tempfile, threading, time, urllib.parse, urllib.request
+import glob, argparse, atexit, http.server, json, os, re, shutil, signal, socket, subprocess, sys, tempfile, threading, time, urllib.parse, urllib.request
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -43,6 +43,48 @@ def ffmpeg_info():
     if "libx264" not in enc: return {"ok": False, "why": "this ffmpeg has no H.264 encoder (libx264)"}
     return {"ok": True, "version": m.group(1) if m else "", "cores": os.cpu_count() or 1, "path": exe}
 
+# ------------------------------------------------------------------ Video2X (AI upscaling, optional, installed by the user)
+def v2x_find():
+    """Video2X is a separate program (AppImage, AUR or your own build). We never ship it, we only start it if it is there."""
+    cands = [os.environ.get("SPEKTRO_VIDEO2X", ""), shutil.which("video2x") or "", str(Path.home() / ".local/bin/video2x")]
+    for pat in ("~/Applications/*ideo2*", "~/Downloads/*ideo2*.AppImage", "~/.local/bin/*ideo2*.AppImage", "/opt/video2x/*"):
+        cands += sorted(glob.glob(os.path.expanduser(pat)), key=lambda x: -os.path.getmtime(x))
+    for c in cands:
+        if c and os.path.isfile(c) and os.access(c, os.X_OK): return c
+    return ""
+
+def v2x_info():
+    exe = v2x_find()
+    if not exe: return {"ok": False, "why": "Video2X was not found"}
+    ver = ""
+    try:
+        o = subprocess.run([exe, "--version"], capture_output=True, text=True, timeout=15)
+        ver = ((o.stdout or "") + (o.stderr or "")).strip().splitlines()[0][:60] if (o.stdout or o.stderr).strip() else ""
+    except Exception:
+        pass
+    return {"ok": True, "path": exe, "version": ver}
+
+# Only these options (with values of the right shape) can reach Video2X. File names must stay inside the temporary folder.
+V2X_FLAGS = {"-p": r"(realesrgan|libplacebo)", "-s": r"[2-4]", "-c": r"(libx264|libx265|libx264rgb)", "-e": r"(crf=\d{1,2}|preset=[a-z]+)", "-g": r"\d{1,2}",
+             "--realesrgan-model": r"[\w.+-]{1,60}", "--libplacebo-shader": r"[\w.+-]{1,60}", "-w": r"\d{2,5}", "-h": r"\d{2,5}"}
+def v2x_args_ok(args, st):
+    if not isinstance(args, list) or not args or not all(isinstance(a, str) for a in args) or len(args) % 2: return False
+    seen = set()
+    for i in range(0, len(args), 2):
+        k, v = args[i], args[i + 1]
+        if k in ("-i", "-o"):
+            if k in seen or v.startswith(("-", "/")) or ".." in v.replace("\\", "/").split("/") or ":" in v or not SAFE_ARG.match(v): return False
+            try: st.safe(v)
+            except ValueError: return False
+        elif k in V2X_FLAGS:
+            if not re.fullmatch(V2X_FLAGS[k], v): return False
+        else: return False
+        seen.add(k)
+    return "-i" in seen and "-o" in seen
+
+PCT = re.compile(r"(\d{1,3}(?:\.\d+)?)\s*%")
+FRAC = re.compile(r"(\d+)\s*/\s*(\d+)")
+
 SAFE_ARG = re.compile(r"^(?!/)(?!.*(^|[\\/])\.\.([\\/]|$))(?!.*:\/\/)(?!(file|pipe|http|https|tcp|udp|rtp|rtsp|concat|subfile|data|crypto|ftp|unix|async|cache|hls|md5)\s*:)(?!.*(movie=|subtitles=|fontfile|textfile|=/)).*$", re.S | re.I)   # no absolute paths, no .., no urls: ffmpeg may only touch the work folder
 DUR = re.compile(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)")
 TIME = re.compile(r"time=(\d+):(\d+):(\d+(?:\.\d+)?)")
@@ -52,7 +94,7 @@ class State:
     def __init__(self, docs, port):
         self.docs, self.port = docs, port
         self.work = Path(tempfile.mkdtemp(prefix="spektronautilus-"))
-        self.ff = ffmpeg_info(); self.procs = set(); self.lock = threading.Lock()
+        self.ff = ffmpeg_info(); self.v2x = v2x_info(); self.procs = set(); self.lock = threading.Lock()
         atexit.register(self.cleanup)
     def cleanup(self):
         self.kill()
@@ -89,7 +131,15 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if not self._host_ok(): return self._deny()
         if self.path.startswith("/api/"):
             if not self._api_ok(): return self._deny()
-            if self.path == "/api/native": return self._json(self.st.ff)
+            if self.path == "/api/native": return self._json({**self.st.ff, "v2x": self.st.v2x})
+            if self.path == "/api/v2x-gpus":
+                if not self.st.v2x.get("ok"): return self._json({"ok": False, "why": self.st.v2x.get("why")})
+                try:
+                    o = subprocess.run([self.st.v2x["path"], "--list-gpus"], capture_output=True, text=True, timeout=40, cwd=self.st.work)
+                    text = ((o.stdout or "") + "\n" + (o.stderr or "")).splitlines()
+                except Exception as e:
+                    return self._json({"ok": False, "why": str(e)})
+                return self._json({"ok": True, "lines": [l.strip() for l in text if l.strip()][-20:]})
             if self.path == "/api/ping": return self._json({"app": APP_NAME})
             if self.path.startswith("/api/fs/"):
                 try: p = self.st.safe(self.path[8:])
@@ -123,9 +173,47 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         shutil.rmtree(p, ignore_errors=True) if p.is_dir() else p.unlink(missing_ok=True)
         self._json({"ok": True})
 
+    def _v2x_exec(self):
+        if not self.st.v2x.get("ok"): return self._deny(503, "Video2X is not available")
+        try: args = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)))
+        except Exception: return self._deny(400, "Bad request")
+        if not v2x_args_ok(args, self.st): return self._deny(400, "Arguments not allowed")
+        self.send_response(200); self.send_header("Content-Type", "application/x-ndjson"); self.end_headers()
+        try:
+            proc = subprocess.Popen([self.st.v2x["path"], *args], cwd=self.st.work, stdin=subprocess.DEVNULL, stderr=subprocess.STDOUT, stdout=subprocess.PIPE, preexec_fn=lambda: os.nice(5))
+        except Exception as e:
+            self.wfile.write((json.dumps({"code": 127, "log": [str(e)]}) + "\n").encode()); return
+        with self.st.lock: self.st.procs.add(proc)
+        log, last, buf = [], 0.0, b""
+        try:
+            while True:
+                chunk = proc.stdout.read1(4096) if hasattr(proc.stdout, "read1") else proc.stdout.read(4096)
+                if not chunk: break
+                buf += chunk; parts = re.split(rb"[\r\n]+", buf); buf = parts.pop()
+                for raw in parts:
+                    line = raw.decode("utf-8", "replace")
+                    if not line.strip(): continue
+                    log.append(line[:300])
+                    p = None
+                    m = FRAC.search(line)
+                    if m and int(m[2]) > 0 and int(m[1]) <= int(m[2]): p = int(m[1]) / int(m[2])
+                    else:
+                        m = PCT.search(line)
+                        if m and float(m[1]) <= 100: p = float(m[1]) / 100
+                    if p is not None and p - last >= 0.01:
+                        last = p; self.wfile.write((json.dumps({"p": round(p, 3)}) + "\n").encode()); self.wfile.flush()
+            if buf: log.append(buf.decode("utf-8", "replace")[:300])
+            code = proc.wait()
+            self.wfile.write((json.dumps({"code": code, "log": log[-300:]}) + "\n").encode())
+        except (BrokenPipeError, ConnectionResetError):
+            proc.kill()
+        finally:
+            with self.st.lock: self.st.procs.discard(proc)
+
     def do_POST(self):
         if not self._api_ok(): return self._deny()
         if self.path == "/api/kill": self.st.kill(); return self._json({"ok": True})
+        if self.path == "/api/v2x-exec": return self._v2x_exec()
         if self.path != "/api/exec": return self._deny(404, "Not found")
         if not self.st.ff.get("ok"): return self._deny(503, "ffmpeg is not available")
         try: args = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)))
@@ -205,6 +293,7 @@ def main():
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     url = f"http://127.0.0.1:{port}/{a.path}"
     print(f"Spektronautilus is running at {url}")
+    print("AI upscaling with Video2X: " + (f"ON ({st.v2x['path']})" if st.v2x.get("ok") else "OFF (optional, see README-LINUX.txt)"))
     print("Fast converting with ffmpeg: " + (f"ON (ffmpeg {st.ff['version']}, {st.ff['cores']} cores)" if st.ff.get("ok") else f"OFF ({st.ff.get('why')}). Install ffmpeg (for example: sudo apt install ffmpeg) to turn it on."))
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     try:

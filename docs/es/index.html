@@ -26,7 +26,8 @@ header.top .wrap{display:flex;align-items:center;gap:18px;flex-wrap:wrap;padding
 nav.main{display:flex;gap:2px 14px;flex-wrap:wrap;flex:1}
 nav.main a{color:var(--ink);text-decoration:none;padding:4px 2px;border-bottom:2px solid transparent;font-size:.95rem}
 nav.main a:hover,nav.main a[aria-current]{border-color:var(--b)}
-.lang{display:flex;gap:6px;font-size:.85rem}.lang a{color:var(--mute);text-decoration:none;border:1px solid var(--line);border-radius:999px;padding:1px 9px}.lang a[aria-current]{color:var(--ink);border-color:var(--ink)}
+.ld .ddm a{color:var(--ink);text-decoration:none}
+.ld{position:relative;margin-left:auto;font-size:.85rem}.ld .ddb{border:1px solid var(--line);border-radius:999px;padding:3px 11px;color:var(--mute)}.ld .ddm{left:auto;right:0;min-width:140px}
 main{padding:28px 0 40px}
 h1{font-size:2.2rem;letter-spacing:-.03em;line-height:1.15;margin:6px 0 8px}h2{font-size:1.25rem;margin:26px 0 8px}h3{font-size:1.05rem;margin:0 0 4px}
 .lead{font-size:1.15rem;color:var(--mute);max-width:46em;margin:0 0 20px}
@@ -47,7 +48,7 @@ details{border-top:1px solid var(--line);padding:8px 0}summary{cursor:pointer;fo
 .post time{color:var(--mute);font-size:.85rem}.post .body p{max-width:46em}
 footer{border-top:1px solid var(--line);color:var(--mute);font-size:.88rem;padding:18px 0 30px}
 footer .wrap{display:flex;gap:10px 24px;flex-wrap:wrap;justify-content:space-between}
-@media(max-width:760px){header.top .wrap{gap:6px 12px}nav.main{flex-basis:100%;order:3;gap:0 14px}.lang{margin-left:auto}h1{font-size:1.8rem}}
+@media(max-width:760px){header.top .wrap{gap:6px 12px}nav.main{flex-basis:100%;order:3;gap:0 14px}h1{font-size:1.8rem}}
 
 .qn{display:inline-block;margin-left:6px;min-width:1.3em;padding:0 6px;border-radius:999px;background:var(--b,#ff3d81);color:#fff;font-size:.75em;font-weight:800;text-align:center}.qn[hidden]{display:none}
 
@@ -80,7 +81,7 @@ footer .wrap{display:flex;gap:10px 24px;flex-wrap:wrap;justify-content:space-bet
 footer .spkx{opacity:.85}
 @media(max-width:899px){.docs{grid-template-columns:1fr;gap:10px}.dnav{position:static;max-height:none;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:2px 14px}.dnav summary::after{content:" ▾"}.doc h1{font-size:1.6rem}}
 @media(min-width:900px){.dnav summary{pointer-events:none}}
-.ui{font-weight:600;background:var(--panel);border:1px solid var(--line);border-radius:7px;padding:0 6px;white-space:nowrap}
+.ui{font-weight:600;background:var(--panel);border:1px solid var(--line);border-radius:7px;padding:0 6px;overflow-wrap:anywhere}
 kbd{font:inherit;font-size:.88em;font-weight:700;background:var(--panel);border:1px solid var(--line);border-bottom-width:2px;border-radius:6px;padding:0 6px}
 
 /* menu dropdown, footer columns, dock */
@@ -103,7 +104,7 @@ footer .fbase{align-items:center}
 var m=!localStorage.getItem('spk_desktop')&&matchMedia('(pointer:coarse) and (max-width:900px)').matches;if(!m)return;
 var map=[[/(^|\/)mixer\/$/,'$1mixer-mobile/'],[/(^|\/)live-dj\/$/,'$1live-mobile/'],[/(^|\/)vj-pad\/$/,'$1vj-mobile/']];
 document.addEventListener('DOMContentLoaded',function(){document.querySelectorAll('a[data-app]').forEach(function(a){map.forEach(function(r){a.href=a.href.replace(r[0],r[1])})})})}catch(e){}})();</script>
-<script>document.addEventListener('DOMContentLoaded',function(){var d=document.querySelector('.dd');if(!d)return;var b=d.querySelector('.ddb'),m=d.querySelector('.ddm');function set(o){m.hidden=!o;b.setAttribute('aria-expanded',o?'true':'false')}b.addEventListener('click',function(e){e.stopPropagation();set(m.hidden)});document.addEventListener('click',function(e){if(!d.contains(e.target))set(false)});document.addEventListener('keydown',function(e){if(e.key==='Escape'&&!m.hidden){set(false);b.focus()}});d.addEventListener('focusout',function(e){if(!d.contains(e.relatedTarget))set(false)})});</script>
+<script>document.addEventListener('DOMContentLoaded',function(){document.querySelectorAll('.dd,.ld').forEach(function(d){var b=d.querySelector('.ddb'),m=d.querySelector('.ddm');function set(o){m.hidden=!o;b.setAttribute('aria-expanded',o?'true':'false')}b.addEventListener('click',function(e){e.stopPropagation();var o=m.hidden;document.querySelectorAll('.ddm').forEach(function(x){x.hidden=true});set(o)});document.addEventListener('click',function(e){if(!d.contains(e.target))set(false)});document.addEventListener('keydown',function(e){if(e.key==='Escape'&&!m.hidden){set(false);b.focus()}});d.addEventListener('focusout',function(e){if(!d.contains(e.relatedTarget))set(false)})})});</script>
 <script>document.addEventListener('DOMContentLoaded',function(){function u(){try{var o=JSON.parse(localStorage.getItem('spk_q')||'{}'),n=Date.now()-(o.t||0)<30000?o.n||0:0;document.querySelectorAll('.qn').forEach(function(b){b.hidden=!n;b.textContent=n})}catch(e){}}u();addEventListener('storage',u);setInterval(u,4000)});try{localStorage.setItem('spk_lang','es')}catch(e){}</script>
 <script src="../shared/sw-register.js" defer></script>
 <script src="../shared/extras.js" data-dock="1" defer></script>
@@ -113,7 +114,7 @@ document.addEventListener('DOMContentLoaded',function(){document.querySelectorAl
 <header class="top"><div class="wrap">
 <a class="brand" href="../es/"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Spektronautilus"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2b3af0"/><stop offset="1" stop-color="#ff3d81"/></linearGradient></defs><path d="M32 8a24 24 0 1 1-24 24c0-13 10-20 21-20 10 0 17 7 17 16 0 8-6 13-13 13-6 0-10-4-10-9 0-4 3-7 7-7 3 0 5 2 5 4" fill="none" stroke="url(#g)" stroke-width="5" stroke-linecap="round"/></svg><span>Spektronautilus</span></a>
 <nav class="main" aria-label="Main"><a href="../es/" aria-current=page>Inicio</a><div class="dd"><button type="button" class="ddb" aria-expanded="false" aria-haspopup="true">Mezcladores <span aria-hidden="true">▾</span></button><div class="ddm" hidden><a href="../es/magic-mixer/">Mezclador mágico</a><a href="../es/live-mixer/">Video DJ</a><a href="../es/vj-mixer/">Mezclador VJ</a></div></div><a href="../es/tools/">Herramientas</a><a href="../es/packs/">Packs de loops</a><a href="../es/guides/">Guías</a></nav>
-<div class="lang" role="navigation" aria-label="Idioma"><a href="../" hreflang="en" lang="en">English</a><a href="../de/" hreflang="de" lang="de">Deutsch</a><a href="../es/" hreflang="es" lang="es" aria-current=true>Español</a><a href="../no/" hreflang="no" lang="no">Norsk</a><a href="../pt/" hreflang="pt" lang="pt">Português</a></div>
+<div class="ld" role="navigation" aria-label="Idioma"><button type="button" class="ddb" aria-expanded="false" aria-haspopup="true" aria-label="Idioma">🌐 ES <span aria-hidden="true">▾</span></button><div class="ddm" hidden><a href="../" hreflang="en" lang="en">English</a><a href="../de/" hreflang="de" lang="de">Deutsch</a><a href="../es/" hreflang="es" lang="es" aria-current=true>Español</a><a href="../no/" hreflang="no" lang="no">Norsk</a><a href="../pt/" hreflang="pt" lang="pt">Português</a></div></div>
 </div></header>
 <main id="main"><div class="wrap">
 <section class="hero"><div class="tag">El mezclador de video mágico</div><h1>Spektronautilus</h1><p class="lead">Herramientas gratuitas para VJs, artistas visuales y cualquiera a quien le guste mezclar música y video. Todo funciona en tu navegador. Tus archivos nunca salen de tu dispositivo.</p></section>
