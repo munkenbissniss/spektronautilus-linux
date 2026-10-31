@@ -21,7 +21,8 @@ const TOOLS = {
   crop: { label: 'Crop & trim', sub: 'Cut clips to the shape you need (widescreen, vertical, square) and trim the start and the end.', go: 'Crop and trim', gif: false },
   sizes: { label: 'Sizes', sub: 'Make several sizes of every clip at once: a small proxy for editing, 720p, 1080p, 4K.', go: 'Make sizes', gif: false },
   pro: { label: 'HAP / ProRes', sub: 'Professional formats for Resolume, VDMX, Millumin and video editors. Needs the Linux (local) version.', go: 'Export', gif: false },
-  ai: { label: 'AI upscale', sub: 'Make video clips sharper and larger with AI (Video2X). Needs the Linux (local) version, a graphics card with Vulkan and the free program Video2X.', go: 'Upscale', gif: false },
+  ai: { label: 'AI upscale', sub: 'Make video clips sharper and larger with AI (Video2X). Needs the local version (Linux or Windows), a graphics card with Vulkan and the free program Video2X.', go: 'Upscale', gif: false },
+  slowmo: { label: 'AI slow motion', sub: 'Make clips slower and smoother with AI (Video2X with RIFE). Needs the local version (Linux or Windows), a graphics card with Vulkan and the free program Video2X.', go: 'Make slow motion', gif: false },
   catalog: { label: 'Catalogue', sub: 'A list of all your loops with picture, length, size and loop quality, as a web page and a spreadsheet file.', go: 'Make catalogue', gif: false },
   pack: { label: 'Loop pack', sub: 'Bundle loops into one zip that is ready to share: preview picture, info file, credits and licence.', go: 'Build pack', gif: false },
   search: { label: 'Find loops', sub: 'Search free sources for loops, download them and convert them to VJ-friendly clips.', go: 'Download and convert selected', gif: false },
@@ -57,7 +58,12 @@ const GROUPS = [
     { k: 'proFormat', t: 'select', x: 1, l: 'Format', o: Object.entries(PRO_FORMATS).map(([k, v]) => [k, v.label]), h: 'HAP plays smoothly in Resolume, VDMX, Millumin and others, because the graphics card does the work. ProRes is for editors like Final Cut and DaVinci Resolve. Files are .mov and much bigger than mp4.' }] },
   { g: 'AI upscale', open: true, tools: 'ai', f: [
     { k: 'aiModel', t: 'select', x: 1, l: 'Kind of picture', o: [['realesr-animevideov3', 'Cartoons and animation'], ['realesrgan-plus', 'Photos and real film (always 4×)'], ['anime4k', 'Fast, for animation (Anime4K)']] },
-    { k: 'aiScale', t: 'select', x: 1, num: 1, l: 'Make it this much bigger', o: [['2', '2× (double)'], ['3', '3× (triple)'], ['4', '4× (four times)']] },
+    { k: 'aiScale', t: 'select', x: 1, num: 1, l: 'Make it this much bigger', o: [['2', '2× (double)'], ['3', '3× (triple)'], ['4', '4× (four times)']] }] },
+  { g: 'AI slow motion', open: true, tools: 'slowmo', f: [
+    { k: 'slowFactor', t: 'select', x: 1, num: 1, l: 'How much slower', o: [['2', '2× slower'], ['4', '4× slower'], ['8', '8× slower']] },
+    { k: 'slowMode', t: 'select', x: 1, l: 'Result', o: [['slow', 'Slow motion (the clip gets longer)'], ['smooth', 'Same speed, but smoother (more frames per second)']] },
+    { k: 'slowModel', t: 'select', x: 1, l: 'Model', o: [['rife-v4.6', 'General video'], ['rife-v4.26', 'Newest model']] }] },
+  { g: 'Quality and graphics card', open: true, tools: 'ai slowmo', f: [
     { k: 'aiCrf', t: 'range', x: 1, min: 12, max: 28, step: 1, l: 'Quality (lower = better, larger)' },
     { k: 'aiGpu', t: 'number', x: 1, l: 'Graphics card number', h: 'Leave on 0 unless you have more than one graphics card.' }] },
   { g: 'Catalogue', open: true, tools: 'catalog', f: [
@@ -73,14 +79,14 @@ const GROUPS = [
     { k: 'mode', t: 'select', lp: 1, o: [['auto', 'Auto: keep good loops, otherwise fix them'], ['pingpong', 'Forward, then backward'], ['crossfade', 'Crossfade end into start'], ['trim', 'Trim to the best loop point'], ['none', 'Do nothing (just convert)']], h: 'Auto: a clip that already loops is left alone; if cutting a bit off the end gives a clean loop it does that; otherwise it uses the fallback.' },
     { k: 'fallback', t: 'select', lp: 1, o: [['pingpong', 'Forward, then backward'], ['crossfade', 'Crossfade']], l: 'Auto fallback' },
     { k: 'fade', t: 'range', lp: 1, min: 0.3, max: 8, step: 0.1, l: 'Crossfade length (s)' }] },
-  { g: 'Naming', open: true, naming: true, tools: 'convert gif2mp4 loop filters search crop sizes pro ai', f: [
+  { g: 'Naming', open: true, naming: true, tools: 'convert gif2mp4 loop filters search crop sizes pro ai slowmo', f: [
     { k: 'template', t: 'text', n: 1, l: 'Name template', h: 'Tokens: {name} {n} {n2} {n3} {n4} {w} {h} {res} {fps} {dur} {date}' },
     { k: 'prefix', t: 'text', n: 1 }, { k: 'suffix', t: 'text', n: 1 },
     { k: 'start', t: 'number', n: 1, l: 'First number' },
     { k: 'case', t: 'select', n: 1, o: [['keep', 'Keep'], ['lower', 'lowercase'], ['upper', 'UPPERCASE']] },
     { k: 'spaces', t: 'select', n: 1, o: [['_', 'Underscore _'], ['-', 'Dash -'], ['keep', 'Keep spaces']] },
     { k: 'ascii', t: 'bool', n: 1, l: 'Plain letters only (æøå → ae o a)' }] },
-  { g: 'Saving', open: true, tools: 'convert gif2mp4 loop filters search crop sizes pro ai', f: [
+  { g: 'Saving', open: true, tools: 'convert gif2mp4 loop filters search crop sizes pro ai slowmo', f: [
     { k: 'saveDirect', t: 'bool', x: 1, l: 'Save each file straight into a folder I choose', h: 'Chrome and Edge only. Saves memory with many or big files. Otherwise results stay in the page until you download them.' },
     { k: 'loopify', t: 'select', x: 1, srch: 1, o: [['none', 'Just convert'], ['auto', 'Make them seamless loops (auto)'], ['pingpong', 'Forward, then backward'], ['crossfade', 'Crossfade']], l: 'Downloaded clips' }] },
 ];
@@ -98,7 +104,7 @@ function fld(f) {
 }
 function buildSettings() {
   $('#groups').innerHTML = GROUPS.map(g => `<details data-g="${g.g}" data-tools="${g.tools || ''}" ${g.open ? 'open' : ''} class="${g.loop ? 'loopg' : ''}"><summary>${g.g}</summary><div class="fields">${g.f.map(fld).join('')}${g.naming ? '<div class="f" style="grid-column:1/-1"><label>Preview</label><div class="prev" id="nprev">Add files to see the new names.</div></div>' : ''}</div></details>`).join('');
-  const P = { ...defaultProfile(), preset: 'veryfast' }, N = defaultNaming(), X = { saveDirect: false, loopify: 'none', mode: 'auto', fallback: 'pingpong', fade: 1.5, cropShape: '169', cropPos: 'c', trimStart: 0, trimLen: 0, proFormat: 'hap', aiModel: 'realesr-animevideov3', aiScale: 2, aiCrf: 17, aiGpu: 0, catTitle: 'My loop catalogue', checkLoop: true, packName: 'My loop pack', packAuthor: '', packLicence: 'ccby', packNotes: '', packLoop: true };
+  const P = { ...defaultProfile(), preset: 'veryfast' }, N = defaultNaming(), X = { saveDirect: false, loopify: 'none', mode: 'auto', fallback: 'pingpong', fade: 1.5, cropShape: '169', cropPos: 'c', trimStart: 0, trimLen: 0, proFormat: 'hap', aiModel: 'realesr-animevideov3', aiScale: 2, aiCrf: 17, aiGpu: 0, slowFactor: 2, slowMode: 'slow', slowModel: 'rife-v4.6', catTitle: 'My loop catalogue', checkLoop: true, packName: 'My loop pack', packAuthor: '', packLicence: 'ccby', packNotes: '', packLoop: true };
   GROUPS.forEach(g => g.f.forEach(f => {
     const e = $('#o_' + f.k); if (!e) return;
     const v = f.n ? N[f.k] : (f.x || f.lp) ? X[f.k] : P[f.k];
@@ -202,7 +208,7 @@ function namePrev() {
     const sel = FILES[tool].filter(f => SEL[tool].has(f.id));
     if (!sel.length) { el.textContent = 'Add files to see the new names.'; return; }
     const { naming } = collect(), taken = new Set();
-    const fl0 = tool === 'filters' ? (FILTERS.find(x => FSEL.has(x.id)) || FILTERS[0]).id : null, v0 = tool === 'sizes' ? ((SIZE_STEPS.find(z => SSEL.has(z[0])) || SIZE_STEPS[1])[0] + 'p') : tool === 'ai' ? aiVariant(collect().ex) : null;
+    const fl0 = tool === 'filters' ? (FILTERS.find(x => FSEL.has(x.id)) || FILTERS[0]).id : null, v0 = tool === 'sizes' ? ((SIZE_STEPS.find(z => SSEL.has(z[0])) || SIZE_STEPS[1])[0] + 'p') : isAi(tool) ? aiVariant(collect().ex, tool) : null;
     const ext = tool === 'pro' ? (PRO_FORMATS[$('#o_proFormat').value] || PRO_FORMATS.hap).ext : '.mp4';
     const rows = sel.map((f, i) => `${f.name}  →  ${makeName(f.name, i, fl0 ? withFilterTemplate(naming) : v0 ? withVariantTemplate(naming) : naming, f.meta, taken, f.folder, fl0 ? { filter: fl0 } : v0 ? { variant: v0 } : {})}${ext}`);
     el.textContent = rows.slice(0, 12).join('\n') + (rows.length > 12 ? `\n… and ${rows.length - 12} more` : '');
@@ -226,15 +232,18 @@ async function ensureEngine() { await engine.load(engineStatus); engineStatus(''
 if (engine.pick) engine.pick().then(nativeBadge).catch(() => {});             // the local (Linux) version is recognised straight away; the web version waits until you start a job
 
 // AI upscale: the name part that says what was done, e.g. clip_ai2x
-const aiVariant = ex => 'ai' + (ex.aiModel === 'realesrgan-plus' ? 4 : (+ex.aiScale || 2)) + 'x';
+const aiVariant = (ex, t = 'ai') => t === 'slowmo' ? (ex.slowMode === 'smooth' ? 'smooth' : 'slow') + (+ex.slowFactor || 2) + 'x' : 'ai' + (ex.aiModel === 'realesrgan-plus' ? 4 : (+ex.aiScale || 2)) + 'x';
+const isAi = t => t === 'ai' || t === 'slowmo', gpuArgs = (ex, v) => +ex.aiGpu > 0 ? [(v && v.dev) || '-g', String(Math.round(+ex.aiGpu))] : [];
 function aiNote() {
   const el = $('#ainote'); if (!el) return;
-  el.classList.toggle('hide', tool !== 'ai');
-  if (tool !== 'ai') return;
+  el.classList.toggle('hide', !isAi(tool));
+  if (!isAi(tool)) return;
   const native = engine.kind === 'native', v = native && engine.info && engine.info.v2x;
-  $('#ainote-t').textContent = !native ? 'AI upscaling needs the Linux (local) version of Spektronautilus. The web version cannot do it. Everything else on this page works in the browser.'
-    : v && v.ok ? 'Video2X found: ' + (v.version || v.path) : 'Video2X was not found on this computer. Install it (AppImage, AUR or your own build), or set SPEKTRO_VIDEO2X to its path, then start Spektronautilus again.';
+  $('#ainote-t').textContent = !native ? 'AI upscaling and slow motion need the local version of Spektronautilus (Linux or Windows). The web version cannot do it. Everything else on this page works in the browser.'
+    : v && v.ok ? (tool === 'slowmo' && v.rife === false ? 'This Video2X cannot do slow motion. Update Video2X to version 6 or newer.' : 'Video2X found: ' + (v.version || v.path))
+    : 'Video2X was not found on this computer. Install it, then start Spektronautilus again. If it is installed somewhere unusual, set SPEKTRO_VIDEO2X to its path (see the guide).';
   $('#aigpu').classList.toggle('hide', !(v && v.ok));
+  const g = $('#aiguide'); if (g) g.hash = tool === 'slowmo' ? '#slowmo' : '#ai';
 }
 $('#aigpu').onclick = async () => {
   const out = $('#aigpus'); out.classList.remove('hide'); out.textContent = 'Asking Video2X…'; $('#aigpu').disabled = true;
@@ -280,26 +289,27 @@ function renderSrcs() {
   $('#srcs').innerHTML = SR.status().map(s => `<label class="srcchip ${SRCSEL.has(s.name) ? 'sel' : ''} ${s.ready ? '' : 'off'}" title="${s.ready ? '' : 'Needs a free API key – see below'}"><input type="checkbox" data-s="${s.name}" ${SRCSEL.has(s.name) ? 'checked' : ''} ${s.ready ? '' : 'disabled'}>${esc(s.label)}${s.ready ? '' : ' 🔑'}</label>`).join('');
 }
 $('#srcs').onchange = e => { const s = e.target.dataset.s; if (!s) return; e.target.checked ? SRCSEL.add(s) : SRCSEL.delete(s); renderSrcs(); };
-$('#savekeys').onclick = () => { SR.setKey('pexels', $('#k_pexels').value); SR.setKey('pixabay', $('#k_pixabay').value); SR.status().filter(s => s.ready).forEach(s => SRCSEL.add(s.name)); renderSrcs(); $('#keymsg').textContent = 'Saved in this browser.'; };
+$('#savekeys').onclick = () => { SR.setKey('pexels', $('#k_pexels').value); SR.setKey('pixabay', $('#k_pixabay').value); SR.defaultSources().forEach(n => SRCSEL.add(n)); renderSrcs(); $('#keymsg').textContent = 'Saved in this browser.'; };
 let SQ = null;   // the search that "Load more" continues
 async function doSearch(more = false) {
   const q = more && SQ ? SQ.q : $('#q').value.trim(); if (!q) { $('#smsg').textContent = 'Type what you are looking for.'; return; }
   const page = more && SQ ? SQ.page + 1 : 1;
   $('#smsg').textContent = 'Searching…'; $('#dosearch').disabled = true; $('#more').disabled = true;
   try {
-    const o = { loopWord: $('#loopword').checked, minHeight: +$('#minh').value, minSeconds: +$('#mins').value || 0, maxSeconds: +$('#maxs').value || 0, orientation: $('#orient').value, pixabayType: $('#ptype').value, page };
+    const caps = [+$('#maxs').value || 0, $('#short').checked ? 60 : 0].filter(Boolean);
+    const o = { loopWord: $('#loopword').checked, minHeight: +$('#minh').value, minSeconds: +$('#mins').value || 0, maxSeconds: caps.length ? Math.min(...caps) : 0, hideGov: $('#hidegov').checked, loopsFirst: $('#loopsfirst').checked, orientation: $('#orient').value, pixabayType: $('#ptype').value, page };
     const r = await SR.search(q, [...SRCSEL], o);
-    const have = new Set(RES.map(x => x.provider + ':' + x.id)), fresh = r.results.filter(x => !have.has(x.provider + ':' + x.id));
+    const have = new Set(more ? RES.map(x => x.provider + ':' + x.id) : []), fresh = r.results.filter(x => !have.has(x.provider + ':' + x.id));
     if (more) RES = RES.concat(fresh); else { RES = fresh; RSEL = new Set(); }
     SQ = { q, page }; renderResults();
     const er = Object.entries(r.errors).map(([k, v]) => `${k}: ${v}`).join(' · ');
-    $('#smsg').innerHTML = (RES.length ? `${RES.length} clips found${more && !fresh.length ? ' (nothing new on this page)' : ''}.` : 'Nothing found. Try other words.') + (er ? ` <span class="warn">${esc(er)}</span>` : '');
+    $('#smsg').innerHTML = (RES.length ? `${RES.length} clips found${more && !fresh.length ? ' (nothing new on this page)' : ''}.` : 'Nothing found. Try other words.') + (r.hidden ? ` <span class="muted">${r.hidden} hidden by your filters</span>` : '') + (er ? ` <span class="warn">${esc(er)}</span>` : '');
   } catch (e) { $('#smsg').textContent = e.message; }
   $('#dosearch').disabled = false; $('#more').disabled = false; runInfo();
 }
 function renderResults() {
   $('#rtools').classList.toggle('hide', !RES.length); $('#moretools').classList.toggle('hide', !RES.length); $('#rcount').textContent = RES.length ? `${RSEL.size} selected` : '';
-  $('#results').innerHTML = RES.map((r, i) => `<div class="rc ${RSEL.has(i) ? 'sel' : ''}" data-i="${i}">${r.thumb ? `<img loading="lazy" referrerpolicy="no-referrer" alt="" src="${esc(r.thumb)}" onerror="this.style.visibility='hidden'">` : '<img alt="">'}<div class="b"><span class="t" title="${esc(r.title)}">${esc(r.title)}</span><span class="muted">${esc(r.provider)} · ${r.height ? r.width + '×' + r.height : 'size ?'} · ${r.duration ? Math.round(r.duration) + ' s' : '? s'}</span><span class="muted" title="${esc(r.author)}">${esc(r.license || 'licence ?')}${r.author ? ' · ' + esc(r.author) : ''}</span>${r.page ? `<a href="${esc(r.page)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="font-size:.78rem">Open page ↗</a>` : ''}</div></div>`).join('');
+  $('#results').innerHTML = RES.map((r, i) => `<div class="rc ${RSEL.has(i) ? 'sel' : ''}" data-i="${i}">${r.thumb ? `<img loading="lazy" referrerpolicy="no-referrer" alt="" src="${esc(r.thumb)}" onerror="this.style.visibility='hidden'">` : '<img alt="">'}<div class="b"><span class="t" title="${esc(r.title)}">${esc(r.title)}</span><span class="muted">${esc(r.provider)} · ${r.height ? r.width + '×' + r.height : 'size ?'} · ${r.duration ? Math.round(r.duration) + ' s' : (r.kind === 'gif' ? 'GIF' : '? s')}</span>${r.loops ? '<span class="loopb">🔁 loops</span>' : ''}<span class="muted" title="${esc(r.author)}">${esc(r.license || 'licence ?')}${r.author ? ' · ' + esc(r.author) : ''}</span>${r.page ? `<a href="${esc(r.page)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="font-size:.78rem">Open page ↗</a>` : ''}</div></div>`).join('');
 }
 $('#results').onclick = e => { const c = e.target.closest('.rc'); if (!c) return; const i = +c.dataset.i; RSEL.has(i) ? RSEL.delete(i) : RSEL.add(i); c.classList.toggle('sel'); $('#rcount').textContent = `${RSEL.size} selected`; runInfo(); };
 $('#rall').onclick = () => { RES.forEach((_, i) => RSEL.add(i)); renderResults(); runInfo(); };
@@ -353,7 +363,7 @@ async function processOne(job, src, idx, srcName, folder, c, flt, v) {
       const [bw, bh] = info.height > info.width ? [v.h, v.w] : [v.w, v.h];
       if (info.width < bw * 0.98 && info.height < bh * 0.98) return { skip: `${v.id}p skipped: the clip is only ${info.width}x${info.height}` };
     }
-    const aiv = job.tool === 'ai' ? aiVariant(c.ex) : null;
+    const aiv = isAi(job.tool) ? aiVariant(c.ex, job.tool) : null;
     const nm = flt ? withFilterTemplate(c.naming) : (v || aiv) ? withVariantTemplate(c.naming) : c.naming;
     const base = makeName(srcName, idx, nm, { ...info }, job.taken, folder, flt ? { filter: flt } : v ? { variant: v.id + 'p' } : aiv ? { variant: aiv } : {}), out = `o_${job.id}_${idx}${ext}`;
     const prog = r => { job.progress = (job.finished + r) / job.total; job.dirty = true; };
@@ -362,11 +372,25 @@ async function processOne(job, src, idx, srcName, folder, c, flt, v) {
       const plus = c.ex.aiModel === 'realesrgan-plus', sc = plus ? 4 : (+c.ex.aiScale || 2), anime4k = c.ex.aiModel === 'anime4k';
       if (info.width * sc > 7680 || info.height * sc > 7680) throw new Error('The result would be larger than 8K. Choose a smaller scale or a smaller clip.');
       const args = ['-i', path, '-o', out, ...(anime4k ? ['-p', 'libplacebo', '--libplacebo-shader', 'anime4k-v4-a+a', '-w', String(Math.round(info.width * sc / 2) * 2), '-h', String(Math.round(info.height * sc / 2) * 2)]
-        : ['-p', 'realesrgan', '--realesrgan-model', c.ex.aiModel, '-s', String(sc)]), '-c', 'libx264', '-e', 'crf=' + Math.round(+c.ex.aiCrf || 17), ...(+c.ex.aiGpu > 0 ? ['-g', String(Math.round(+c.ex.aiGpu))] : [])];
+        : ['-p', 'realesrgan', '--realesrgan-model', c.ex.aiModel, '-s', String(sc)]), '-c', 'libx264', '-e', 'crf=' + Math.round(+c.ex.aiCrf || 17), ...gpuArgs(c.ex, engine.info && engine.info.v2x)];
       const t0 = Date.now(), tick = setInterval(() => { const s = Math.round((Date.now() - t0) / 1000); job.current = `${srcName} · ` + (window.SPK_T ? window.SPK_T('AI upscaling… {a}').replace('{a}', Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0')) : 'AI upscaling… ' + s + ' s'); job.dirty = true; }, 1000);
       let r; try { r = await engine.v2x(args, { onProgress: prog }); } finally { clearInterval(tick); }
       if (r.code !== 0) throw new Error('Could not upscale this file (' + (r.log.filter(l => /error|invalid|fail|not supported|unknown|vulkan/i.test(l)).slice(-1)[0] || 'code ' + r.code).slice(0, 160) + ')');
       note = `${info.width}x${info.height} → ${info.width * sc}x${info.height * sc}`;
+    } else if (job.tool === 'slowmo') {
+      const m = Math.round(+c.ex.slowFactor) || 2, smooth = c.ex.slowMode === 'smooth', fps = info.fps || 25;
+      if (smooth && fps * m > 120) throw new Error('The result would have more than 120 frames per second. Choose a smaller number, or slow motion instead.');
+      const tmp = smooth ? out : `t_${job.id}_${idx}.mp4`;
+      const args = ['-i', path, '-o', tmp, '-p', 'rife', '--rife-model', c.ex.slowModel, (engine.info && engine.info.v2x && engine.info.v2x.mul) || '-m', String(m), '-c', 'libx264', '-e', 'crf=' + Math.round(+c.ex.aiCrf || 17), ...gpuArgs(c.ex, engine.info && engine.info.v2x)];
+      const t0 = Date.now(), tick = setInterval(() => { const s = Math.round((Date.now() - t0) / 1000); job.current = `${srcName} · ` + (window.SPK_T ? window.SPK_T('AI slow motion… {a}').replace('{a}', Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0')) : 'AI slow motion… ' + s + ' s'); job.dirty = true; }, 1000);
+      let r; try { r = await engine.v2x(args, { onProgress: x => prog(smooth ? x : x * .95) }); } finally { clearInterval(tick); }
+      if (r.code !== 0) throw new Error('Could not make slow motion of this file (' + (r.log.filter(l => /error|invalid|fail|not supported|unknown|vulkan|rife/i.test(l)).slice(-1)[0] || 'code ' + r.code).slice(0, 160) + ')');
+      if (!smooth) {   // the new frames play at the old speed: stretch the time stamps without encoding again, and drop the sound (it would no longer fit)
+        const r2 = await engine.exec(['-y', '-itsscale', String(m), '-i', tmp, '-an', '-c', 'copy', '-movflags', '+faststart', out], {});
+        try { await engine.remove(tmp); } catch (e) { /* ignore */ }
+        if (r2.code !== 0) throw new Error('Could not make slow motion of this file (' + (r2.log.filter(l => /error|invalid|not supported|unknown/i.test(l)).slice(-1)[0] || '') + ')');
+      }
+      note = smooth ? `${Math.round(fps)} → ${Math.round(fps * m)} fps` : `${m}× slower`;
     } else if (job.tool === 'crop') {
       const cr = cropFor(info, c.ex.cropShape === 'none' ? '' : c.ex.cropShape, c.ex.cropPos), ts = Math.max(0, +c.ex.trimStart || 0), tl = Math.max(0, +c.ex.trimLen || 0);
       if (info.duration && ts >= info.duration - 0.05) throw new Error('The start time is after the end of this clip');
@@ -492,10 +516,10 @@ async function start(kind, items) {
     try { if (engine.pick) await engine.pick(); } catch (e) { /* the engine decides below */ }
     if (engine.kind !== 'native') { $('#msg').textContent = 'HAP and ProRes need the Linux (local) version of Spektronautilus, because the web version cannot make them. Everything else on this page works in the browser.'; return; }
   }
-  if (kind === 'ai') {
+  if (kind === 'ai' || kind === 'slowmo') {
     try { if (engine.pick) await engine.pick(); } catch (e) { /* the engine decides below */ }
-    if (engine.kind !== 'native') { $('#msg').textContent = 'AI upscaling needs the Linux (local) version of Spektronautilus. The web version cannot do it. Everything else on this page works in the browser.'; return; }
-    if (!(engine.info && engine.info.v2x && engine.info.v2x.ok)) { $('#msg').textContent = 'AI upscaling needs Video2X. Read the note above the settings.'; return; }
+    if (engine.kind !== 'native') { $('#msg').textContent = 'AI upscaling and slow motion need the local version of Spektronautilus (Linux or Windows). The web version cannot do it. Everything else on this page works in the browser.'; return; }
+    if (!(engine.info && engine.info.v2x && engine.info.v2x.ok)) { $('#msg').textContent = 'AI upscaling and slow motion need Video2X. Read the note above the settings.'; return; }
   }
   const c = collect(); c.filterAmount = +$('#famt').value; let dir = null;
   if (c.ex.saveDirect && HAS_DIR) { try { dir = await window.showDirectoryPicker({ mode: 'readwrite' }); } catch (e) { return; } }
@@ -521,7 +545,7 @@ $('#fetchgo').onclick = () => {
   start('search', urls.map(u => ({ result: { provider: 'url', id: u.split('/').pop().split('?')[0] || 'clip', url: u, title: u, author: '', license: 'unknown - check the source', licenseUrl: '', page: u }, label: u, name: u })));
 };
 
-const NAMES = { convert: 'Convert', gif2mp4: 'GIF → MP4', loop: 'Make loops', filters: 'Filters', search: 'Find loops', crop: 'Crop & trim', sizes: 'Sizes', pro: 'HAP / ProRes', ai: 'AI upscale', catalog: 'Catalogue', pack: 'Loop pack' };
+const NAMES = { convert: 'Convert', gif2mp4: 'GIF → MP4', loop: 'Make loops', filters: 'Filters', search: 'Find loops', crop: 'Crop & trim', sizes: 'Sizes', pro: 'HAP / ProRes', ai: 'AI upscale', slowmo: 'AI slow motion', catalog: 'Catalogue', pack: 'Loop pack' };
 let rT;
 function render() { clearTimeout(rT); rT = setTimeout(draw, 60); }
 function cancelJob(j) {
@@ -573,7 +597,7 @@ $('#jobs').onclick = async e => {
 function init() {
   $('#tabs').innerHTML = Object.entries(TOOLS).map(([k, v]) => `<button data-t="${k}">${v.label}</button>`).join('');
   $('#tabs').onclick = e => { const b = e.target.closest('[data-t]'); b && setTool(b.dataset.t); };
-  SR.status().filter(s => s.ready).forEach(s => SRCSEL.add(s.name)); renderSrcs();
+  SR.defaultSources().forEach(n => SRCSEL.add(n)); renderSrcs();
   buildSettings(); renderSizes(); setTool(tool); draw();
   window.VJ = { JOBS, FILES, SEL, addFiles, start };   // handy for tests and for poking around in the console
 }

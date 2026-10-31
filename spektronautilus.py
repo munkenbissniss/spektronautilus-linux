@@ -16,13 +16,19 @@ Only Python 3.8+ is needed (nothing to pip install). ffmpeg is optional but reco
 import glob, argparse, atexit, http.server, json, os, re, shutil, signal, socket, subprocess, sys, tempfile, threading, time, urllib.parse, urllib.request
 from pathlib import Path
 
-HERE = Path(__file__).resolve().parent
+WIN = os.name == "nt"
+HERE = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
+# helper programs run politely in the background (and without a console window on Windows)
+NOWIN = {"creationflags": 0x08000000} if WIN else {}      # no console window flashing on Windows
+PRIO = {"creationflags": 0x00004000 | 0x08000000} if WIN else {"preexec_fn": lambda: os.nice(5)}
 DEFAULT_PORT = 8765
 APP_NAME = "spektronautilus"
 CHROME_FLAGS = [                       # made for live visuals: never throttle a window that is in the background or behind the output window
     "--autoplay-policy=no-user-gesture-required", "--disable-renderer-backgrounding", "--disable-background-timer-throttling",
     "--disable-backgrounding-occluded-windows", "--enable-gpu-rasterization", "--no-first-run", "--no-default-browser-check",
 ]
+WIN_BROWSERS = [r"%ProgramFiles%\Google\Chrome\Application\chrome.exe", r"%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe", r"%LocalAppData%\Google\Chrome\Application\chrome.exe",
+                r"%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe", r"%ProgramFiles%\Microsoft\Edge\Application\msedge.exe", r"%ProgramFiles%\BraveSoftware\Brave-Browser\Application\brave.exe"]
 BROWSERS = ["google-chrome-stable", "google-chrome", "chromium", "chromium-browser", "chrome", "brave-browser", "microsoft-edge"]
 
 def find_docs():
@@ -32,7 +38,7 @@ def find_docs():
 
 # ------------------------------------------------------------------ ffmpeg
 def ffmpeg_info():
-    exe = shutil.which("ffmpeg")
+    exe = next((str(c) for c in (HERE / "ffmpeg" / "ffmpeg.exe", HERE / "ffmpeg" / "ffmpeg", HERE / "ffmpeg.exe") if c.exists()), None) or shutil.which("ffmpeg")
     if not exe: return {"ok": False, "why": "ffmpeg is not installed"}
     try:
         v = subprocess.run([exe, "-hide_banner", "-version"], capture_output=True, text=True, timeout=10).stdout.splitlines()[0]
@@ -44,29 +50,45 @@ def ffmpeg_info():
     return {"ok": True, "version": m.group(1) if m else "", "cores": os.cpu_count() or 1, "path": exe}
 
 # ------------------------------------------------------------------ Video2X (AI upscaling, optional, installed by the user)
+def config_dir():
+    base = os.environ.get("APPDATA") if WIN else os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))
+    return Path(base or Path.home() / ".config") / APP_NAME
+
 def v2x_find():
-    """Video2X is a separate program (AppImage, AUR or your own build). We never ship it, we only start it if it is there."""
-    cands = [os.environ.get("SPEKTRO_VIDEO2X", ""), shutil.which("video2x") or "", str(Path.home() / ".local/bin/video2x")]
-    for pat in ("~/Applications/*ideo2*", "~/Downloads/*ideo2*.AppImage", "~/.local/bin/*ideo2*.AppImage", "/opt/video2x/*"):
-        cands += sorted(glob.glob(os.path.expanduser(pat)), key=lambda x: -os.path.getmtime(x))
+    """Video2X is a separate program (Linux: AppImage, AUR or your own build. Windows: the official release). We never ship it, we only start it if it is there.
+    Looked for in: SPEKTRO_VIDEO2X, a one-line file video2x.txt in the settings folder, PATH and the usual places."""
+    cands = [os.environ.get("SPEKTRO_VIDEO2X", "")]
+    try: cands.append((config_dir() / "video2x.txt").read_text(encoding="utf-8", errors="replace").strip().strip('"'))
+    except Exception: pass
+    cands += [shutil.which("video2x") or "", str(Path.home() / ".local/bin/video2x")]
+    pats = (r"%ProgramFiles%\Video2X*\video2x.exe", r"%ProgramFiles%\Video2X*\bin\video2x.exe", r"%ProgramFiles(x86)%\Video2X*\video2x.exe", r"%LocalAppData%\Programs\Video2X*\video2x.exe",
+            r"~\Downloads\*ideo2*\video2x.exe", r"~\Video2X*\video2x.exe", r"C:\Video2X*\video2x.exe") if WIN else \
+           ("~/Applications/*ideo2*", "~/Downloads/*ideo2*.AppImage", "~/.local/bin/*ideo2*.AppImage", "/opt/video2x/*")
+    for pat in pats:
+        cands += sorted(glob.glob(os.path.expandvars(os.path.expanduser(pat))), key=lambda x: -os.path.getmtime(x))
     for c in cands:
         if c and os.path.isfile(c) and os.access(c, os.X_OK): return c
     return ""
 
 def v2x_info():
     exe = v2x_find()
-    if not exe: return {"ok": False, "why": "Video2X was not found"}
-    ver = ""
+    if not exe: return {"ok": False, "why": "Video2X was not found", "conf": str(config_dir() / "video2x.txt")}
+    ver, hlp = "", ""
     try:
-        o = subprocess.run([exe, "--version"], capture_output=True, text=True, timeout=15)
+        o = subprocess.run([exe, "--version"], capture_output=True, text=True, timeout=20, **NOWIN)
         ver = ((o.stdout or "") + (o.stderr or "")).strip().splitlines()[0][:60] if (o.stdout or o.stderr).strip() else ""
+        h = subprocess.run([exe, "--help"], capture_output=True, text=True, timeout=20, **NOWIN); hlp = (h.stdout or "") + (h.stderr or "")
     except Exception:
         pass
-    return {"ok": True, "path": exe, "version": ver}
+    # versions differ: the graphics card is -g / --list-gpus in some and -d / --device / --list-devices in others. The help text tells which.
+    return {"ok": True, "path": exe, "version": ver, "dev": "-d" if re.search(r"--device\b", hlp) and not re.search(r"--gpu\b", hlp) else "-g",
+            "list": next((f for f in ("--list-devices", "--list-gpus", "--listgpus") if f in hlp), "--list-gpus"), "mul": "--frame-rate-mul" if "--frame-rate-mul" in hlp else "-m",
+            "rife": bool(re.search(r"\brife\b", hlp, re.I)) if hlp else True, "conf": str(config_dir() / "video2x.txt")}
 
-# Only these options (with values of the right shape) can reach Video2X. File names must stay inside the temporary folder.
-V2X_FLAGS = {"-p": r"(realesrgan|libplacebo)", "-s": r"[2-4]", "-c": r"(libx264|libx265|libx264rgb)", "-e": r"(crf=\d{1,2}|preset=[a-z]+)", "-g": r"\d{1,2}",
-             "--realesrgan-model": r"[\w.+-]{1,60}", "--libplacebo-shader": r"[\w.+-]{1,60}", "-w": r"\d{2,5}", "-h": r"\d{2,5}"}
+
+# Only these options (with values of the right shape) can reach Video2X. File names must stay inside the work folder.
+V2X_FLAGS = {"-p": r"(realesrgan|libplacebo|rife)", "-d": r"\d{1,2}", "-m": r"[2-8]", "--frame-rate-mul": r"[2-8]", "-s": r"[2-4]", "-c": r"(libx264|libx265|libx264rgb)", "-e": r"(crf=\d{1,2}|preset=[a-z]+)", "-g": r"\d{1,2}",
+             "--realesrgan-model": r"[\w.+-]{1,60}", "--rife-model": r"[\w.+-]{1,60}", "--libplacebo-shader": r"[\w.+-]{1,60}", "-w": r"\d{2,5}", "-h": r"\d{2,5}"}
 def v2x_args_ok(args, st):
     if not isinstance(args, list) or not args or not all(isinstance(a, str) for a in args) or len(args) % 2: return False
     seen = set()
@@ -135,7 +157,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             if self.path == "/api/v2x-gpus":
                 if not self.st.v2x.get("ok"): return self._json({"ok": False, "why": self.st.v2x.get("why")})
                 try:
-                    o = subprocess.run([self.st.v2x["path"], "--list-gpus"], capture_output=True, text=True, timeout=40, cwd=self.st.work)
+                    o = subprocess.run([self.st.v2x["path"], self.st.v2x.get("list", "--list-gpus")], capture_output=True, text=True, timeout=40, cwd=self.st.work, **NOWIN)
                     text = ((o.stdout or "") + "\n" + (o.stderr or "")).splitlines()
                 except Exception as e:
                     return self._json({"ok": False, "why": str(e)})
@@ -180,7 +202,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if not v2x_args_ok(args, self.st): return self._deny(400, "Arguments not allowed")
         self.send_response(200); self.send_header("Content-Type", "application/x-ndjson"); self.end_headers()
         try:
-            proc = subprocess.Popen([self.st.v2x["path"], *args], cwd=self.st.work, stdin=subprocess.DEVNULL, stderr=subprocess.STDOUT, stdout=subprocess.PIPE, preexec_fn=lambda: os.nice(5))
+            proc = subprocess.Popen([self.st.v2x["path"], *args], cwd=self.st.work, stdin=subprocess.DEVNULL, stderr=subprocess.STDOUT, stdout=subprocess.PIPE, **PRIO)
         except Exception as e:
             self.wfile.write((json.dumps({"code": 127, "log": [str(e)]}) + "\n").encode()); return
         with self.st.lock: self.st.procs.add(proc)
@@ -221,7 +243,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if not isinstance(args, list) or not all(isinstance(a, str) and SAFE_ARG.match(a) for a in args): return self._deny(400, "Arguments not allowed")
         self.send_response(200); self.send_header("Content-Type", "application/x-ndjson"); self.end_headers()
         try:
-            proc = subprocess.Popen([self.st.ff["path"], "-nostdin", *args], cwd=self.st.work, stderr=subprocess.PIPE, stdout=subprocess.DEVNULL, preexec_fn=lambda: os.nice(5))
+            proc = subprocess.Popen([self.st.ff["path"], "-nostdin", *args], cwd=self.st.work, stderr=subprocess.PIPE, stdout=subprocess.DEVNULL, **PRIO)
         except Exception as e:
             self.wfile.write((json.dumps({"code": 127, "log": [str(e)]}) + "\n").encode()); return
         with self.st.lock: self.st.procs.add(proc)
@@ -267,13 +289,23 @@ def already_running(port):
 def find_browser():
     env = os.environ.get("SPEKTRO_BROWSER")
     if env: return shutil.which(env) or env
+    if WIN:
+        for c in WIN_BROWSERS:
+            c = os.path.expandvars(c)
+            if os.path.isfile(c): return c
     for b in BROWSERS:
         p = shutil.which(b)
         if p: return p
     return None
 
+def open_default(url):
+    try:
+        if WIN: os.startfile(url)
+        else: subprocess.Popen(["xdg-open", url])
+    except Exception: print("Open this address yourself:", url)
+
 def main():
-    ap = argparse.ArgumentParser(description="Spektronautilus for Linux")
+    ap = argparse.ArgumentParser(description="Spektronautilus for Linux and Windows")
     ap.add_argument("--port", type=int, default=DEFAULT_PORT); ap.add_argument("--no-browser", action="store_true")
     ap.add_argument("--window", action="store_true", help="normal browser window instead of an app window")
     ap.add_argument("--docs", help="folder with the website (default: next to this script)"); ap.add_argument("--path", default="", help="page to open, e.g. live-dj/")
@@ -294,7 +326,7 @@ def main():
     url = f"http://127.0.0.1:{port}/{a.path}"
     print(f"Spektronautilus is running at {url}")
     print("AI upscaling with Video2X: " + (f"ON ({st.v2x['path']})" if st.v2x.get("ok") else "OFF (optional, see README-LINUX.txt)"))
-    print("Fast converting with ffmpeg: " + (f"ON (ffmpeg {st.ff['version']}, {st.ff['cores']} cores)" if st.ff.get("ok") else f"OFF ({st.ff.get('why')}). Install ffmpeg (for example: sudo apt install ffmpeg) to turn it on."))
+    print("Fast converting with ffmpeg: " + (f"ON (ffmpeg {st.ff['version']}, {st.ff['cores']} cores)" if st.ff.get("ok") else f"OFF ({st.ff.get('why')}). Install ffmpeg to turn it on."))
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     try:
         proc = None if a.no_browser else open_browser(port, a, docs)
@@ -312,10 +344,10 @@ def open_browser(port, a, docs):
     url = f"http://127.0.0.1:{port}/{a.path}"; b = find_browser()
     if not b:
         print("Could not find Chrome or Chromium. Opening your default browser. For the best result for live visuals install Google Chrome or Chromium.")
-        try: subprocess.Popen(["xdg-open", url])
-        except Exception: print("Open this address yourself:", url)
+        open_default(url)
         return None
-    prof = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / APP_NAME / "browser"; prof.mkdir(parents=True, exist_ok=True)
+    base = os.environ.get("APPDATA") if WIN else os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")
+    prof = Path(base or Path.home() / ".config") / APP_NAME / "browser"; prof.mkdir(parents=True, exist_ok=True)
     cmd = [b, f"--user-data-dir={prof}", *CHROME_FLAGS, *(["--new-window", url] if a.window else [f"--app={url}"])]
     return subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 

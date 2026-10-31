@@ -34,3 +34,8 @@ Good to know
   * Close the window to stop the program. Finished files are kept in the page until you close it, so download them first.
   * Projector: open the output window from the mixer and drag it to the projector screen, then press F for full screen.
   * Uninstall:  ~/.local/share/spektronautilus/uninstall.sh
+
+AI UPSCALING AND SLOW MOTION (optional)
+  Install Video2X yourself (AppImage, AUR or your own build; needs a graphics card with Vulkan). Spektronautilus finds it in PATH,
+  in ~/Applications, ~/Downloads or ~/.local/bin. Otherwise put its full path on one line in ~/.config/spektronautilus/video2x.txt,
+  or start with SPEKTRO_VIDEO2X=/path/to/Video2X.AppImage. The tools "AI upscale" and "AI slow motion" then work.
