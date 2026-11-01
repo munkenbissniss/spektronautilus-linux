@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Loop Hospital – Spektronautilus</title>
+<style>
+:root{--bg:#f3f4f8;--ink:#14182b;--mute:#5a607a;--line:#d5d8e6;--panel:#fff;--a:#2b3af0;--b:#ff3d81;--ok:#12906f;--bad:#d1334a;color-scheme:light}
+@media (prefers-color-scheme:dark){:root{--bg:#10122a;--ink:#eceefb;--mute:#a0a6c8;--line:#2a2e57;--panel:#171a3a;--a:#7f8bff;--b:#ff6fa3;--ok:#3fd6a4;--bad:#ff7088;color-scheme:dark}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.wrap{max-width:1000px;margin:0 auto;padding:20px 20px 96px}
+h1{font-size:2rem;letter-spacing:-.03em;margin:8px 0 2px}h2{font-size:1.15rem;margin:0 0 10px}
+.sub{color:var(--mute);margin:0 0 18px}.hint,.muted{color:var(--mute)}.hint{font-size:.85rem}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:16px}
+button{font:inherit;cursor:pointer;border:2px solid var(--ink);background:transparent;color:var(--ink);padding:6px 14px;border-radius:999px;font-weight:600;max-width:100%}
+button.main{background:var(--ink);color:var(--bg)}button.sm{padding:2px 10px;font-size:.85rem}button:disabled{opacity:.4;cursor:default}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--b);outline-offset:2px}
+.drop{border:2px dashed var(--line);border-radius:10px;padding:14px;text-align:center;color:var(--mute)}.drop.over{border-color:var(--b);color:var(--ink)}
+.pv{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:12px;margin-top:12px}
+figure{margin:0;min-width:0}figure video{width:100%;max-height:360px;background:#000;border-radius:8px;display:block}figcaption{font-size:.85rem;color:var(--mute);margin-top:2px}
+.hide{display:none!important}
+ul.find{list-style:none;margin:0 0 10px;padding:0;display:flex;flex-direction:column;gap:6px}
+ul.find li{display:flex;gap:10px;align-items:center;flex-wrap:wrap;border:1px solid var(--line);border-radius:10px;padding:6px 10px}ul.find li span{flex:1 1 220px;min-width:0}
+ul.find li.ok{border-color:var(--ok);color:var(--ok)}
+.step{border-top:1px solid var(--line);padding:10px 0}.step:first-of-type{border-top:0}
+.step>label{display:flex;gap:8px;align-items:center;font-weight:700;cursor:pointer}.step input[type=checkbox]{accent-color:var(--b);width:18px;height:18px}
+.fields{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,250px),1fr));gap:10px 22px;margin:8px 0 0 26px}
+.f label{display:block;font-size:.9rem;margin-bottom:2px}.f .ctl{display:flex;gap:8px;align-items:center}.f input[type=range]{flex:1;min-width:0;accent-color:var(--b)}
+.f output{min-width:4ch;text-align:right;font-variant-numeric:tabular-nums}
+.f input[type=number],.f select{width:100%;font:inherit;padding:4px 6px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink)}
+.f .h{font-size:.78rem;color:var(--mute)}
+.run{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.bar{height:8px;background:var(--line);border-radius:4px;overflow:hidden;margin:8px 0 2px}.bar i{display:block;height:100%;background:var(--b);transition:width .4s}
+.res a{display:block;font-size:.9rem;overflow-wrap:anywhere}.warn{color:var(--bad)}
+.facts{display:flex;gap:6px 14px;flex-wrap:wrap;font-size:.9rem;margin-top:8px}
+.chip{border:1px solid currentColor;border-radius:999px;padding:0 9px;font-size:.8rem;font-weight:700}
+.chip.good{color:var(--ok)}.chip.bad{color:var(--bad)}
+</style>
+<link rel="manifest" href="../../manifest.webmanifest">
+<script src="../../shared/sw-register.js" defer></script>
+<script src="../../shared/i18n.js"></script><script src="../../shared/extras.js" data-dock="1" data-guide="tools" defer></script>
+</head>
+<body><div class="wrap" role="main">
+<p style="margin:0 0 6px"><a href="../app/" style="color:inherit;font-size:.9rem;text-decoration:none">← VJ Tools</a></p>
+<h1>🏥 Loop Hospital</h1>
+<p class="sub">Bring in a clip. Find out what is wrong, treat it step by step, and send it home ready for the mixers.</p>
+<p class="hint" style="margin:-8px 0 14px">Everything runs inside your browser. Your files never leave your computer.</p>
+<div class="muted" id="engine" style="min-height:1.2em"></div>
+
+<div class="card">
+  <h2>1. The patient</h2>
+  <div class="drop" id="drop"><span>Drop a clip here</span> or <button class="sm" id="pick" type="button">choose a clip</button></div>
+  <div id="patient" class="hide">
+    <div class="pv"><figure><video id="vbefore" muted loop playsinline autoplay controls></video><figcaption>Before</figcaption></figure>
+    <figure id="fafter" class="hide"><video id="vafter" muted loop playsinline autoplay controls></video><figcaption>After (preview)</figcaption></figure></div>
+    <div class="facts" id="facts"></div>
+  </div>
+</div>
+<input type="file" id="picker" hidden accept="video/*,image/gif,.mov,.mkv,.avi,.webm,.gif,.m4v,.mts,.m2ts,.ts,.wmv,.flv,.ogv,.3gp,.mpg,.mpeg,.hevc,.apng">
+<input type="file" id="pickermore" hidden multiple accept="video/*,image/gif,.mov,.mkv,.avi,.webm,.gif,.m4v,.mts,.m2ts,.ts,.wmv,.flv,.ogv,.3gp,.mpg,.mpeg,.hevc,.apng">
+
+<div class="card hide" id="c2">
+  <h2>2. Examination</h2>
+  <ul class="find" id="findings"></ul>
+  <button id="healall" type="button" class="hide">Add all suggested treatments</button>
+</div>
+
+<div class="card hide" id="c3">
+  <h2>3. Treatment</h2>
+  <p class="hint" style="margin-top:0">Tick the treatments you want. They are done in this order: cut, crop, slow motion, upscale, resize, look, loop.</p>
+  <div id="steps"></div>
+  <details style="margin-top:8px"><summary style="cursor:pointer;font-weight:700">Advanced</summary>
+    <div class="fields" id="outf" style="margin-left:0"></div></details>
+</div>
+
+<div class="card hide" id="c4">
+  <div class="run"><button id="prev" type="button">Preview the treatment</button><button class="main" id="go" type="button">Treat and save</button><button id="stop" type="button" class="hide">Stop</button><span class="muted" id="info"></span></div>
+  <div class="bar hide" id="bar"><i style="width:0"></i></div>
+  <div class="muted" id="cur"></div>
+  <div id="msg" class="warn" style="margin-top:6px"></div>
+  <div class="res" id="res"></div>
+  <div class="run hide" id="more" style="margin-top:10px"><button class="sm" id="pickmore" type="button">Treat more clips the same way</button><button class="sm hide" id="zipall" type="button">Download all (zip)</button></div>
+  <p class="hint">Need AI quality for upscale or slow motion? <a href="../app/#ai">Open the VJ Tools</a>.</p>
+</div>
+</div>
+<script type="module" src="app.js"></script>
+</body></html>
