@@ -49,6 +49,7 @@ window.SPK_DICT=window.SPK_DICT||{};SPK_DICT.de={
 "8× slower": "8× langsamer",
 "960 × 540 (light)": "960 × 540 (leicht)",
 "; a better loop point exists after frame {a} (keeps {b} %)": "; ein besserer Loop-Punkt existiert nach Bild {a} (behält {b} %)",
+"A film look: cool navy shadows, warm highlights and a little moving grain.": "Film-Look: kühle marineblaue Schatten, warme Lichter und etwas bewegtes Korn.",
 "A list of all your loops with picture, length, size and loop quality, as a web page and a spreadsheet file.": "Eine Liste aller deiner Loops mit Bild, Länge, Größe und Loop-Qualität, als Webseite und als Tabellendatei.",
 "A little more movement, with a gentle zoom on the bar.": "Etwas mehr Bewegung, mit sanftem Zoom auf dem Takt.",
 "A new version is ready.": "Eine neue Version ist bereit.",

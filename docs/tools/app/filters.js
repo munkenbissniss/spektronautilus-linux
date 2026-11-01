@@ -1,4 +1,4 @@
-// Seventeen looks for VJ loops (ten effects and seven colour styles). Each one is a piece of an ffmpeg filter graph that is added after the picture has been
+// Eighteen looks for VJ loops (ten effects and eight colour styles). Each one is a piece of an ffmpeg filter graph that is added after the picture has been
 // scaled to its final size. `amount` is 0..1. `w`/`h` are the final picture size, `dur` is the clip length in seconds.
 // The pieces are written so a clip that loops keeps looping: the colour cycle goes round exactly once per clip, and
 // nothing else depends on how long the clip has been playing.
@@ -32,10 +32,10 @@ export const FILTERS = [
 // colours and only lift the blacks to a tint. `keep` is how much of the clip's own colour survives before the curves (0 = none).
 // The amount slider: 0 = a light touch, 50 = the reference look, 100 = the reference look pushed further (more colour and contrast).
 const ch = (stops, i) => stops.map(s => `${s[0]}/${s[i]}`).join(' ');
-const grade = ({ keep, stops, contrast = 1, sat = 1 }) => a => {
+const grade = ({ keep, stops, contrast = 1, sat = 1, grain = 0 }) => a => {
   const op = r1(Math.min(1, 0.3 + 1.4 * a)), push = Math.max(0, a - 0.5);                  // push: 0 at the reference look, 0.5 at 100
   const eq = `eq=contrast=${Math.round((contrast + push * 0.5) * 100) / 100}:saturation=${Math.round((sat + push * 0.8) * 100) / 100}`;
-  return `split[fxa][fxb];[fxb]hue=s=${Math.round(keep * 100) / 100},${eq},curves=r='${ch(stops, 1)}':g='${ch(stops, 2)}':b='${ch(stops, 3)}'[fxg];[fxa][fxg]blend=all_expr='A+(B-A)*${op}'`;
+  return `split[fxa][fxb];[fxb]hue=s=${Math.round(keep * 100) / 100},${eq},curves=r='${ch(stops, 1)}':g='${ch(stops, 2)}':b='${ch(stops, 3)}'${grain ? `,format=yuv444p,noise=c0s=${Math.round(grain * (0.4 + 1.2 * a))}:c0f=t+u` : ''}[fxg];[fxa][fxg]blend=all_expr='A+(B-A)*${op}'`;
 };
 const STYLES = [
   { id: 'bluedream', name: 'Blue Dream', desc: 'Deep navy shadows with vivid cyan, red and white colours.',
@@ -50,6 +50,8 @@ const STYLES = [
     chain: grade({ keep: 0, contrast: 1.1, stops: [[0, 0, .01, .02], [.07, .04, .07, .08], [.15, .11, .15, .16], [.275, .22, .27, .29], [.425, .36, .43, .42], [.575, .51, .6, .55], [.725, .63, .76, .69], [.85, .7, .9, .78], [.95, .93, .97, .92], [1, .96, .99, .95]] }) },
   { id: 'vegas', name: 'Las Vegas', desc: 'Maroon and violet shadows melting into hot pink and cream.',
     chain: grade({ keep: 0, contrast: 1.1, stops: [[0, .2, 0, 0], [.07, .28, 0, 0], [.15, .29, .01, .64], [.275, .86, .06, .61], [.425, .83, .29, .64], [.575, .9, .48, .65], [.725, .96, .67, .66], [.85, 1, .84, .66], [.95, .99, 1, .65], [1, 1, 1, .7]] }) },
+  { id: 'grainy', name: 'Grainy', desc: 'A film look: cool navy shadows, warm highlights and a little moving grain.',
+    chain: grade({ keep: .7, grain: 12, contrast: .95, stops: [[0, .04, .07, .11], [.09, .05, .09, .12], [.3, .2, .27, .36], [.55, .56, .52, .49], [.8, .92, .79, .66], [1, 1, .93, .82]] }) },
   { id: 'coal', name: 'Coal', desc: 'Dark, cool and matte, like a night-time film still.',
     chain: grade({ keep: .15, stops: [[0, .02, .02, .03], [.02, .03, .03, .04], [.07, .07, .07, .07], [.15, .15, .15, .16], [.275, .28, .29, .33], [.425, .4, .38, .4], [.575, .55, .54, .52], [.725, .66, .65, .63], [.85, .72, .71, .69], [1, .78, .77, .75]] }) },
 ];
