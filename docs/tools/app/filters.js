@@ -1,4 +1,4 @@
-// Sixteen looks for VJ loops (ten effects and six colour styles). Each one is a piece of an ffmpeg filter graph that is added after the picture has been
+// Seventeen looks for VJ loops (ten effects and seven colour styles). Each one is a piece of an ffmpeg filter graph that is added after the picture has been
 // scaled to its final size. `amount` is 0..1. `w`/`h` are the final picture size, `dur` is the clip length in seconds.
 // The pieces are written so a clip that loops keeps looping: the colour cycle goes round exactly once per clip, and
 // nothing else depends on how long the clip has been playing.
@@ -27,29 +27,31 @@ export const FILTERS = [
   { id: 'trails', name: 'Trails', desc: 'Moving things leave a soft trail behind.',
     chain: a => `tmix=frames=${2 + Math.round(a * 10)}` },
 ];
-// ---- colour styles. Each one is a colour grade measured from a reference loop: the shadows, mid-tones and highlights are pushed
-// to the same colours with one tone curve per channel (points are brightness in -> brightness out, 0..1). `keep` is how much of
-// the clip's own colour survives before the curves (0 = one-colour look, 1 = all of it). The amount slider works like this:
-// 0 = a light touch, 50 = the reference look, 100 = the reference look pushed further (stronger colour and contrast).
-const pts = a => a.map(([x, y]) => `${x}/${y}`).join(' ');
-const grade = ({ keep, r, g, b, contrast = 1, bright = 0, sat = 1 }) => a => {
+// ---- colour styles. Each one is measured from a reference loop. Most are "gradient maps": the picture is turned into brightness, and
+// each brightness gets the colour the reference has there (stops are brightness 0..1 -> red, green, blue). A few keep the clip's own
+// colours and only lift the blacks to a tint. `keep` is how much of the clip's own colour survives before the curves (0 = none).
+// The amount slider: 0 = a light touch, 50 = the reference look, 100 = the reference look pushed further (more colour and contrast).
+const ch = (stops, i) => stops.map(s => `${s[0]}/${s[i]}`).join(' ');
+const grade = ({ keep, stops, contrast = 1, sat = 1 }) => a => {
   const op = r1(Math.min(1, 0.3 + 1.4 * a)), push = Math.max(0, a - 0.5);                  // push: 0 at the reference look, 0.5 at 100
-  const eq = `eq=contrast=${r1((contrast + push * 0.5) * 100) / 100}:brightness=${r1(bright * 100) / 100}:saturation=${r1((sat + push * 0.8) * 100) / 100}`;
-  return `split[fxa][fxb];[fxb]hue=s=${r1(keep * 100) / 100},${eq},curves=r='${pts(r)}':g='${pts(g)}':b='${pts(b)}'[fxg];[fxa][fxg]blend=all_expr='A+(B-A)*${op}'`;
+  const eq = `eq=contrast=${Math.round((contrast + push * 0.5) * 100) / 100}:saturation=${Math.round((sat + push * 0.8) * 100) / 100}`;
+  return `split[fxa][fxb];[fxb]hue=s=${Math.round(keep * 100) / 100},${eq},curves=r='${ch(stops, 1)}':g='${ch(stops, 2)}':b='${ch(stops, 3)}'[fxg];[fxa][fxg]blend=all_expr='A+(B-A)*${op}'`;
 };
 const STYLES = [
-  { id: 'bluedream', name: 'Blue Dream', desc: 'Deep blue and violet, with glowing pink and white highlights.',
-    chain: grade({ keep: .55, r: [[0, .1], [.1, .18], [.45, .47], [.9, .93], [1, .97]], g: [[0, .03], [.1, .07], [.45, .42], [.9, .88], [1, .95]], b: [[0, .38], [.1, .6], [.45, .92], [.9, .99], [1, 1]] }) },
-  { id: 'pinkdream', name: 'Pink Dream', desc: 'Dark plum shadows and cool blue lights. Soft and dreamy.',
-    chain: grade({ keep: .45, r: [[0, .12], [.06, .19], [.3, .14], [.45, .32], [.9, .9], [1, .95]], g: [[0, .02], [.06, .06], [.3, .12], [.45, .37], [.9, .92], [1, 1]], b: [[0, .12], [.06, .19], [.3, .55], [.45, .89], [.9, 1], [1, 1]] }) },
-  { id: 'darkfuture', name: 'Dark Future', desc: 'Icy blue, almost one colour, with crisp white highlights.',
-    chain: grade({ keep: 0, r: [[0, 0], [.05, .02], [.45, .28], [.9, .87], [1, .93]], g: [[0, .03], [.05, .08], [.45, .45], [.9, .9], [1, .95]], b: [[0, .18], [.05, .26], [.45, .65], [.9, .91], [1, .95]] }) },
-  { id: 'sepia', name: 'Sepia', desc: 'Warm, faded old-film tones with lifted blacks.',
-    chain: grade({ keep: .1, r: [[0, .12], [.05, .16], [.45, .5], [.9, .88], [1, .92]], g: [[0, .1], [.05, .13], [.45, .45], [.9, .82], [1, .86]], b: [[0, .08], [.05, .1], [.45, .37], [.9, .71], [1, .74]] }) },
-  { id: 'matrix', name: 'The Matrix', desc: 'Cold green-teal shadows and pale green highlights.',
-    chain: grade({ keep: .6, sat: 1.1, r: [[0, 0], [.08, .03], [.45, .43], [.9, .8], [1, .85]], g: [[0, .02], [.08, .07], [.45, .47], [.9, .9], [1, .95]], b: [[0, .03], [.08, .09], [.45, .33], [.9, .68], [1, .72]] }) },
-  { id: 'vegas', name: 'Las Vegas', desc: 'A dusty magenta night with teal glints. Soft and flat.',
-    chain: grade({ keep: .5, r: [[0, .25], [.1, .29], [.45, .31], [1, .42]], g: [[0, .04], [.1, .1], [.45, .38], [1, .6]], b: [[0, .08], [.1, .16], [.45, .4], [1, .62]] }) },
+  { id: 'bluedream', name: 'Blue Dream', desc: 'Deep navy shadows with vivid cyan, red and white colours.',
+    chain: grade({ keep: 1, contrast: 1.25, sat: 1.5, stops: [[0, 0, .02, .4], [1, 1, 1, 1]] }) },
+  { id: 'purpledream', name: 'Purple Dream', desc: 'Dusky plum shadows, with bright and saturated colours.',
+    chain: grade({ keep: 1, sat: 1.35, stops: [[0, .3, .08, .21], [1, 1, 1, 1]] }) },
+  { id: 'darkfuture', name: 'Dark Future', desc: 'Black and cold mint-green, with pale highlights.',
+    chain: grade({ keep: 0, contrast: 1.1, stops: [[0, 0, .01, .02], [.07, .04, .07, .1], [.15, .12, .16, .23], [.275, .2, .26, .36], [.425, .33, .44, .46], [.575, .45, .62, .58], [.725, .58, .8, .71], [.85, .64, .9, .76], [.95, .93, .97, .92], [1, .96, .99, .95]] }) },
+  { id: 'sepia', name: 'Sepia', desc: 'Soft, warm black and white with lifted blacks.',
+    chain: grade({ keep: 0, stops: [[0, .1, .08, .06], [.07, .11, .09, .07], [.15, .15, .13, .12], [.275, .29, .26, .23], [.425, .45, .43, .4], [.575, .62, .59, .55], [.725, .77, .74, .71], [.85, .87, .84, .82], [1, .94, .91, .9]] }) },
+  { id: 'matrix', name: 'The Matrix', desc: 'Black to pale green, like an old monitor.',
+    chain: grade({ keep: 0, contrast: 1.1, stops: [[0, 0, .01, .02], [.07, .04, .07, .08], [.15, .11, .15, .16], [.275, .22, .27, .29], [.425, .36, .43, .42], [.575, .51, .6, .55], [.725, .63, .76, .69], [.85, .7, .9, .78], [.95, .93, .97, .92], [1, .96, .99, .95]] }) },
+  { id: 'vegas', name: 'Las Vegas', desc: 'Maroon and violet shadows melting into hot pink and cream.',
+    chain: grade({ keep: 0, contrast: 1.1, stops: [[0, .2, 0, 0], [.07, .28, 0, 0], [.15, .29, .01, .64], [.275, .86, .06, .61], [.425, .83, .29, .64], [.575, .9, .48, .65], [.725, .96, .67, .66], [.85, 1, .84, .66], [.95, .99, 1, .65], [1, 1, 1, .7]] }) },
+  { id: 'coal', name: 'Coal', desc: 'Dark, cool and matte, like a night-time film still.',
+    chain: grade({ keep: .15, stops: [[0, .02, .02, .03], [.02, .03, .03, .04], [.07, .07, .07, .07], [.15, .15, .15, .16], [.275, .28, .29, .33], [.425, .4, .38, .4], [.575, .55, .54, .52], [.725, .66, .65, .63], [.85, .72, .71, .69], [1, .78, .77, .75]] }) },
 ];
 FILTERS.push(...STYLES);
 export const filterById = id => FILTERS.find(f => f.id === id);
