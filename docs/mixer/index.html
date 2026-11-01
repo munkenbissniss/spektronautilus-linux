@@ -443,7 +443,7 @@ async function vimeoUp(j){
    catch(e){if(++tries>4)throw e;await new Promise(r=>setTimeout(r,2000*tries));try{const h=await fetch(link,{method:'HEAD',headers:{'Tus-Resumable':'1.0.0'}});if(h.ok)off=+h.headers.get('Upload-Offset')||off}catch(_){}}}
   const id=d.uri.split('/').pop();let extra='';
   if(c.album){try{const a=await fetch(`https://api.vimeo.com/me/albums/${c.album}/videos/${id}`,{method:'PUT',headers:H});extra=a.ok?' Added to your showcase.':' It could not be added to the showcase ('+a.status+').'}catch(e){extra=' It could not be added to the showcase.'}}
-  j.vlink=d.link;j.vim={busy:false,done:true};say('Uploaded to Vimeo. Vimeo is now processing it, which can take a few minutes.'+extra)
+  j.vlink=d.link;j.saved=true;j.vim={busy:false,done:true};say('Uploaded to Vimeo. Vimeo is now processing it, which can take a few minutes.'+extra)
  }catch(e){j.vim={busy:false};say('Vimeo upload failed: '+(e.message||e)+'. Press the button to try again.')}}
 /* VIMEO:END */
 /* REMUX:START — rewrites a fragmented MP4 (as made by MediaRecorder) into a regular MP4 with correct duration, index and seeking. No re-encoding.
@@ -578,6 +578,9 @@ vSeg=Math.max(0,mdur(vt)/vt.ts-mtSec);if(exp0>0)vSeg=Math.min(vSeg,aPlay);
 const POOL=10,LOOK=20,pool=[];
 function mkPool(){if(pool.length)return;for(let i=0;i<POOL;i++){const el=document.createElement('video');el.muted=true;el.loop=true;el.playsInline=true;el.preload='auto';el.style.cssText='position:fixed;left:-9999px;width:2px;height:2px';document.body.append(el);pool.push({el,loop:-1,url:'',t:0})}}
 const holder=l=>pool.find(p=>p.loop===l);
+// give a video element back: its decoder and the blob behind it are freed (10 hidden videos otherwise stay loaded between jobs)
+function freeEl(p){try{p.el.pause();p.el.removeAttribute('src');p.el.load()}catch(e){}if(p.url)URL.revokeObjectURL(p.url);p.url='';p.loop=-1}
+function releasePool(){pool.forEach(freeEl)}
 function acquire(L,l,need,m){const p=pool.find(p=>p.loop===-1)||pool.filter(p=>!need.has(p.loop)).sort((a,b)=>a.t-b.t)[0];if(!p)return;
  if(p.url)URL.revokeObjectURL(p.url);p.loop=l;p.t=m;p.url=URL.createObjectURL(L[l].file);const el=p.el;
  el.addEventListener('loadedmetadata',()=>{el.currentTime=Math.random()*el.duration;el.play().catch(()=>{})},{once:true});el.src=p.url;el.load()}
@@ -586,34 +589,35 @@ const env=(a,m,d)=>{let lo=0,hi=a.length-1,r=-1;while(lo<=hi){const k=(lo+hi)>>1
 const ease=x=>x*x*(3-2*x),ease5=x=>x*x*x*(x*(x*6-15)+10),CM={add:'lighter'};
 
 function renderJob(j,A,L,P){
- return new Promise(async resolve=>{
+ return new Promise(async (resolve,reject)=>{let _src=null,_rec=null;try{
   const o=j.o,{slots,layers,looks}=P,[W,H]=o.res.split('x').map(Number),cv=document.createElement('canvas');cv.width=W;cv.height=H;const g=cv.getContext('2d',{alpha:false});g.fillStyle='#000';g.fillRect(0,0,W,H);
   const ta=slots.map(s=>s.t0-s.xf/2),T={zoom:trig(A,o.zoomOn),shake:trig(A,o.shakeOn),pulse:trig(A,o.pulseOn)},beatS=60/A.tempo;
   mkPool();pool.forEach(p=>{p.loop=-1;p.el.pause()});
   const findK=m=>{let lo=0,hi=slots.length-1,r=0;while(lo<=hi){const k=(lo+hi)>>1;if(ta[k]<=m){r=k;lo=k+1}else hi=k-1}return r};
   const eAt=m=>{let lo=0,hi=A.nb-1;while(lo<hi){const k=(lo+hi+1)>>1;if(A.bt[k]<=m)lo=k;else hi=k-1}return A.energy[lo]};
   const ensure=(m,k)=>{const need=new Set();for(let i=Math.max(0,k-1);i<slots.length&&ta[i]<m+LOOK;i++)need.add(slots[i].loop);layers.forEach(l=>{if(l.t0-l.fade<m+LOOK&&l.t1>m-1)need.add(l.loop)});
-   need.forEach(l=>{const h=holder(l);if(h)h.t=m;else acquire(L,l,need,m)})};
+   need.forEach(l=>{const h=holder(l);if(h)h.t=m;else acquire(L,l,need,m)});for(const p of pool)if(p.loop>=0&&!need.has(p.loop)&&m-p.t>6)freeEl(p)};
   const visible=(m,k)=>{const v=new Set([slots[k].loop]);if(k>0&&m-ta[k]<slots[k].xf)v.add(slots[k-1].loop);if(k+1<slots.length&&ta[k+1]-m<2.5)v.add(slots[k+1].loop);layers.forEach(l=>{if(l.t0-l.fade-2.5<m&&m<l.t1+.2)v.add(l.loop)});return v};
   j.msg='Loading the first clips…';upd(j);
   for(let i=0;i<80;i++){ensure(0,0);const h=holder(slots[0].loop);if(h&&h.el.readyState>=2)break;await sleep(100)}
-  const dest=AC.createMediaStreamDestination(),src=AC.createBufferSource();src.buffer=A.buf;src.connect(dest);
+  const dest=AC.createMediaStreamDestination(),src=AC.createBufferSource();_src=src;src.buffer=A.buf;src.connect(dest);
   const sink=await openSink(`${j.id}-${Date.now()}.${EXT}`);j.sink=sink;
   let useMp3=false;if(EXT=='mp4'&&(j.audio.type=='audio/mpeg'||/\.mp3$/i.test(j.audio.name)))try{await mp3Info(j.audio);useMp3=true}catch(e){}
   let lastM=0;
-  const rec=new MediaRecorder(new MediaStream([...cv.captureStream(o.fps).getVideoTracks(),...dest.stream.getAudioTracks()]),{mimeType:MIME,videoBitsPerSecond:o.bitrate*1e6,audioBitsPerSecond:192000});
+  const rec=new MediaRecorder(new MediaStream([...cv.captureStream(o.fps).getVideoTracks(),...dest.stream.getAudioTracks()]),{mimeType:MIME,videoBitsPerSecond:o.bitrate*1e6,audioBitsPerSecond:192000});_rec=rec;
   rec.ondataavailable=e=>{if(e.data.size)sink.write(e.data)};
-  let ended=false;const finish=async why=>{if(ended)return;ended=true;tickW.postMessage(0);wakeOff();try{localStorage.removeItem('mm_beat')}catch(e){}try{src.stop()}catch(e){}pool.forEach(p=>p.el.pause());
+  let ended=false;const finish0=async why=>{if(ended)return;ended=true;tickW.postMessage(0);wakeOff();try{localStorage.removeItem('mm_beat')}catch(e){}try{src.stop()}catch(e){}releasePool();
    await new Promise(r=>{rec.onstop=r;if(rec.state!='inactive')rec.stop();else r()});let f=await sink.close();
    if(EXT=='mp4'){j.status='finalizing';j.msg='Fixing duration and seeking…';upd(j);
     try{const s2=await openSink(`${j.id}-fixed-${Date.now()}.mp4`);const ok=await fixMp4(f,s2,p=>{j.msg=`Fixing duration and seeking… ${Math.round(p*100)} %`;upd(j)},useMp3?{mp3:j.audio,lead:tS-tRec,expected:why=='done'?A.dur:lastM}:null);
      if(ok&&useMp3)j.note='The original MP3 is attached as the sound (not re-encoded), lined up with the picture.';
      if(ok){const f2=await s2.close();await sink.remove();j.sink=s2;f=f2}else await s2.remove()}catch(e){j.note='Could not fix the MP4 index ('+(e.message||e)+'). The original file is kept.'}}
    j.file=f;j.url=URL.createObjectURL(f);j.status=why;j.prog=why=='done'?1:j.prog;j.msg='';upd(j);if(AC.state=='suspended')AC.resume();resolve()};
+  const finish=async why=>{try{await finish0(why)}catch(e){j.status='failed';j.err='Could not finish the video ('+(e&&e.message||e)+').';j.msg='';try{upd(j)}catch(_){}resolve()}};
   j.ctl={pause:async()=>{if(j.status!='rendering')return;j.status='paused';await AC.suspend();rec.state=='recording'&&rec.pause();pool.forEach(p=>p.el.pause());upd(j)},
    resume:async()=>{if(j.status!='paused')return;j.status='rendering';rec.state=='paused'&&rec.resume();await AC.resume();upd(j)},stop:()=>{if(j.status=='paused')AC.resume();finish('stopped')}};
   const tS=AC.currentTime+.3,tRec=AC.currentTime;src.start(tS);rec.start(1000);wakeOn();j.status='rendering';j.msg='';upd(j);let lastUI=0,lastRate=0,rate=1;
-  tickW.onmessage=()=>{if(ended||j.status!='rendering')return;const m=AC.currentTime-tS+o.sync/1000;if(m<0)return;lastM=Math.max(0,m-o.sync/1000);if(m>=A.dur){finish('done');return}
+  const tickBody=()=>{if(ended||j.status!='rendering')return;const m=AC.currentTime-tS+o.sync/1000;if(m<0)return;lastM=Math.max(0,m-o.sync/1000);if(m>=A.dur){finish('done');return}
    const k=findK(m);ensure(m,k);const s=slots[k],since=m-ta[k],bo=s.kind=='drop'?1.6:1,e=eAt(m),react=1-o.reactive+o.reactive*Math.min(1.4,e*1.6),look=looks[s.cluster],pl=k>0?looks[slots[k-1].cluster]:look,
     fx=s.xf>0&&since<s.xf?(o.smooth>0?ease5(since/s.xf):ease(since/s.xf)):1;
    const vis=visible(m,k);for(const p of pool)if(p.loop>=0){const want=vis.has(p.loop);if(want&&p.el.paused&&p.el.readyState>=2)p.el.play().catch(()=>{});else if(!want&&!p.el.paused)p.el.pause()}
@@ -628,7 +632,9 @@ function renderJob(j,A,L,P){
    for(const[lk,w]of[[pl,1-fx],[look,fx]])if(lk.tint>0&&w>.01){g.globalCompositeOperation='soft-light';g.fillStyle=`hsla(${lk.hue},80%,55%,${Math.min(1,lk.tint*react*w)})`;g.fillRect(0,0,W,H);g.globalCompositeOperation='source-over'}
    const pu=o.pulse*bo*env(T.pulse,m,10);if(pu>.002){g.fillStyle=o.pulseMode=='light'?`rgba(255,255,255,${pu})`:`rgba(0,0,0,${pu*2})`;g.fillRect(0,0,W,H)}
    j.prog=m/A.dur;const now=performance.now();if(now-lastUI>500){lastUI=now;try{localStorage.setItem('mm_beat',String(Date.now()))}catch(e){}j.tctx&&j.tctx.drawImage(cv,0,0,192,108);upd(j)}};
+  tickW.onmessage=()=>{try{tickBody()}catch(e){if(ended)return;j.note='The render hit a problem ('+(e&&e.message||e)+') and was stopped. What was made so far is kept.';finish('stopped').catch(()=>{})}};
   tickW.postMessage(o.fps);
+}catch(e){try{tickW.postMessage(0)}catch(_){}wakeOff();try{_src&&_src.stop()}catch(_){}try{_rec&&_rec.state!='inactive'&&_rec.stop()}catch(_){}try{j.sink&&j.sink.remove()}catch(_){}releasePool();reject(e)}
  });
 }
 
@@ -645,7 +651,7 @@ function drawTL(j,A,P){const c=j.lctx.canvas,g=j.lctx,W=c.width,H=c.height;g.cle
  g.fillStyle='#ff3d81';A.drops.forEach(d=>g.fillRect(A.bt[d]/A.dur*W-1,0,2,H*.4));g.fillStyle=g.strokeStyle;A.sections.forEach(([a])=>g.fillRect(A.bt[a]/A.dur*W,0,1,H*.4))}
 function card(j){const d=document.createElement('div');d.className='job';
  d.innerHTML=`<div class="jh"><b class="jn"></b><span class="chip"></span></div><div class="mute jm"></div><div class="jb"><canvas class="jt" width="192" height="108"></canvas><div class="jr"><div class="prog"><i></i></div><div class="mute jp"></div><canvas class="jl" width="700" height="44"></canvas><div class="acts"></div><div class="mute jf"></div></div></div>`;
- j.tctx=d.querySelector('.jt').getContext('2d');j.lctx=d.querySelector('.jl').getContext('2d');j.el=d;d.onclick=e=>{const a=e.target.dataset.a;if(!a)return;
+ j.tctx=d.querySelector('.jt').getContext('2d');j.lctx=d.querySelector('.jl').getContext('2d');j.el=d;d.addEventListener('click',e=>{if(e.target.closest('a[download]'))j.saved=true});d.onclick=e=>{const a=e.target.dataset.a;if(!a)return;
   if(a=='pause')j.status=='paused'?j.ctl.resume():j.ctl.pause();if(a=='stop'){if(j.ctl&&(j.status=='rendering'||j.status=='paused'))j.ctl.stop();else if(j.status=='waiting'||j.status=='preparing'){j.cancel=true;j.status=j.status=='waiting'?'stopped':j.status;upd(j)}}
   if(a=='vimeo')vimeoUp(j);if(a=='rm')rmJob(j);if(a=='again')addJob(j.audio,j.files,{...j.o,seed:Math.floor(Math.random()*1e9)},j.name.replace(/ #\d+$/,'')+' (again)');if(a=='up'){const i=jobs.indexOf(j);if(i>0&&jobs[i-1].status=='waiting'){[jobs[i-1],jobs[i]]=[jobs[i],jobs[i-1]];order()}}};
  return d}
@@ -683,7 +689,7 @@ async function doJob(j){
  const S=normLoops(L,useClip?.7:0),P=plan(A,L,S,o,mkrng(o.seed));
  j.info=`${A.tempo.toFixed(0)} BPM · ${P.slots.length} shots · ${A.sections.length} sections · ${P.coverage.used}/${P.coverage.total} loops used${useClip?' · CLIP':''}${bad?` · ${bad} unreadable`:''}`;
  drawTL(j,A,P);msg('');await renderJob(j,A,L,P)}
-addEventListener('beforeunload',e=>{if(jobs.some(j=>['preparing','rendering','paused','finalizing'].includes(j.status))){e.preventDefault();e.returnValue=''}});
+addEventListener('beforeunload',e=>{if(jobs.some(j=>['preparing','rendering','paused','finalizing'].includes(j.status)||(['done','stopped'].includes(j.status)&&j.url&&!j.saved))){e.preventDefault();e.returnValue=''}});   // also when a finished video was not downloaded yet: leaving the page deletes it
 $('#pre').querySelector('[data-p="Chill"]').click();paceTxt();summary();
 </script>
 <script>

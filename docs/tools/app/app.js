@@ -70,7 +70,8 @@ const GROUPS = [
     { k: 'slowModel', t: 'select', x: 1, l: 'Model', w: 'slowEngine=ai', o: [['rife-v4.6', 'General video'], ['rife-v4.26', 'Newest model']] }] },
   { g: 'Quality and graphics card', open: true, tools: 'ai slowmo', aiOnly: true, f: [
     { k: 'aiCrf', t: 'range', x: 1, min: 12, max: 28, step: 1, l: 'Quality (lower = better, larger)' },
-    { k: 'aiGpu', t: 'number', x: 1, l: 'Graphics card number', h: 'Leave on 0 unless you have more than one graphics card.' }] },
+    { k: 'aiGpu', t: 'number', x: 1, l: 'Graphics card number', h: 'Leave on 0 unless you have more than one graphics card.' },
+    { k: 'aiPause', t: 'select', x: 1, num: 1, l: 'Rest between clips', o: [['0', 'No rest'], ['10', '10 seconds'], ['30', '30 seconds'], ['60', '1 minute']], h: 'A short rest lets the graphics card cool down on long batches.' }] },
   { g: 'Catalogue', open: true, tools: 'catalog', f: [
     { k: 'catTitle', t: 'text', x: 1, l: 'Title', h: 'Shown at the top of the catalogue.' },
     { k: 'checkLoop', t: 'bool', x: 1, l: 'Check which clips loop seamlessly', h: 'Takes a little longer. Clips over a minute are not checked.' }] },
@@ -109,7 +110,7 @@ function fld(f) {
 }
 function buildSettings() {
   $('#groups').innerHTML = GROUPS.map(g => `<details data-g="${g.g}" data-tools="${g.tools || ''}"${g.aiOnly ? ' data-aionly="1"' : ''} ${g.open ? 'open' : ''} class="${g.loop ? 'loopg' : ''}"><summary>${g.g}</summary><div class="fields">${g.f.map(fld).join('')}${g.naming ? '<div class="f" style="grid-column:1/-1"><label>Preview</label><div class="prev" id="nprev">Add files to see the new names.</div></div>' : ''}</div></details>`).join('');
-  const P = { ...defaultProfile(), preset: 'veryfast' }, N = defaultNaming(), X = { saveDirect: false, loopify: 'none', mode: 'auto', fallback: 'pingpong', fade: 1.5, cropShape: '169', cropPos: 'c', trimStart: 0, trimLen: 0, proFormat: 'hap', aiModel: 'realesr-animevideov3', aiScale: 2, aiCrf: 17, aiGpu: 0, upEngine: 'sharp', upSharp: 50, slowEngine: 'blend', slowFactor: 2, slowMode: 'slow', slowModel: 'rife-v4.6', catTitle: 'My loop catalogue', checkLoop: true, packName: 'My loop pack', packAuthor: '', packLicence: 'ccby', packNotes: '', packLoop: true };
+  const P = { ...defaultProfile(), preset: 'veryfast' }, N = defaultNaming(), X = { saveDirect: false, loopify: 'none', mode: 'auto', fallback: 'pingpong', fade: 1.5, cropShape: '169', cropPos: 'c', trimStart: 0, trimLen: 0, proFormat: 'hap', aiModel: 'realesr-animevideov3', aiScale: 2, aiCrf: 17, aiGpu: 0, aiPause: 0, upEngine: 'sharp', upSharp: 50, slowEngine: 'blend', slowFactor: 2, slowMode: 'slow', slowModel: 'rife-v4.6', catTitle: 'My loop catalogue', checkLoop: true, packName: 'My loop pack', packAuthor: '', packLicence: 'ccby', packNotes: '', packLoop: true };
   GROUPS.forEach(g => g.f.forEach(f => {
     const e = $('#o_' + f.k); if (!e) return;
     const v = f.n ? N[f.k] : (f.x || f.lp) ? X[f.k] : P[f.k];
@@ -516,6 +517,9 @@ async function runJob(job) {
         job.failed++; job.log.push(`ERR ${it.label}  ${String(e.message).slice(0, 250)}`);
       }
       job.finished++; job.progress = job.finished / job.total; render();
+      if (isAi(job.tool) && +c.ex.aiPause > 0 && i < job.items.length - 1) {   // let the graphics card cool down between big jobs
+        for (let s = +c.ex.aiPause; s > 0; s--) { job.ctl.check(); job.current = (window.SPK_T ? window.SPK_T('Resting… {a} s') : 'Resting… {a} s').replace('{a}', s); job.dirty = true; render(); await new Promise(r => setTimeout(r, 1000)); }
+      }
     }
     if (job.rows && job.rows.length) { job.current = 'Building the files…'; render(); await buildInspectOutputs(job); }
     if (credits.length) {
@@ -538,6 +542,7 @@ async function pump() {
   try { for (;;) { const j = JOBS.find(x => x.status === 'queued'); if (!j) break; await runJob(j); } } finally { running = false; }
 }
 
+let aiAsked = 0;
 async function start(kind, items) {
   $('#msg').textContent = '';
   if (!items.length) { $('#msg').textContent = kind === 'search' ? 'Select search results first.' : kind === 'fetch' ? 'Paste at least one link.' : 'Add and select some files first.'; return; }
@@ -551,6 +556,12 @@ async function start(kind, items) {
     if (!(engine.info && engine.info.v2x && engine.info.v2x.ok)) { $('#msg').textContent = 'AI needs Video2X. Read the note above the settings.'; return; }
   }
   const c = collect(); c.filterAmount = +$('#famt').value; let dir = null;
+  if (isAi(kind) && usesAi(kind, c.ex) && items.length > 3 && aiAsked !== items.length) {   // 100 AI clips once froze a computer: say what is about to happen, and start only on the second press
+    aiAsked = items.length; const T2 = s => window.SPK_T ? window.SPK_T(s) : s;
+    $('#msg').textContent = T2('AI on {a} clips can take hours and keeps the graphics card at full load. Try one clip first. Press the button again to run all {a}.').replace(/\{a\}/g, items.length) + (c.ex.saveDirect ? '' : ' ' + T2('Tip: choose Save each file straight into a folder, so finished clips are not kept in memory.'));
+    return;
+  }
+  aiAsked = 0;
   if (c.ex.saveDirect && HAS_DIR) { try { dir = await window.showDirectoryPicker({ mode: 'readwrite' }); } catch (e) { return; } }
   const job = { id: nextId++, tool: kind, status: 'queued', created: Date.now(), items, total: items.length, finished: 0, failed: 0, progress: 0, c, dir, taken: new Set(), results: [], rows: [], log: [], ctl: new Ctl(), abort: new AbortController(), current: '', open: false, urls: [] };
   JOBS.unshift(job); render(); pump();
@@ -603,7 +614,7 @@ function draw() {
  ${run ? `<div class="bar"><i style="width:${Math.round(j.progress * 100)}%"></i></div><div class="cur">${esc(j.current)}${j.status === 'queued' ? 'Waiting in line…' : ''}</div>` : ''}
  ${j.error ? `<div class="warn">${esc(j.error)}</div>` : ''}
  ${j.dir ? `<div class="muted" style="font-size:.85rem">Saved into the folder you chose.</div>` : ''}
- <div class="res">${fl.slice(0, 8).map(r => r.blob ? `<a href="${blobUrl(r)}" download="${esc(r.name)}">${esc(r.name)} <small class="muted">${fmtSize(r.size)}</small></a>` : `<a style="pointer-events:none">${esc(r.name)} <small class="muted">${fmtSize(r.size)} · saved</small></a>`).join('')}${fl.length > 8 ? `<span class="muted">… and ${fl.length - 8} more</span>` : ''}</div>
+ <div class="res">${fl.slice(0, 8).map(r => r.blob ? `<div class="rr"><a href="${blobUrl(r)}" download="${esc(r.name)}">${esc(r.name)} <small class="muted">${fmtSize(r.size)}</small></a>${/\.(mp4|mov|webm)$/i.test(r.name) ? `<button class="sm" data-a="up" data-rn="${esc(r.name)}">Upload…</button>` : ''}</div>` : `<div class="rr"><a style="pointer-events:none">${esc(r.name)} <small class="muted">${fmtSize(r.size)} · saved</small></a></div>`).join('')}${fl.length > 8 ? `<span class="muted">… and ${fl.length - 8} more</span>` : ''}</div>
  ${j.open && fl[0] && fl[0].blob ? `<video controls loop muted autoplay src="${blobUrl(fl[0])}"></video>` : ''}
  ${j.log.length ? `<details><summary>Log (${j.log.length})</summary><pre>${esc(j.log.slice(-60).join('\n'))}</pre></details>` : ''}
  <div class="acts">${run ? `<button class="sm" data-a="cancel">Stop</button>` : `${fl.some(r => r.blob) ? `<button class="sm" data-a="prev">${j.open ? 'Hide preview' : 'Preview first'}</button><button class="sm" data-a="zip">Download all (zip)</button>${HAS_DIR ? '<button class="sm" data-a="save">Save all to a folder</button>' : ''}` : ''}<button class="sm" data-a="del">Remove from list</button>`}</div></div>`;
@@ -615,6 +626,7 @@ setInterval(() => { if (JOBS.some(j => j.dirty)) { JOBS.forEach(j => j.dirty = f
 $('#jobs').onclick = async e => {
   const b = e.target.closest('[data-a]'); if (!b) return; const j = JOBS.find(x => x.id === +b.closest('.job').dataset.id), a = b.dataset.a;
   if (a === 'cancel') cancelJob(j);
+  if (a === 'up') { const r = j.results.find(x => x.name === b.dataset.rn && x.blob); if (r && window.SPK_UP) SPK_UP.open(new File([r.blob], r.name, { type: r.blob.type || 'video/mp4' }), { title: stemOf(r.name), name: r.name }); }
   if (a === 'del') { j.results.forEach(r => urls.has(r) && URL.revokeObjectURL(urls.get(r))); JOBS.splice(JOBS.indexOf(j), 1); }
   if (a === 'prev') j.open = !j.open;
   if (a === 'zip') { try { const z = await makeZip(j.results.filter(r => r.blob).map(r => ({ name: r.name, blob: r.blob }))), u = URL.createObjectURL(z), l = document.createElement('a'); l.href = u; l.download = `vjtools-${j.id}.zip`; l.click(); setTimeout(() => URL.revokeObjectURL(u), 60000); } catch (er) { $('#msg').textContent = er.message; } }

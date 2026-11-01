@@ -56,7 +56,7 @@ kbd{border:1px solid var(--line);border-radius:5px;padding:0 5px;font:inherit;fo
 </style>
 <link rel="manifest" href="../manifest.webmanifest">
 <script src="../shared/sw-register.js" defer></script>
-<script src="../shared/i18n.js"></script><script src="../shared/extras.js" data-guide="video-dj" defer></script>
+<script src="../shared/i18n.js"></script><script src="../shared/upload.js" defer></script><script src="../shared/extras.js" data-guide="video-dj" defer></script>
 <script src="../shared/check.js"></script>
 </head>
 <body>
@@ -67,6 +67,7 @@ kbd{border:1px solid var(--line);border-radius:5px;padding:0 5px;font:inherit;fo
   <span id="outstate" class="hint"></span>
   <button id="openOut" class="main" title="Opens the clean output for your projector. Drag it to the projector screen and press F.">Open output window</button>
   <button id="rec" class="rec" title="Record the mix (picture and sound) to a file">● Record</button>
+  <button id="recUp" class="sm" hidden title="Upload the last recording to Vimeo">Upload recording</button>
   <button id="theme" class="sm" aria-label="Switch light or dark theme">Theme</button>
 </div>
 

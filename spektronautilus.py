@@ -107,7 +107,7 @@ def v2x_args_ok(args, st):
 PCT = re.compile(r"(\d{1,3}(?:\.\d+)?)\s*%")
 FRAC = re.compile(r"(\d+)\s*/\s*(\d+)")
 
-SAFE_ARG = re.compile(r"^(?!/)(?!.*(^|[\\/])\.\.([\\/]|$))(?!.*:\/\/)(?!(file|pipe|http|https|tcp|udp|rtp|rtsp|concat|subfile|data|crypto|ftp|unix|async|cache|hls|md5)\s*:)(?!.*(movie=|subtitles=|fontfile|textfile|=/)).*$", re.S | re.I)   # no absolute paths, no .., no urls: ffmpeg may only touch the work folder
+SAFE_ARG = re.compile(r"^(?!/)(?!.*(^|[\\/])\.\.([\\/]|$))(?!.*:\/\/)(?!(file|pipe|http|https|tcp|udp|rtp|rtsp|concat|subfile|data|crypto|ftp|unix|async|cache|hls|md5)\s*:)(?!.*(movie=|subtitles=|fontfile|textfile|subfile|=/)).*$", re.S | re.I)   # no absolute paths, no .., no urls: ffmpeg may only touch the work folder
 DUR = re.compile(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)")
 TIME = re.compile(r"time=(\d+):(\d+):(\d+(?:\.\d+)?)")
 secs = lambda m: int(m[1]) * 3600 + int(m[2]) * 60 + float(m[3])

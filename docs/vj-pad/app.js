@@ -48,7 +48,7 @@ function drawThumb(p) { const c = p.thumb.getContext('2d'), v = p.v, k = Math.ma
 function freePad(i, replacing) {
   const p = S.pads[i]; if (!p) return;
   for (const L of S.layers) if (L.pad === i) L.pad = -1;
-  p.v.pause(); p.v.removeAttribute('src'); p.v.load(); URL.revokeObjectURL(p.v.src); S.pads[i] = null;
+  const u = p.v.src; p.v.pause(); p.v.removeAttribute('src'); p.v.load(); try { URL.revokeObjectURL(u); } catch {} S.pads[i] = null;   // read the address first: after removeAttribute it is empty and the video would stay in memory
   renderPads(); renderLayers(); if (!replacing) saveSession();
 }
 function addFiles(files, startAt = 0) {

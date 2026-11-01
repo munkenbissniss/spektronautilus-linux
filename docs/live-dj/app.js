@@ -1,7 +1,7 @@
 import { clamp, audioGains, onAir, autoFadePos, posterFrame, POSTER_COLORS, parseTitle, fmtTime, parseMidi, midiKey, routeMidi, MIDI_ACTIONS } from './core.js';
 
 const $ = s => document.querySelector(s);
-const PRELOAD_MAX = 1.5e9;
+const PRELOAD_MAX = Math.min(1.5e9, Math.max(3e8, (navigator.deviceMemory || 4) * 2.5e8));   // a file is copied into memory so playback never waits for the disk: less on computers with little memory
 const store = {
   get(k, d) { try { const v = localStorage.getItem('spk_live_' + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
   set(k, v) { try { localStorage.setItem('spk_live_' + k, JSON.stringify(v)); } catch {} },
@@ -389,9 +389,10 @@ function startRec() {
   if (!mt) { toast('This browser can not record. Use OBS to capture the output window.'); return; }
   const chunks = [], mr = new MediaRecorder(new MediaStream(tracks), { mimeType: mt, videoBitsPerSecond: 8e6 });
   mr.ondataavailable = e => e.data.size && chunks.push(e.data);
-  mr.onstop = () => { const b = new Blob(chunks, { type: 'video/webm' }), u = URL.createObjectURL(b), l = document.createElement('a'), d = new Date(); l.href = u; l.download = `spektronautilus-mix-${d.toISOString().slice(0, 16).replace(/[:T]/g, '-')}.webm`; l.click(); setTimeout(() => URL.revokeObjectURL(u), 60000); toast('Recording saved.'); };
+  mr.onstop = () => { const b = new Blob(chunks, { type: 'video/webm' }), u = URL.createObjectURL(b), l = document.createElement('a'), d = new Date(); l.href = u; l.download = `spektronautilus-mix-${d.toISOString().slice(0, 16).replace(/[:T]/g, '-')}.webm`; l.click(); setTimeout(() => URL.revokeObjectURL(u), 60000); S.lastRec = { blob: b, name: l.download }; $('#recUp').hidden = false; toast('Recording saved.'); };
   mr.start(1000); S.rec = mr; $('#rec').classList.add('on'); $('#rec').textContent = '■ Stop';
 }
+$('#recUp').onclick = () => { if (S.lastRec && window.SPK_UP) SPK_UP.open(new File([S.lastRec.blob], S.lastRec.name, { type: 'video/webm' }), { title: 'Spektronautilus mix', name: S.lastRec.name }); };
 $('#rec').onclick = () => { if (S.rec) { S.rec.stop(); S.rec = null; $('#rec').classList.remove('on'); $('#rec').textContent = '● Record'; } else startRec(); };
 
 // ------------------------------------------------------------------ MIDI

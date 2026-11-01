@@ -31,14 +31,31 @@ ul.find li.ok{border-color:var(--ok);color:var(--ok)}
 .f .h{font-size:.78rem;color:var(--mute)}
 .run{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 .bar{height:8px;background:var(--line);border-radius:4px;overflow:hidden;margin:8px 0 2px}.bar i{display:block;height:100%;background:var(--b);transition:width .4s}
-.res a{display:block;font-size:.9rem;overflow-wrap:anywhere}.warn{color:var(--bad)}
+.res a{font-size:.9rem;overflow-wrap:anywhere}.rr{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:2px 0}.warn{color:var(--bad)}
 .facts{display:flex;gap:6px 14px;flex-wrap:wrap;font-size:.9rem;margin-top:8px}
 .chip{border:1px solid currentColor;border-radius:999px;padding:0 9px;font-size:.8rem;font-weight:700}
 .chip.good{color:var(--ok)}.chip.bad{color:var(--bad)}
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,92px),1fr));gap:8px;margin:4px 0 12px}
+.tile{display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 4px;border-radius:12px;border:2px solid var(--line);background:var(--bg);font-size:.85rem;line-height:1.2;text-align:center}
+.tile .ic{font-size:1.5rem;line-height:1.1}.tile[aria-pressed=true]{border-color:var(--b);background:var(--panel);box-shadow:0 0 0 2px var(--b) inset}
+.step{border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:10px;background:var(--bg)}
+.step h3{display:flex;align-items:center;gap:8px;margin:0;font-size:1rem}.step h3 .ic{font-size:1.2rem}.step h3 .sp{flex:1}
+.step .x{border:0;padding:0 8px;font-size:1.3rem;line-height:1.2;color:var(--mute);font-weight:400}.step .hint{margin:2px 0 0}
+.fields{margin:8px 0 0}
+.seg{display:flex;flex-wrap:wrap;gap:4px}.seg label{position:relative;margin:0;display:block}
+.seg input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;cursor:pointer}
+.seg span{display:block;padding:4px 12px;border:2px solid var(--line);border-radius:999px;font-size:.88rem;font-weight:600;background:var(--panel)}
+.seg input:checked+span{background:var(--ink);border-color:var(--ink);color:var(--bg)}.seg input:focus-visible+span{outline:3px solid var(--b);outline-offset:2px}
+.chips{display:flex;flex-wrap:wrap;gap:5px}.chips label{position:relative;margin:0;display:block}
+.chips input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;cursor:pointer}
+.chips span{display:block;padding:3px 11px;border:2px solid var(--line);border-radius:999px;font-size:.85rem;background:var(--panel)}
+.chips input:checked+span{border-color:var(--b);box-shadow:0 0 0 1px var(--b) inset;font-weight:700}.chips input:focus-visible+span{outline:3px solid var(--b);outline-offset:2px}
+.f.wide{grid-column:1/-1}.sumline{font-size:.9rem;color:var(--mute);margin:0 0 4px}
+@media (max-width:480px){.wrap{padding-left:14px;padding-right:14px}}
 </style>
 <link rel="manifest" href="../../manifest.webmanifest">
 <script src="../../shared/sw-register.js" defer></script>
-<script src="../../shared/i18n.js"></script><script src="../../shared/extras.js" data-dock="1" data-guide="tools" defer></script>
+<script src="../../shared/i18n.js"></script><script src="../../shared/upload.js" defer></script><script src="../../shared/extras.js" data-dock="1" data-guide="tools" defer></script>
 </head>
 <body><div class="wrap" role="main">
 <p style="margin:0 0 6px"><a href="../app/" style="color:inherit;font-size:.9rem;text-decoration:none">← VJ Tools</a></p>
@@ -59,18 +76,15 @@ ul.find li.ok{border-color:var(--ok);color:var(--ok)}
 <input type="file" id="picker" hidden accept="video/*,image/gif,.mov,.mkv,.avi,.webm,.gif,.m4v,.mts,.m2ts,.ts,.wmv,.flv,.ogv,.3gp,.mpg,.mpeg,.hevc,.apng">
 <input type="file" id="pickermore" hidden multiple accept="video/*,image/gif,.mov,.mkv,.avi,.webm,.gif,.m4v,.mts,.m2ts,.ts,.wmv,.flv,.ogv,.3gp,.mpg,.mpeg,.hevc,.apng">
 
-<div class="card hide" id="c2">
-  <h2>2. Examination</h2>
-  <ul class="find" id="findings"></ul>
-  <button id="healall" type="button" class="hide">Add all suggested treatments</button>
-</div>
-
 <div class="card hide" id="c3">
-  <h2>3. Treatment</h2>
-  <p class="hint" style="margin-top:0">Tick the treatments you want. They are done in this order: cut, crop, slow motion, upscale, resize, look, loop.</p>
+  <h2>2. Treatment</h2>
+  <ul class="find" id="findings"></ul>
+  <button id="healall" type="button" class="sm hide">Add all suggested treatments</button>
+  <p class="hint" style="margin:12px 0 4px">Tap what you want. Each treatment opens its settings below.</p>
+  <div class="tiles" id="tiles"></div>
   <div id="steps"></div>
   <details style="margin-top:8px"><summary style="cursor:pointer;font-weight:700">Advanced</summary>
-    <div class="fields" id="outf" style="margin-left:0"></div></details>
+    <div class="fields" id="outf" style="margin-left:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,250px),1fr));gap:10px 22px"></div></details>
 </div>
 
 <div class="card hide" id="c4">

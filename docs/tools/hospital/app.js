@@ -15,25 +15,32 @@ let patient = null, busy = false, ctl = null, RESULTS = [], nextId = 1;
 // ---------------------------------------------------------------------------------------------- the treatment steps
 const num = (k, l, h) => ({ k, t: 'number', l, h });
 const sel = (k, l, o, n) => ({ k, t: 'select', l, o, n });
+const seg = (k, l, o, n, h) => ({ k, t: 'seg', l, o, n, h });
+const fill = (s, a) => T(s).replace(/\{(\w)\}/g, (m, k) => a[k]);
 const STEPS = [
-  { s: 'cut', title: 'Cut', hint: 'Remove the start or the end of the clip.', f: [num('start', 'Start at (seconds)', 'Cuts this much off the beginning.'), num('len', 'Length (seconds)', '0 = until the end of the clip.')] },
-  { s: 'crop', title: 'Crop to a shape', hint: 'Cut the picture to the shape you need.', f: [
-    sel('shape', 'Cut to the shape', [['169', 'Widescreen 16:9'], ['916', 'Vertical 9:16 (phone, stories)'], ['11', 'Square 1:1'], ['43', '4:3'], ['219', 'Ultra-wide 21:9']]),
-    sel('pos', 'Keep which part', [['c', 'The middle'], ['a', 'The start (left or top)'], ['z', 'The end (right or bottom)']])] },
-  { s: 'slow', title: 'Slow motion', hint: 'Make the clip slower, or smoother.', f: [
-    sel('engine', 'Method', [['blend', 'Soft blend (fast, works everywhere)'], ['motion', 'Smooth motion (slower, cleaner on fast movement)']]),
-    sel('factor', 'How much slower', [['2', '2× slower'], ['4', '4× slower'], ['8', '8× slower']], 1),
-    sel('mode', 'Result', [['slow', 'Slow motion (the clip gets longer)'], ['smooth', 'Same speed, but smoother (more frames per second)']])] },
-  { s: 'up', title: 'Upscale', hint: 'Make the picture larger and sharper.', f: [
-    sel('scale', 'Make it this much bigger', [['2', '2× (double)'], ['3', '3× (triple)'], ['4', '4× (four times)']], 1),
+  { s: 'cut', ic: '✂️', title: 'Cut', hint: 'Remove the start or the end of the clip.', f: [num('start', 'Start at (seconds)', 'Cuts this much off the beginning.'), num('len', 'Length (seconds)', '0 = until the end of the clip.')] },
+  { s: 'rotate', ic: '🔄', title: 'Rotate', hint: 'Turn the picture, or mirror it.', f: [
+    seg('turn', 'Turn', [['0', 'No turn'], ['90', '↻ 90° right'], ['270', '↺ 90° left'], ['180', '180°']]),
+    seg('flip', 'Mirror', [['none', 'No mirror'], ['h', '↔ Left to right'], ['v', '↕ Upside down']])] },
+  { s: 'crop', ic: '🔲', title: 'Crop to a shape', hint: 'Cut the picture to the shape you need.', f: [
+    seg('shape', 'Shape', [['169', '16:9'], ['916', '9:16'], ['11', '1:1'], ['43', '4:3'], ['219', '21:9']]),
+    seg('pos', 'Keep which part', [['c', 'The middle'], ['a', 'The start'], ['z', 'The end']])] },
+  { s: 'slow', ic: '🐢', title: 'Slow motion', hint: 'Make the clip slower, or smoother.', f: [
+    seg('factor', 'How much slower', [['2', '2×'], ['4', '4×'], ['8', '8×']], 1),
+    seg('mode', 'Result', [['slow', 'Slow motion'], ['smooth', 'Same speed, smoother']], 0, 'Slow motion makes the clip longer. Smoother adds frames per second.'),
+    seg('engine', 'Method', [['blend', 'Soft blend'], ['motion', 'Smooth motion']], 0, 'Soft blend is fast. Smooth motion is slower, but cleaner on fast movement.')] },
+  { s: 'up', ic: '🔍', title: 'Upscale', hint: 'Make the picture larger and sharper.', f: [
+    seg('scale', 'Make it this much bigger', [['2', '2×'], ['3', '3×'], ['4', '4×']], 1),
     { k: 'sharp', t: 'range', l: 'Sharpness', min: 0, max: 100, step: 5 }] },
-  { s: 'size', title: 'Resize', hint: 'Fit the clip to a size box. Portrait clips are turned automatically.', f: [
+  { s: 'size', ic: '📐', title: 'Resize', hint: 'Fit the clip to a size box. Portrait clips are turned automatically.', f: [
     sel('box', 'Size', ['1280x720', '1920x1080', '2560x1440', '3840x2160']),
-    sel('fit', 'Fit', [['keep', 'Keep shape, only shrink'], ['fit', 'Letterbox to exactly the box'], ['fill', 'Crop to exactly the box']]),
+    seg('fit', 'Fit', [['keep', 'Only shrink'], ['fit', 'Letterbox'], ['fill', 'Crop to fill']]),
     { k: 'upscale', t: 'bool', l: 'Enlarge small videos up to the box' }] },
-  { s: 'look', title: 'Look', hint: 'Give the clip a style.', f: [sel('id', 'Look', FILTERS.map(f => [f.id, f.name])), { k: 'amount', t: 'range', l: 'Strength', min: 0, max: 100, step: 1 }] },
-  { s: 'loop', title: 'Make it loop', hint: 'Hide the jump where the clip starts over.', f: [
-    sel('mode', 'Method', [['auto', 'Auto: keep good loops, otherwise fix them'], ['pingpong', 'Forward, then backward'], ['crossfade', 'Crossfade end into start'], ['trim', 'Trim to the best loop point']]),
+  { s: 'look', ic: '🎨', title: 'Look', hint: 'Give the clip a style. Pick several to get one file for each.', f: [
+    { k: 'ids', t: 'looks' }, { k: 'amount', t: 'range', l: 'Strength', min: 0, max: 100, step: 1 },
+    { k: 'keepOriginal', t: 'bool', l: 'Also save the clip without a look' }] },
+  { s: 'loop', ic: '♾️', title: 'Make it loop', hint: 'Hide the jump where the clip starts over.', f: [
+    seg('mode', 'Method', [['auto', 'Auto'], ['pingpong', 'Back and forth'], ['crossfade', 'Crossfade'], ['trim', 'Trim']], 0, 'Auto keeps good loops and fixes the rest. Back and forth plays forward, then backward. Crossfade blends the end into the start. Trim cuts at the best loop point.'),
     { k: 'fade', t: 'range', l: 'Crossfade length (s)', min: 0.3, max: 8, step: 0.1 }] },
 ];
 const OUT = [sel('fps', 'Frames per second', [['0', 'Keep (snapped to 24/25/30/50/60)'], ['24', '24'], ['25', '25'], ['30', '30'], ['50', '50'], ['60', '60']], 1),
@@ -42,34 +49,64 @@ const OUT = [sel('fps', 'Frames per second', [['0', 'Keep (snapped to 24/25/30/5
 
 function field(s, f) {
   const id = `h_${s}_${f.k}`, v = R[s][f.k];
+  const hint = f.h ? `<div class="h">${esc(f.h)}</div>` : '';
+  if (f.t === 'looks') {
+    return `<div class="f wide"><label>Looks</label><div class="chips" id="looks">${FILTERS.map(x => `<label title="${esc(x.desc || '')}"><input type="checkbox" data-look="${x.id}"${R.look.ids.includes(x.id) ? ' checked' : ''}><span>${esc(x.name)}</span></label>`).join('')}</div><div class="h" id="lookcount" role="status"></div></div>`;
+  }
   let c;
   if (f.t === 'range') c = `<div class="ctl"><input id="${id}" type="range" min="${f.min}" max="${f.max}" step="${f.step}" value="${v}" data-s="${s}" data-k="${f.k}"><output>${v}</output></div>`;
+  else if (f.t === 'seg') c = `<div class="seg" role="radiogroup" aria-label="${esc(f.l)}">${f.o.map(([ov, ol]) => `<label><input type="radio" name="${id}" value="${esc(ov)}" data-s="${s}" data-k="${f.k}"${f.n ? ' data-num="1"' : ''}${String(ov) === String(v) ? ' checked' : ''}><span>${esc(ol)}</span></label>`).join('')}</div>`;
   else if (f.t === 'select') c = `<select id="${id}" data-s="${s}" data-k="${f.k}"${f.n ? ' data-num="1"' : ''}>${f.o.map(o => { const [ov, ol] = Array.isArray(o) ? o : [o, o]; return `<option value="${esc(ov)}"${String(ov) === String(v) ? ' selected' : ''}>${esc(ol)}</option>`; }).join('')}</select>`;
   else if (f.t === 'bool') c = `<label style="display:flex;gap:6px;align-items:center"><input id="${id}" type="checkbox" data-s="${s}" data-k="${f.k}"${v ? ' checked' : ''}> <span style="font-size:.9rem">${esc(f.l)}</span></label>`;
   else c = `<input id="${id}" type="number" min="0" step="0.1" value="${v}" data-s="${s}" data-k="${f.k}">`;
-  return `<div class="f">${f.t === 'bool' ? '' : `<label for="${id}">${esc(f.l)}</label>`}${c}${f.h ? `<div class="h">${esc(f.h)}</div>` : ''}</div>`;
+  const lab = f.t === 'bool' ? '' : f.t === 'seg' ? `<label>${esc(f.l)}</label>` : `<label for="${id}">${esc(f.l)}</label>`;
+  return `<div class="f${f.t === 'seg' ? ' wide' : ''}">${lab}${c}${hint}</div>`;
 }
 function buildSteps() {
-  $('#steps').innerHTML = STEPS.map(st => `<div class="step" data-step="${st.s}"><label><input type="checkbox" data-use="${st.s}"${R[st.s].on ? ' checked' : ''}> ${esc(st.title)}</label><div class="hint" style="margin-left:26px">${esc(st.hint)}</div><div class="fields ${R[st.s].on ? '' : 'hide'}">${st.f.map(f => field(st.s, f)).join('')}</div></div>`).join('');
+  $('#tiles').innerHTML = STEPS.map(st => `<button type="button" class="tile" data-tile="${st.s}" aria-pressed="${!!R[st.s].on}"><span class="ic" aria-hidden="true">${st.ic}</span><span>${esc(st.title)}</span></button>`).join('');
+  $('#steps').innerHTML = STEPS.map(st => `<section class="step${R[st.s].on ? '' : ' hide'}" data-step="${st.s}"><h3><span class="ic" aria-hidden="true">${st.ic}</span><span>${esc(st.title)}</span><span class="sp"></span><button type="button" class="x" data-off="${st.s}" aria-label="Remove this treatment" title="Remove this treatment">×</button></h3><div class="hint">${esc(st.hint)}</div><div class="fields">${st.f.map(f => field(st.s, f)).join('')}</div></section>`).join('');
   $('#outf').innerHTML = OUT.map(f => field('out', f)).join('');
+  lookCount();
 }
-function syncUI() {   // push the recipe into the inputs after a suggestion was added
-  document.querySelectorAll('[data-s]').forEach(e => { const v = R[e.dataset.s][e.dataset.k]; if (e.type === 'checkbox') e.checked = !!v; else { e.value = String(v); const o = e.nextElementSibling; if (e.type === 'range' && o) o.textContent = e.value; } });
-  document.querySelectorAll('[data-use]').forEach(e => { e.checked = !!R[e.dataset.use].on; e.closest('.step').querySelector('.fields').classList.toggle('hide', !R[e.dataset.use].on); });
+function setOn(s, on) {
+  R[s].on = on;
+  const tile = document.querySelector(`[data-tile="${s}"]`); if (tile) tile.setAttribute('aria-pressed', String(on));
+  const st = document.querySelector(`[data-step="${s}"]`); if (st) st.classList.toggle('hide', !on);
   info();
 }
-function info() {
-  const on = STEPS.filter(s => R[s.s].on).map(s => s.title);
-  $('#info').textContent = on.length ? on.join(' · ') : 'No treatment ticked yet. The clip is only made VJ-friendly.';
+function lookCount() {
+  const el = $('#lookcount'); if (!el) return;
+  const n = ST.variants(R).length;
+  el.textContent = n === 1 ? T('One file will be made.') : fill('{a} files will be made, one for each look.', { a: n });
 }
+function syncUI() {   // push the recipe into the inputs after a suggestion was added
+  document.querySelectorAll('[data-s]').forEach(e => {
+    const v = R[e.dataset.s][e.dataset.k];
+    if (e.type === 'checkbox') e.checked = !!v; else if (e.type === 'radio') e.checked = String(v) === e.value;
+    else { e.value = String(v); const o = e.nextElementSibling; if (e.type === 'range' && o) o.textContent = e.value; }
+  });
+  document.querySelectorAll('[data-look]').forEach(e => { e.checked = R.look.ids.includes(e.dataset.look); });
+  STEPS.forEach(st => setOn(st.s, !!R[st.s].on));
+  lookCount(); info();
+}
+function info() {
+  const on = STEPS.filter(s => R[s.s].on).map(s => T(s.title));
+  $('#info').textContent = on.length ? on.join(' → ') : T('No treatment ticked yet. The clip is only made VJ-friendly.');
+}
+$('#tiles').addEventListener('click', e => { const b = e.target.closest('[data-tile]'); if (b) setOn(b.dataset.tile, b.getAttribute('aria-pressed') !== 'true'); });
+$('#steps').addEventListener('click', e => { const b = e.target.closest('[data-off]'); if (b) setOn(b.dataset.off, false); });
 $('#steps').addEventListener('change', e => {
-  const u = e.target.dataset.use; if (u) { R[u].on = e.target.checked; e.target.closest('.step').querySelector('.fields').classList.toggle('hide', !e.target.checked); info(); }
+  const l = e.target.dataset.look; if (!l) return;
+  const ids = [...document.querySelectorAll('[data-look]')].filter(x => x.checked).map(x => x.dataset.look);
+  if (!ids.length) { e.target.checked = true; return; }   // at least one look must stay
+  R.look.ids = ids; if (ids.length) R.look.id = ids[0]; lookCount();
 });
 function onField(e) {
   const t = e.target, s = t.dataset.s, k = t.dataset.k; if (!s) return;
+  if (t.type === 'radio' && !t.checked) return;
   const v = t.type === 'checkbox' ? t.checked : (t.type === 'range' || t.type === 'number' || t.dataset.num) ? Number(t.value) : t.value;
   R[s][k] = v; if (t.type === 'range' && t.nextElementSibling) t.nextElementSibling.textContent = t.value;
-  if (s === 'slow' && k === 'engine') R.slow.engine = t.value;
+  if (s === 'look') lookCount();
 }
 document.addEventListener('input', onField); document.addEventListener('change', onField);
 
@@ -85,7 +122,7 @@ async function choose(file) {
   if (patient) URL.revokeObjectURL(patient.url);
   patient = { file, url: URL.createObjectURL(file), info: null, loop: null };
   $('#vbefore').src = patient.url; $('#patient').classList.remove('hide'); $('#fafter').classList.add('hide'); $('#vafter').removeAttribute('src');
-  ['c2', 'c3', 'c4'].forEach(i => $('#' + i).classList.remove('hide')); $('#res').innerHTML = ''; RESULTS = []; $('#more').classList.add('hide'); $('#msg').textContent = '';
+  ['c3', 'c4'].forEach(i => $('#' + i).classList.remove('hide')); RESULTS.forEach(r => URL.revokeObjectURL(r.url)); $('#res').innerHTML = ''; RESULTS = []; $('#more').classList.add('hide'); $('#msg').textContent = '';
   $('#facts').innerHTML = `<span class="muted">Examining…</span>`; $('#findings').innerHTML = ''; $('#healall').classList.add('hide');
   let path;
   try {
@@ -101,7 +138,7 @@ function examine() {
   const i = patient.info, lp = patient.loop;
   const verdict = lp ? (lp.verdict === 'seamless' ? '<span class="chip good">loops ✓</span>' : lp.verdict === 'almost' ? '<span class="chip bad">almost loops</span>' : '<span class="chip bad">jumps</span>') : '';
   $('#facts').innerHTML = `<span>${i.width}×${i.height}</span><span>${Math.round(i.fps * 100) / 100} fps</span><span>${Math.round(i.duration * 10) / 10} s</span><span>${fmtSize(patient.file.size)}</span><span>${esc(i.codec || '')}</span>${verdict}`;
-  const d = ST.diagnose(i, lp);
+  const d = ST.diagnose(i, lp, { slowEngine: engine.kind !== 'native' });
   $('#findings').innerHTML = d.length ? d.map((x, n) => `<li><span>${esc(x.text)}</span>${Object.keys(x.fix).length ? `<button class="sm" data-fix="${n}" type="button">Add this treatment</button>` : ''}</li>`).join('')
     : '<li class="ok"><span>Nothing wrong found. This clip is ready for the mixers.</span></li>';
   patient.findings = d; $('#healall').classList.toggle('hide', !d.some(x => Object.keys(x.fix).length));
@@ -134,19 +171,26 @@ async function treat(file, out, rec, label, base) {
     return { data, note: r.note };
   } finally { if (path) await engine.unmount(path); }
 }
+let curLabel = '';
+const setCur = s => { curLabel = s; $('#cur').textContent = s; };
 async function run(fn) {
   if (busy) return; $('#msg').textContent = ''; setBusy(true); prog(0); ctl = { cancel: false, check() { if (this.cancel) throw new Error('cancelled'); } };
-  try { await ensureEngine(); await fn(); } catch (e) { $('#msg').textContent = e.message === 'cancelled' ? 'Stopped.' : e.message; }
-  setBusy(false); ctl = null; $('#cur').textContent = '';
+  const c = ctl, t0 = Date.now();   // a clock, so you can see that it is working even when the browser reports no progress
+  const tick = setInterval(() => {
+    const s = Math.round((Date.now() - t0) / 1000);
+    $('#cur').textContent = curLabel + ' · ' + Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0') + (s >= 60 ? ' — ' + T('Still working. Slow motion and loop fixes are heavy for a browser, especially on a phone. Short clips finish sooner.') : '');
+  }, 1000);
+  try { await ensureEngine(); await fn(); } catch (e) { $('#msg').textContent = (c.cancel || e.message === 'cancelled') ? T('Stopped.') : e.message; }
+  clearInterval(tick); setBusy(false); ctl = null; setCur('');
 }
-$('#stop').onclick = () => { if (ctl) ctl.cancel = true; engine.terminate(); $('#cur').textContent = 'Stopping…'; };
+$('#stop').onclick = () => { if (ctl) ctl.cancel = true; engine.terminate(); setCur(T('Stopping…')); };
 
 $('#prev').onclick = () => run(async () => {
   if (!patient || !patient.info) throw new Error('Choose a clip first.');
-  const rec = JSON.parse(JSON.stringify(R)), cap = rec.slow.on ? 2 : 4;   // a short, small try-out: no upscale, at most a few seconds
+  const rec = JSON.parse(JSON.stringify(ST.variants(R)[0].rec)), cap = rec.slow.on ? 2 : 4;   // a short, small try-out: no upscale, at most a few seconds
   rec.cut = { on: true, start: rec.cut.on ? rec.cut.start : 0, len: Math.min(rec.cut.on && rec.cut.len > 0 ? rec.cut.len : cap, cap) };
   const notUp = rec.up.on; rec.up.on = false; rec.size = { on: true, box: '640x360', fit: 'keep', upscale: false }; rec.out.minSeconds = 0; rec.out.crf = 23;
-  $('#cur').textContent = 'Making a preview…';
+  setCur('Making a preview…');
   const r = await treat(patient.file, 'hosp_prev.mp4', rec, 'preview', { ...baseProf(), preset: 'ultrafast' });
   const v = $('#vafter'); if (v.src) URL.revokeObjectURL(v.src); v.src = URL.createObjectURL(new Blob([r.data], { type: 'video/mp4' })); $('#fafter').classList.remove('hide');
   $('#msg').textContent = notUp ? 'Preview done. It is small and short, and does not show the upscale.' : '';
@@ -155,25 +199,35 @@ $('#prev').onclick = () => run(async () => {
 function addResult(name, data, note) {
   const blob = new Blob([data], { type: 'video/mp4' });
   RESULTS.push({ id: nextId++, name, blob, size: data.length, note, url: URL.createObjectURL(blob) });
-  $('#res').innerHTML = RESULTS.map(r => `<a href="${r.url}" download="${esc(r.name)}">${esc(r.name)} <small class="muted">${fmtSize(r.size)}${r.note ? ' · ' + esc(r.note) : ''}</small></a>`).join('');
+  $('#res').innerHTML = RESULTS.map(r => `<div class="rr"><a href="${r.url}" download="${esc(r.name)}">${esc(r.name)} <small class="muted">${fmtSize(r.size)}${r.note ? ' · ' + esc(r.note) : ''}</small></a><button class="sm" data-up="${r.id}" type="button">Upload…</button></div>`).join('');
   $('#more').classList.remove('hide'); $('#zipall').classList.toggle('hide', RESULTS.length < 2);
 }
-const outName = f => stemOf(f.name).replace(/\s+/g, '_') + '_healed.mp4';
+const outName = (f, suffix) => stemOf(f.name).replace(/\s+/g, '_') + (suffix ? '_' + suffix : '') + '_healed.mp4';
+const lookName = id => (FILTERS.find(x => x.id === id) || {}).name || id;
+// treat one clip once for every look picked (or just once), adding every finished file to the results
+async function treatClip(file, label) {
+  const vs = ST.variants(R); let n = 0;
+  for (const v of vs) {
+    ctl.check(); n++; prog(0);
+    setCur(label + (vs.length > 1 ? ` · ${v.suffix ? lookName(v.suffix) : T('No look')} (${n}/${vs.length})` : ''));
+    const r = await treat(file, `hosp_${nextId}.mp4`, v.rec, 'clip');
+    addResult(outName(file, v.suffix), r.data, r.note);
+  }
+}
 $('#go').onclick = () => run(async () => {
   if (!patient || !patient.info) throw new Error('Choose a clip first.');
-  $('#cur').textContent = patient.file.name;
-  const r = await treat(patient.file, `hosp_${nextId}.mp4`, R, 'clip');
-  addResult(outName(patient.file), r.data, r.note);
+  await treatClip(patient.file, patient.file.name);
   const v = $('#vafter'); if (v.src) URL.revokeObjectURL(v.src); v.src = URL.createObjectURL(RESULTS[RESULTS.length - 1].blob); $('#fafter').classList.remove('hide'); $('#fafter figcaption').textContent = 'After';
 });
+$('#res').onclick = e => { const b = e.target.closest('[data-up]'); const r = b && RESULTS.find(x => x.id === +b.dataset.up); if (r && window.SPK_UP) SPK_UP.open(new File([r.blob], r.name, { type: 'video/mp4' }), { title: stemOf(r.name).replace(/_healed$/, ''), name: r.name }); };
 $('#pickmore').onclick = () => $('#pickermore').click();
 $('#pickermore').onchange = e => {
   const files = [...e.target.files].filter(okFile); e.target.value = ''; if (!files.length) return;
   run(async () => {
     let n = 0, bad = 0;
     for (const f of files) {
-      ctl.check(); $('#cur').textContent = `${f.name} (${++n}/${files.length})`; prog(0);
-      try { const r = await treat(f, `hosp_${nextId}.mp4`, R, f.name); addResult(outName(f), r.data, r.note); }
+      ctl.check(); prog(0);
+      try { await treatClip(f, `${f.name} (${++n}/${files.length})`); }
       catch (er) { if (er.message === 'cancelled') throw er; bad++; $('#msg').textContent = `${f.name}: ${er.message}`; }
     }
     if (!bad) $('#msg').textContent = '';

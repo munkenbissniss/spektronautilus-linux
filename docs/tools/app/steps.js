@@ -13,6 +13,26 @@ export function upscalePlan(info, scale, sharp = 50) {
   return { filter: `scale=${w}:${h}:flags=lanczos` + (amt > 0 ? `,unsharp=5:5:${amt}:5:5:0` : ''), width: w, height: h };
 }
 
+// Rotate and mirror. turn: '0' | '90' (clockwise) | '270' (counter-clockwise) | '180'. flip: 'none' | 'h' | 'v'.
+export function rotatePlan(info, { turn = '90', flip = 'none' } = {}) {
+  const f = [], t = String(turn);
+  if (t === '90') f.push('transpose=1'); else if (t === '270') f.push('transpose=2'); else if (t === '180') f.push('hflip', 'vflip');
+  if (flip === 'h') f.push('hflip'); else if (flip === 'v') f.push('vflip');
+  const swap = t === '90' || t === '270';
+  return { filter: f.join(','), width: swap ? info.height : info.width, height: swap ? info.width : info.height, swap };
+}
+
+// One finished file for every look the patient should get (plus the plain clip when keepOriginal is on).
+// Returns [{ suffix, rec }]. With one look or none, a single entry with an empty suffix.
+export function variants(R) {
+  if (!R.look.on) return [{ suffix: '', rec: R }];
+  const ids = (R.look.ids && R.look.ids.length ? R.look.ids : [R.look.id]).filter(Boolean), out = [];
+  if (ids.length <= 1 && !R.look.keepOriginal) return [{ suffix: '', rec: { ...R, look: { ...R.look, id: ids[0] || R.look.id } } }];
+  if (R.look.keepOriginal) out.push({ suffix: '', rec: { ...R, look: { ...R.look, on: false } } });
+  for (const id of ids) out.push({ suffix: id, rec: { ...R, look: { ...R.look, on: true, id } } });
+  return out;
+}
+
 // Slow motion without AI. engine: 'blend' (fast, soft) or 'motion' (motion interpolation, slow but cleaner on fast movement).
 // mode 'slow': the clip gets `factor` times longer at the same frame rate. mode 'smooth': same speed, more frames per second (up to 60).
 export function slowPlan(info, { factor = 2, mode = 'slow', engine = 'blend' } = {}) {
@@ -28,8 +48,9 @@ export function slowPlan(info, { factor = 2, mode = 'slow', engine = 'blend' } =
 }
 
 // What is wrong with this clip, and what would help? info: probe result, loop: loop report (or null)
-export function diagnose(info, loop, { want = 1080 } = {}) {
+export function diagnose(info, loop, { slowEngine = false } = {}) {
   const out = [];
+  if (slowEngine && info.duration > 10) out.push({ id: 'long', text: `This clip is ${Math.round(info.duration)} s long. Slow motion, upscale and loop fixes can take a very long time in a browser, especially on a phone. Cut it short first, or use the local version.`, fix: { cut: { on: true, start: 0, len: 8 } } });
   const short = Math.min(info.width, info.height);
   if (info.width && short < 720) out.push({ id: 'small', text: `Small picture (${info.width}×${info.height}). It will look soft on a big screen.`, fix: { up: { on: true, scale: short < 400 ? 4 : 2 } } });
   if (info.duration && info.duration < 4) out.push({ id: 'short', text: `Very short (${Math.round(info.duration * 10) / 10} s). Slow motion makes it longer and calmer.`, fix: { slow: { on: true, factor: 2 } } });
@@ -43,16 +64,17 @@ export function diagnose(info, loop, { want = 1080 } = {}) {
 export const defaultRecipe = () => ({
   cut: { on: false, start: 0, len: 0 },
   crop: { on: false, shape: '169', pos: 'c' },
+  rotate: { on: false, turn: '90', flip: 'none' },
   slow: { on: false, factor: 2, mode: 'slow', engine: 'blend' },
   up: { on: false, scale: 2, sharp: 50 },
   size: { on: false, box: '1920x1080', fit: 'keep', upscale: false },
-  look: { on: false, id: 'sepia', amount: 50 },
+  look: { on: false, id: 'sepia', ids: ['sepia'], keepOriginal: false, amount: 50 },
   loop: { on: false, mode: 'auto', fade: 1.5, fallback: 'pingpong' },
   out: { fps: 0, crf: 18, minSeconds: 0, keepAudio: false },
 });
 export const mergeRecipe = (R, patch) => { for (const k of Object.keys(patch)) { R[k] = { ...R[k], ...patch[k] }; if (k !== 'out') R[k].on = true; } return R; };
 
-// The full plan for one clip: filters in order cut → crop → slow → upscale → resize → look, then encode, then optional loop smoothing.
+// The full plan for one clip: filters in order cut → rotate → crop → slow → upscale → resize → look, then encode, then optional loop smoothing.
 export function planRecipe(info, R, baseProf) {
   const pre = [], notes = [];
   let w = info.width, h = info.height, dur = info.duration || 0, fps = 0;
@@ -60,6 +82,10 @@ export function planRecipe(info, R, baseProf) {
   if (R.cut.on) {
     if (dur && seek >= dur - 0.05) throw new Error('The start time is after the end of this clip');
     dur = Math.min(dur - seek, limit || Infinity); notes.push(`cut ${seek ? 'from ' + seek + ' s' : ''}${limit ? ' ' + limit + ' s' : ''}`.trim());
+  }
+  if (R.rotate.on) {
+    const ro = rotatePlan({ width: w, height: h }, R.rotate);
+    if (ro.filter) { pre.push(ro.filter); w = ro.width; h = ro.height; notes.push('rotated'); }
   }
   if (R.crop.on && R.crop.shape !== 'none') {
     const cr = cropFor({ ...info, width: w, height: h }, R.crop.shape, R.crop.pos);

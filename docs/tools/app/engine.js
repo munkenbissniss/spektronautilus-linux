@@ -35,11 +35,11 @@ export class WasmEngine {
 
   async exec(args, { onProgress } = {}) {
     await this.load();
-    this.cur = { log: [], onProgress };
+    const cur = this.cur = { log: [], onProgress };   // kept in a local: Stop (terminate) clears this.cur while ffmpeg is still running
     let code;
     try { code = await this.ff.exec(args); }
-    finally { var log = this.cur.log; this.cur = null; }
-    return { code, log };
+    finally { if (this.cur === cur) this.cur = null; }
+    return { code, log: cur.log };
   }
   async write(path, data) { await this.load(); await this.ff.writeFile(path, data); }
   async read(path) { await this.load(); return await this.ff.readFile(path); }
