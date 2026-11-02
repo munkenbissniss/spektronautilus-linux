@@ -210,6 +210,7 @@ window.SPK_DICT=window.SPK_DICT||{};SPK_DICT.es={
 "Connected ✓": "Conectado ✓",
 "Convert": "Convertir",
 "Convert GIFs": "Convertir GIFs",
+"Cooling down the graphics card… {a} °C": "Enfriando la tarjeta gráfica… {a} °C",
 "Copied": "Copiado",
 "Copy link": "Copiar enlace",
 "Copy report": "Copiar informe",

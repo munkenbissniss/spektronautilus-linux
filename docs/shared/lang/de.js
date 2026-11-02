@@ -212,6 +212,7 @@ window.SPK_DICT=window.SPK_DICT||{};SPK_DICT.de={
 "Connected ✓": "Verbunden ✓",
 "Convert": "Konvertieren",
 "Convert GIFs": "GIFs konvertieren",
+"Cooling down the graphics card… {a} °C": "Grafikkarte kühlt ab… {a} °C",
 "Copied": "Kopiert",
 "Copy link": "Link kopieren",
 "Copy report": "Bericht kopieren",

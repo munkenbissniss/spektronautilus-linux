@@ -39,3 +39,27 @@ AI UPSCALING AND SLOW MOTION (optional)
   Install Video2X yourself (AppImage, AUR or your own build; needs a graphics card with Vulkan). Spektronautilus finds it in PATH,
   in ~/Applications, ~/Downloads or ~/.local/bin. Otherwise put its full path on one line in ~/.config/spektronautilus/video2x.txt,
   or start with SPEKTRO_VIDEO2X=/path/to/Video2X.AppImage. The tools "AI upscale" and "AI slow motion" then work.
+
+LOOKING AFTER YOUR COMPUTER
+  * Hot graphics card: with an NVIDIA card (nvidia-smi comes with the driver) the AI tools wait between clips while the card is
+    at 80 degrees C or more, and show "Cooling down". Use "Rest between clips" under Advanced for a fixed pause as well.
+  * Disk: finished and half-finished files live in /tmp/spektronautilus-... while a job runs. Uploads are refused when less than
+    500 MB would be left, and folders left behind by a crash are removed next time you start.
+  * Start with:  spektronautilus --no-browser  and open http://127.0.0.1:8765/tools/app/#upscale  in a browser of your own if you prefer.
+
+FOR EXPERTS (experimental, off by default)
+  * SPEKTRO_CHROME_FLAGS="--flag1 --flag2" spektronautilus     extra Chrome options. Hardware video decoding on NVIDIA needs the
+    NVIDIA VA-API driver, LIBVA_DRIVER_NAME=nvidia and  --enable-features=AcceleratedVideoDecodeLinuxGL,VaapiOnNvidiaGPUs
+    --ignore-gpu-blocklist  (reported to work on recent drivers, but not tested here; if the video turns black, remove it).
+  * The start-up check tests whether ffmpeg can encode with the graphics card (h264_nvenc, h264_vaapi, h264_qsv). The result is
+    shown in http://127.0.0.1:8765/api/native (needs the X-Spk header, so use curl -H "X-Spk: 1"). It is not used yet.
+
+LAPTOPS (for example ThinkPad X1 Carbon, Intel graphics) AND POP!_OS
+  * First run:  spektronautilus --check   shows what works: ffmpeg, graphics-card encoding, Vulkan, Video2X, browser, disk, battery.
+  * Needed packages (Pop!_OS / Ubuntu):  sudo apt install ffmpeg vulkan-tools mesa-vulkan-drivers intel-media-va-driver vainfo
+    The AI tools (Video2X, RIFE) use Vulkan, which Intel graphics supports through Mesa. "vulkaninfo --summary" should list your card.
+  * Plug in the charger for long jobs. A thin laptop slows down when it gets hot; on battery it slows down even more.
+  * The AI queue pauses ("Cooling down") when the processor reaches about 90 degrees C, and you can add "Rest between clips".
+  * Browsers installed from the Pop!_OS Shop (Flatpak) or as snap are found. Settings for those live in their own folders
+    (~/.var/app/<name>/config/spektronautilus or ~/snap/<name>/common/). If the window does not open, choose one yourself:
+    SPEKTRO_BROWSER=/usr/bin/google-chrome-stable spektronautilus

@@ -22,13 +22,16 @@ HERE = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) el
 NOWIN = {"creationflags": 0x08000000} if WIN else {}      # no console window flashing on Windows
 PRIO = {"creationflags": 0x00004000 | 0x08000000} if WIN else {"preexec_fn": lambda: os.nice(5)}
 DEFAULT_PORT = 8765
+MIN_FREE_MB = 500                      # always leave this much room for results
 APP_NAME = "spektronautilus"
 CHROME_FLAGS = [                       # made for live visuals: never throttle a window that is in the background or behind the output window
     "--autoplay-policy=no-user-gesture-required", "--disable-renderer-backgrounding", "--disable-background-timer-throttling",
     "--disable-backgrounding-occluded-windows", "--enable-gpu-rasterization", "--no-first-run", "--no-default-browser-check",
 ]
+EXTRA_FLAGS = os.environ.get("SPEKTRO_CHROME_FLAGS", "").split()      # for experts, e.g. the NVIDIA video-decoding recipe in README-LINUX.txt
 WIN_BROWSERS = [r"%ProgramFiles%\Google\Chrome\Application\chrome.exe", r"%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe", r"%LocalAppData%\Google\Chrome\Application\chrome.exe",
                 r"%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe", r"%ProgramFiles%\Microsoft\Edge\Application\msedge.exe", r"%ProgramFiles%\BraveSoftware\Brave-Browser\Application\brave.exe"]
+FLATPAK_BROWSERS = ["com.google.Chrome", "org.chromium.Chromium", "com.brave.Browser", "com.microsoft.Edge"]
 BROWSERS = ["google-chrome-stable", "google-chrome", "chromium", "chromium-browser", "chrome", "brave-browser", "microsoft-edge"]
 
 def find_docs():
@@ -47,7 +50,67 @@ def ffmpeg_info():
         return {"ok": False, "why": str(e)}
     m = re.search(r"ffmpeg version (\S+)", v)
     if "libx264" not in enc: return {"ok": False, "why": "this ffmpeg has no H.264 encoder (libx264)"}
-    return {"ok": True, "version": m.group(1) if m else "", "cores": os.cpu_count() or 1, "path": exe}
+    return {"ok": True, "version": m.group(1) if m else "", "cores": os.cpu_count() or 1, "path": exe, "hw": []}
+
+HW_ENCODERS = ("h264_nvenc", "h264_vaapi", "h264_qsv")
+def hw_probe(exe):
+    """Which graphics-card H.264 encoders really work here? Listing them is not enough (ffmpeg lists what it was built with), so each one encodes a single test frame."""
+    try: enc = subprocess.run([exe, "-hide_banner", "-encoders"], capture_output=True, text=True, timeout=10).stdout
+    except Exception: return []
+    found = []
+    for e in HW_ENCODERS:
+        if e not in enc: continue
+        pre = ["-init_hw_device", "vaapi=hw:" + render_node() + "", "-filter_hw_device", "hw"] if e == "h264_vaapi" else []
+        vf = "format=nv12,hwupload" if e == "h264_vaapi" else "format=yuv420p"
+        try:
+            r = subprocess.run([exe, "-hide_banner", "-nostdin", *pre, "-f", "lavfi", "-i", "color=c=black:s=256x144:r=25:d=0.2", "-vf", vf, "-frames:v", "2", "-c:v", e, "-f", "null", "-"],
+                               capture_output=True, timeout=20, **NOWIN)
+            if r.returncode == 0: found.append(e)
+        except Exception: pass
+    return found
+
+def gpu_stats():
+    """Temperature, memory and load of an NVIDIA card (nvidia-smi comes with the driver). Other cards: not available."""
+    exe = shutil.which("nvidia-smi")
+    if not exe: return {"ok": False, "why": "no nvidia-smi"}
+    try:
+        o = subprocess.run([exe, "--query-gpu=name,temperature.gpu,memory.used,memory.total,utilization.gpu", "--format=csv,noheader,nounits"], capture_output=True, text=True, timeout=5, **NOWIN)
+        gpus = []
+        for line in o.stdout.strip().splitlines():
+            n, t, mu, mt, ut = [x.strip() for x in line.split(",")]
+            gpus.append({"name": n, "temp": int(float(t)), "mem_used": int(float(mu)), "mem_total": int(float(mt)), "util": int(float(ut))})
+        return {"ok": bool(gpus), "gpus": gpus} if gpus else {"ok": False, "why": "no card answered"}
+    except Exception as e:
+        return {"ok": False, "why": str(e)[:80]}
+
+def sensors():
+    """Laptops: processor temperature and whether we run on battery, read from /sys (no extra program needed). SPEKTRO_SYSFS lets tests point at a fake folder."""
+    root = Path(os.environ.get("SPEKTRO_SYSFS", "/sys")); temps, battery = [], None
+    try:
+        for z in sorted(root.glob("class/thermal/thermal_zone*")):
+            try:
+                kind = (z / "type").read_text().strip(); t = int((z / "temp").read_text()) / 1000
+                if kind in ("x86_pkg_temp", "cpu-thermal", "TCPU", "acpitz") or kind.startswith("coretemp"): temps.append(t)
+            except Exception: pass
+        for ps in sorted(root.glob("class/power_supply/*")):
+            try:
+                if (ps / "type").read_text().strip() == "Battery": battery = (ps / "status").read_text().strip() == "Discharging"
+            except Exception: pass
+    except Exception: pass
+    return {"ok": bool(temps) or battery is not None, "cpu_temp": round(max(temps)) if temps else None, "on_battery": battery}
+
+def render_node():
+    nodes = sorted(glob.glob("/dev/dri/renderD*")); return nodes[0] if nodes else "/dev/dri/renderD128"
+
+def clean_stale(max_age=6 * 3600):
+    """Work folders left behind by a crash (power loss, kill -9) are removed. Folders that were touched recently may belong to another running copy and stay."""
+    n = 0
+    for d in glob.glob(os.path.join(tempfile.gettempdir(), "spektronautilus-*")):
+        try:
+            if os.path.isdir(d) and not os.path.islink(d) and time.time() - os.path.getmtime(d) > max_age:
+                shutil.rmtree(d, ignore_errors=True); n += 1
+        except Exception: pass
+    return n
 
 # ------------------------------------------------------------------ Video2X (AI upscaling, optional, installed by the user)
 def config_dir():
@@ -117,7 +180,11 @@ class State:
         self.docs, self.port = docs, port
         self.work = Path(tempfile.mkdtemp(prefix="spektronautilus-"))
         self.ff = ffmpeg_info(); self.v2x = v2x_info(); self.procs = set(); self.lock = threading.Lock()
+        if self.ff.get("ok"): threading.Thread(target=lambda: self.ff.update(hw=hw_probe(self.ff["path"])), daemon=True).start()     # a few seconds, so not while starting
         atexit.register(self.cleanup)
+    def free_mb(self):
+        try: return int(shutil.disk_usage(self.work).free / 1e6)
+        except Exception: return None
     def cleanup(self):
         self.kill()
         shutil.rmtree(self.work, ignore_errors=True)
@@ -153,7 +220,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if not self._host_ok(): return self._deny()
         if self.path.startswith("/api/"):
             if not self._api_ok(): return self._deny()
-            if self.path == "/api/native": return self._json({**self.st.ff, "v2x": self.st.v2x})
+            if self.path == "/api/native": return self._json({**self.st.ff, "v2x": self.st.v2x, "free_mb": self.st.free_mb()})
+            if self.path == "/api/gpu": return self._json(gpu_stats())
+            if self.path == "/api/sensors": return self._json(sensors())
             if self.path == "/api/v2x-gpus":
                 if not self.st.v2x.get("ok"): return self._json({"ok": False, "why": self.st.v2x.get("why")})
                 try:
@@ -179,7 +248,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if not (self.path.startswith("/api/fs/") and self._api_ok()): return self._deny()
         try: p = self.st.safe(self.path[8:])
         except ValueError: return self._deny(400, "Bad path")
-        n = int(self.headers.get("Content-Length") or 0); p.parent.mkdir(parents=True, exist_ok=True)
+        n = int(self.headers.get("Content-Length") or 0)
+        fm = self.st.free_mb()
+        if fm is not None and n / 1e6 + MIN_FREE_MB > fm: return self._deny(507, "Not enough free disk space")      # a full disk breaks ffmpeg half way through a long job
+        p.parent.mkdir(parents=True, exist_ok=True)
         with open(p, "wb") as f:
             while n > 0:
                 c = self.rfile.read(min(n, 1 << 20))
@@ -296,6 +368,11 @@ def find_browser():
     for b in BROWSERS:
         p = shutil.which(b)
         if p: return p
+    if not WIN and shutil.which("flatpak"):          # Pop!_OS Shop installs browsers as Flatpak
+        try: have = subprocess.run(["flatpak", "list", "--app", "--columns=application"], capture_output=True, text=True, timeout=10).stdout.split()
+        except Exception: have = []
+        for app in FLATPAK_BROWSERS:
+            if app in have: return "flatpak:" + app
     return None
 
 def open_default(url):
@@ -304,12 +381,32 @@ def open_default(url):
         else: subprocess.Popen(["xdg-open", url])
     except Exception: print("Open this address yourself:", url)
 
+def run_check():
+    """spektronautilus --check : what works on this computer, in plain lines (send it along with a bug report)."""
+    ok = lambda c: "OK     " if c else "MISSING"
+    ff = ffmpeg_info(); print(f"{ok(ff.get('ok'))} ffmpeg " + (f"{ff['version']}, {ff['cores']} cores" if ff.get("ok") else ff.get("why", "")))
+    if ff.get("ok"): hw = hw_probe(ff["path"]); print(f"{ok(hw)} graphics-card video encoding: " + (", ".join(hw) if hw else "none (normal software encoding is used)"))
+    v = v2x_info(); print(f"{ok(v.get('ok'))} Video2X " + (v.get("path", "") if v.get("ok") else "(optional, for AI tools)"))
+    vk = shutil.which("vulkaninfo")
+    if vk:
+        try: out = subprocess.run([vk, "--summary"], capture_output=True, text=True, timeout=20).stdout; names = sorted(set(re.findall(r"deviceName\s*=\s*(.+)", out)))
+        except Exception: names = []
+        print(f"{ok(names)} Vulkan (needed by the AI tools): " + (", ".join(names) if names else "no device found"))
+    else: print("unknown Vulkan: install vulkan-tools to check (sudo apt install vulkan-tools)")
+    g = gpu_stats(); print(("OK      NVIDIA " + ", ".join(f"{x['name']} {x['temp']} C" for x in g["gpus"])) if g.get("ok") else "-       no NVIDIA card (fine)")
+    z = sensors(); print(f"{ok(z['ok'])} sensors: processor " + (f"{z['cpu_temp']} C" if z['cpu_temp'] is not None else "?") + (", on battery" if z["on_battery"] else ", on mains power" if z["on_battery"] is False else ""))
+    b = find_browser(); print(f"{ok(b)} browser: {b or 'none found (the default browser is used)'}")
+    try: print(f"OK      free disk for temporary files: {int(shutil.disk_usage(tempfile.gettempdir()).free / 1e6)} MB")
+    except Exception: pass
+
 def main():
     ap = argparse.ArgumentParser(description="Spektronautilus for Linux and Windows")
+    ap.add_argument("--check", action="store_true", help="show what works on this computer and exit")
     ap.add_argument("--port", type=int, default=DEFAULT_PORT); ap.add_argument("--no-browser", action="store_true")
     ap.add_argument("--window", action="store_true", help="normal browser window instead of an app window")
     ap.add_argument("--docs", help="folder with the website (default: next to this script)"); ap.add_argument("--path", default="", help="page to open, e.g. live-dj/")
     a = ap.parse_args()
+    if a.check: return run_check()
     docs = Path(a.docs).resolve() if a.docs else find_docs()
     port = a.port
     if already_running(port):
@@ -319,6 +416,7 @@ def main():
     if not port_free(port):
         print(f"Port {port} is busy, using a free one. (Your saved settings belong to port {port}, so close the other program if you can.)")
         s = socket.socket(); s.bind(("127.0.0.1", 0)); port = s.getsockname()[1]; s.close()
+    gone = clean_stale()
     st = State(docs, port); Handler.st = st
     handler = lambda *x, **k: Handler(*x, directory=str(docs), **k)
     srv = http.server.ThreadingHTTPServer(("127.0.0.1", port), handler); srv.daemon_threads = True
@@ -327,6 +425,8 @@ def main():
     print(f"Spektronautilus is running at {url}")
     print("AI upscaling with Video2X: " + (f"ON ({st.v2x['path']})" if st.v2x.get("ok") else "OFF (optional, see README-LINUX.txt)"))
     print("Fast converting with ffmpeg: " + (f"ON (ffmpeg {st.ff['version']}, {st.ff['cores']} cores)" if st.ff.get("ok") else f"OFF ({st.ff.get('why')}). Install ffmpeg to turn it on."))
+    if gone: print(f"Removed {gone} old work folder(s) left by an earlier crash.")
+    if st.free_mb() is not None and st.free_mb() < 5000: print(f"Careful: only {st.free_mb()} MB free on the disk used for temporary files. Long jobs may stop.")
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     try:
         proc = None if a.no_browser else open_browser(port, a, docs)
@@ -347,8 +447,14 @@ def open_browser(port, a, docs):
         open_default(url)
         return None
     base = os.environ.get("APPDATA") if WIN else os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")
-    prof = Path(base or Path.home() / ".config") / APP_NAME / "browser"; prof.mkdir(parents=True, exist_ok=True)
-    cmd = [b, f"--user-data-dir={prof}", *CHROME_FLAGS, *(["--new-window", url] if a.window else [f"--app={url}"])]
+    prof = Path(base or Path.home() / ".config") / APP_NAME / "browser"
+    pre = [b]
+    if b.startswith("flatpak:"):          # the sandbox may only write inside its own folder
+        app = b[8:]; prof = Path.home() / ".var/app" / app / "config" / APP_NAME / "browser"; pre = ["flatpak", "run", "--share=network", app]
+    elif b.startswith("/snap/") or "/snap/bin/" in b:          # snap browsers may not write to hidden folders
+        prof = Path.home() / "snap" / Path(b).name / "common" / (APP_NAME + "-browser")
+    prof.mkdir(parents=True, exist_ok=True)
+    cmd = [*pre, f"--user-data-dir={prof}", *CHROME_FLAGS, *EXTRA_FLAGS, *(["--new-window", url] if a.window else [f"--app={url}"])]
     return subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 if __name__ == "__main__":

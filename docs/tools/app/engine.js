@@ -43,6 +43,7 @@ export class WasmEngine {
   }
   async write(path, data) { await this.load(); await this.ff.writeFile(path, data); }
   async read(path) { await this.load(); return await this.ff.readFile(path); }
+  async readBlob(path, type) { return new Blob([await this.read(path)], { type }); }
   async remove(path) { try { await this.ff.deleteFile(path); } catch (e) { /* already gone */ } }
 
   async mount(file) {
@@ -91,6 +92,9 @@ export class NativeEngine {
   async v2xGpus() { const r = await fetch('/api/v2x-gpus', { headers: { 'X-Spk': '1' } }); return r.ok ? r.json() : { ok: false }; }
   async write(path, data) { await this._put(path, data); }
   async read(path) { const r = await fetch('/api/fs/' + encodeURI(path), { headers: { 'X-Spk': '1' } }); if (!r.ok) throw new Error('Could not read ' + path + ' from the local engine.'); return new Uint8Array(await r.arrayBuffer()); }
+  async readBlob(path, type) { const r = await fetch('/api/fs/' + encodeURI(path), { headers: { 'X-Spk': '1' } }); if (!r.ok) throw new Error('Could not read ' + path + ' from the local engine.'); return new Blob([await r.blob()], { type }); }      // the browser keeps it on disk, not in script memory
+  async sensors() { try { const r = await fetch('/api/sensors', { headers: { 'X-Spk': '1' } }); return r.ok ? r.json() : { ok: false }; } catch (e) { return { ok: false }; } }
+  async gpu() { try { const r = await fetch('/api/gpu', { headers: { 'X-Spk': '1' } }); return r.ok ? r.json() : { ok: false }; } catch (e) { return { ok: false }; } }
   async remove(path) { try { await fetch('/api/fs/' + encodeURI(path), { method: 'DELETE', headers: { 'X-Spk': '1' } }); } catch (e) { /* ignore */ } }
   async mount(file) { const p = `m${++this.mounts}/${file.name}`; await this._put(p, file); return p; }        // the File is streamed from disk, not read into memory
   async unmount(path) { await this.remove(path.split('/')[0]); }
@@ -115,6 +119,9 @@ class AutoEngine {
   async v2xGpus() { const e = await this.pick(); return e.v2xGpus ? e.v2xGpus() : { ok: false }; }
   async write(p, d) { return (await this.pick()).write(p, d); }
   async read(p) { return (await this.pick()).read(p); }
+  async readBlob(p, t) { return (await this.pick()).readBlob(p, t); }
+  async gpu() { const e = await this.pick(); return e.gpu ? e.gpu() : { ok: false }; }
+  async sensors() { const e = await this.pick(); return e.sensors ? e.sensors() : { ok: false }; }
   async remove(p) { return (await this.pick()).remove(p); }
   async mount(f) { return (await this.pick()).mount(f); }
   async unmount(p) { return (await this.pick()).unmount(p); }

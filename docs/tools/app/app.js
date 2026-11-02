@@ -452,8 +452,8 @@ async function processOne(job, src, idx, srcName, folder, c, flt, v) {
       note = `${info.width}x${info.height} ${info.codec} -> h264`;
     }
     ctl.check();
-    const data = await engine.read(out); await engine.remove(out);
-    return { name: base + ext, blob: new Blob([data], { type: PF ? 'video/quicktime' : 'video/mp4' }), size: data.length, note };
+    const type = PF ? 'video/quicktime' : 'video/mp4', blob = engine.readBlob ? await engine.readBlob(out, type) : new Blob([await engine.read(out)], { type }); await engine.remove(out);
+    return { name: base + ext, blob, size: blob.size, note };
   } finally { if (path) await engine.unmount(path); }
 }
 
@@ -517,6 +517,15 @@ async function runJob(job) {
         job.failed++; job.log.push(`ERR ${it.label}  ${String(e.message).slice(0, 250)}`);
       }
       job.finished++; job.progress = job.finished / job.total; render();
+      if (isAi(job.tool) && i < job.items.length - 1) {   // never start the next AI clip on a card that is still very hot (NVIDIA only; needs nvidia-smi)
+        for (let w = 0; w < 100; w++) {
+          const g = engine.gpu ? await engine.gpu() : { ok: false }, sn = engine.sensors ? await engine.sensors() : { ok: false };
+          const hot = Math.max(g.ok ? Math.max(...g.gpus.map(x => x.temp)) : 0, sn.ok && sn.cpu_temp && sn.cpu_temp >= 90 ? sn.cpu_temp - 10 : 0);   // laptops: the processor shares the heat with the graphics
+          if (!hot || hot < 80) break;
+          job.ctl.check(); job.current = (window.SPK_T ? window.SPK_T('Cooling down the graphics card… {a} °C') : 'Cooling down the graphics card… {a} °C').replace('{a}', hot); job.dirty = true; render();
+          await new Promise(r => setTimeout(r, 3000));
+        }
+      }
       if (isAi(job.tool) && +c.ex.aiPause > 0 && i < job.items.length - 1) {   // let the graphics card cool down between big jobs
         for (let s = +c.ex.aiPause; s > 0; s--) { job.ctl.check(); job.current = (window.SPK_T ? window.SPK_T('Resting… {a} s') : 'Resting… {a} s').replace('{a}', s); job.dirty = true; render(); await new Promise(r => setTimeout(r, 1000)); }
       }
