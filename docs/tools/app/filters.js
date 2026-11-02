@@ -1,4 +1,4 @@
-// Eighteen looks for VJ loops (ten effects and eight colour styles). Each one is a piece of an ffmpeg filter graph that is added after the picture has been
+// Twenty looks for VJ loops (twelve effects and eight colour styles). Each one is a piece of an ffmpeg filter graph that is added after the picture has been
 // scaled to its final size. `amount` is 0..1. `w`/`h` are the final picture size, `dur` is the clip length in seconds.
 // The pieces are written so a clip that loops keeps looping: the colour cycle goes round exactly once per clip, and
 // nothing else depends on how long the clip has been playing.
@@ -26,6 +26,10 @@ export const FILTERS = [
     chain: a => `edgedetect=low=${r1(0.04 + (1 - a) * 0.06)}:high=${r1(0.35 - a * 0.22)}:mode=colormix,eq=brightness=0.02:saturation=1.6` },
   { id: 'trails', name: 'Trails', desc: 'Moving things leave a soft trail behind.',
     chain: a => `tmix=frames=${2 + Math.round(a * 10)}` },
+  { id: 'invert', name: 'Invert', desc: 'Negative: dark becomes light and every colour flips to its opposite.',
+    chain: () => 'negate' },
+  { id: 'polarize', name: 'Polarize', desc: 'Only the bright parts flip to negative, like a solarised photo. The slider sets how much of the picture flips.',
+    chain: a => { const t = r1(0.8 - a * 0.6); return `lutrgb=r='ifnot(gt(val,maxval*${t}),val,maxval-val)':g='ifnot(gt(val,maxval*${t}),val,maxval-val)':b='ifnot(gt(val,maxval*${t}),val,maxval-val)'`; } },
 ];
 // ---- colour styles. Each one is measured from a reference loop. Most are "gradient maps": the picture is turned into brightness, and
 // each brightness gets the colour the reference has there (stops are brightness 0..1 -> red, green, blue). A few keep the clip's own

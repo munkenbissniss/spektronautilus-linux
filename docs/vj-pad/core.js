@@ -2,7 +2,8 @@
 import { clamp, ease, posterFrame, POSTER_COLORS, parseTitle, fmtTime, autoFadePos, parseMidi, midiKey, routeMidi } from '../live-dj/core.js';
 export { clamp, ease, posterFrame, POSTER_COLORS, parseTitle, fmtTime, autoFadePos, parseMidi, midiKey, routeMidi };
 
-export const PADS = 20;
+export const PADS = 20;                 // pads in one bank
+export const BANKS = 5, MAXPADS = PADS * BANKS;      // the advanced view has five banks = 100 loops
 // Keyboard layout (by physical key, so it works on any keyboard language): two rows of ten = 20 pads.
 export const PAD_CODES = ['Digit1','Digit2','Digit3','Digit4','Digit5','Digit6','Digit7','Digit8','Digit9','Digit0','KeyQ','KeyW','KeyE','KeyR','KeyT','KeyY','KeyU','KeyI','KeyO','KeyP'];
 export const PAD_LABELS = ['1','2','3','4','5','6','7','8','9','0','Q','W','E','R','T','Y','U','I','O','P'];
@@ -56,6 +57,7 @@ export const VJ_MIDI_ACTIONS = [
   { id: 'fxAmount', label: 'Effect amount', kind: 'fader' },
   ...FX.map((f, i) => ({ id: 'fx' + (i + 1), label: `Effect: ${f.name}`, kind: 'button' })),
   ...Array.from({ length: PADS }, (_, i) => ({ id: 'pad' + (i + 1), label: `Pad ${i + 1}`, kind: 'button' })),
+  { id: 'bankPrev', label: 'Previous bank', kind: 'button' }, { id: 'bankNext', label: 'Next bank', kind: 'button' },
   ...['A1', 'A2', 'A3', 'B1', 'B2', 'B3'].map((n, i) => ({ id: 'sel' + (i + 1), label: `Select layer ${n}`, kind: 'button' })),
   ...['A1', 'A2', 'A3', 'B1', 'B2', 'B3'].map((n, i) => ({ id: 'op' + (i + 1), label: `Opacity layer ${n}`, kind: 'fader' })),
   { id: 'poster1', label: 'Poster slot 1', kind: 'button' }, { id: 'poster2', label: 'Poster slot 2', kind: 'button' },

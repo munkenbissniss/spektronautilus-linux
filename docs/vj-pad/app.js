@@ -1,14 +1,14 @@
-import { clamp, autoFadePos, posterFrame, POSTER_COLORS, parseTitle, parseMidi, midiKey, routeMidi, PADS, PAD_CODES, PAD_LABELS, LAYER_CODES, FX_CODES, BLENDS, FX, tapBpm, beatPos, pulse, KickDetector, bpmFromKicks, VJ_MIDI_ACTIONS } from './core.js';
+import { clamp, autoFadePos, posterFrame, POSTER_COLORS, parseTitle, parseMidi, midiKey, routeMidi, PADS, BANKS, MAXPADS, PAD_CODES, PAD_LABELS, LAYER_CODES, FX_CODES, BLENDS, FX, tapBpm, beatPos, pulse, KickDetector, bpmFromKicks, VJ_MIDI_ACTIONS } from './core.js';
 
 const $ = s => document.querySelector(s);
 const store = {
   get(k, d) { try { const v = localStorage.getItem('spk_vj_' + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
   set(k, v) { try { localStorage.setItem('spk_vj_' + k, JSON.stringify(v)); } catch {} },
 };
-const cfg = Object.assign({ res: '1280x720', fps: 30, fit: 'cover', fadeSec: 4, remember: false, bsrc: 'clock', sens: 50, every: 1, fxAmt: 60 }, store.get('cfg', {}));
+const cfg = Object.assign({ res: '1280x720', fps: 30, fit: 'cover', fadeSec: 4, remember: false, bsrc: 'clock', sens: 50, every: 1, fxAmt: 60, adv: false, apFrom: 'bank', apOrder: 'shuffle', apEvery: 30, apUnit: 'sec', apStack: 1, apLen: 0, apRec: false }, store.get('cfg', {}));
 const LAYERS = ['A1', 'A2', 'A3', 'B1', 'B2', 'B3'];
 const S = {
-  f: 0, auto: null, pads: Array(PADS).fill(null), sel: 0,
+  f: 0, auto: null, pads: Array(MAXPADS).fill(null), sel: 0, bank: 0, rec: null, recFile: null,
   layers: LAYERS.map((n, i) => ({ id: n, ch: i < 3 ? 'A' : 'B', pad: -1, op: 1, blend: 'source-over', on: true })),
   bpm: store.get('bpm', 120), t0: performance.now(), taps: [], fx: Array(FX.length).fill(false), fxCfg: store.get('fxOn', null),
   kick: { t: -1e9, count: 0, times: [], det: new KickDetector(), trigT: -1e9 },
@@ -33,44 +33,93 @@ function setRes() { const [w, h] = cfg.res.split('x').map(Number); for (const c 
 const filterOK = 'filter' in CanvasRenderingContext2D.prototype;
 
 // ------------------------------------------------------------------ pads (each pad owns a paused, preloaded video: triggering is instant)
+// Simple view: one bank of 20 pads, all loaded. Advanced view: five banks = 100 loops. Only the bank you look at (and loops that are playing) keep a
+// video loaded; the other loops are just a file plus a small picture, so 100 loops cost no more memory than 20.
+const T = s => (window.SPK_T ? window.SPK_T(s) : s);
+const bankOf = i => Math.floor(i / PADS);
+const curBank = () => (cfg.adv ? S.bank : 0);
+const usable = () => (cfg.adv ? MAXPADS : PADS);
+const wanted = i => bankOf(i) === curBank() || S.layers.some(L => L.pad === i);
+let thumbQ = [], thumbCur = null;
+function loadPad(p) { if (p.loaded) return; p.loaded = true; p.v.src = URL.createObjectURL(p.file); }
+function unloadPad(p) { if (!p.loaded) return; p.loaded = false; p.ready = false; const u = p.v.src; p.v.pause(); p.v.removeAttribute('src'); p.v.load(); try { URL.revokeObjectURL(u); } catch {} }
+function balance() { S.pads.forEach(p => { if (p && p.loaded && p !== thumbCur && !wanted(p.i)) unloadPad(p); }); }
+function pumpThumbs() {            // loops that are not on this bank get their small picture one at a time, then let go of the video
+  if (thumbCur) return;
+  while (thumbQ.length) { const p = thumbQ.shift(); if (S.pads[p.i] === p && !p.loaded) { thumbCur = p; loadPad(p); return; } }
+}
 function makePad(i, file, silent) {
   if (S.pads[i]) freePad(i, true);
   const t = parseTitle(file.name), v = document.createElement('video');
-  v.muted = true; v.loop = true; v.playsInline = true; v.preload = 'auto'; v.src = URL.createObjectURL(file);
-  const p = { i, file, name: t.title || file.name, v, thumb: document.createElement('canvas'), ready: false, users: 0 };
+  v.muted = true; v.loop = true; v.playsInline = true; v.preload = 'auto';
+  const p = { i, file, name: t.title || file.name, v, thumb: document.createElement('canvas'), ready: false, loaded: false, users: 0 };
   p.thumb.width = 160; p.thumb.height = 90;
-  v.addEventListener('loadeddata', () => { p.ready = true; try { drawThumb(p); } catch {} renderPads(); });
-  v.addEventListener('error', () => { toast(`Pad ${i + 1}: can't play “${file.name}”. Convert it to mp4 (H.264) with the Tools.`, 7000); freePad(i); });
-  S.pads[i] = p; renderPads(); if (!silent) saveSession();
+  v.addEventListener('loadeddata', () => {
+    if (!p.loaded) return;
+    p.ready = true; try { drawThumb(p); } catch {}
+    if (S.layers.some(L => L.pad === p.i && L.on) && v.paused) v.play().catch(() => {});
+    if (thumbCur === p) thumbCur = null;
+    renderPads(); balance(); pumpThumbs();
+  });
+  v.addEventListener('error', () => { if (!p.loaded) return; toast(`Pad ${i + 1}: can't play “${file.name}”. Convert it to mp4 (H.264) with the Tools.`, 7000); freePad(i); });
+  S.pads[i] = p;
+  if (wanted(i)) loadPad(p); else { thumbQ.push(p); pumpThumbs(); }
+  renderPads(); if (!silent) saveSession();
   return p;
 }
 function drawThumb(p) { const c = p.thumb.getContext('2d'), v = p.v, k = Math.max(160 / v.videoWidth, 90 / v.videoHeight); c.fillStyle = '#000'; c.fillRect(0, 0, 160, 90); c.drawImage(v, (160 - v.videoWidth * k) / 2, (90 - v.videoHeight * k) / 2, v.videoWidth * k, v.videoHeight * k); }
 function freePad(i, replacing) {
   const p = S.pads[i]; if (!p) return;
   for (const L of S.layers) if (L.pad === i) L.pad = -1;
+  p.loaded = false; if (thumbCur === p) thumbCur = null;
   const u = p.v.src; p.v.pause(); p.v.removeAttribute('src'); p.v.load(); try { URL.revokeObjectURL(u); } catch {} S.pads[i] = null;   // read the address first: after removeAttribute it is empty and the video would stay in memory
-  renderPads(); renderLayers(); if (!replacing) saveSession();
+  renderPads(); renderLayers(); pumpThumbs(); if (!replacing) saveSession();
 }
-function addFiles(files, startAt = 0) {
-  let n = 0, i = 0;
+function nextEmpty(from) { const n = usable(); for (let k = 0; k < n; k++) { const i = (from + k) % n; if (!S.pads[i]) return i; } return -1; }
+function addFiles(files) {
+  let n = 0, full = false, at = curBank() * PADS;
   for (const f of files) {
     if (!(f.type.startsWith('video/') || /\.(mp4|m4v|mov|webm|mkv)$/i.test(f.name))) continue;
-    while (i < PADS && S.pads[i]) i++;
-    if (i >= PADS) { toast('All 20 pads are full. Remove one with ✕ first.'); break; }
-    makePad(i, f); n++; i++;
+    const i = nextEmpty(at);
+    if (i < 0) { full = true; break; }
+    makePad(i, f); n++; at = i + 1;
   }
-  if (n) toast(`${n} loop${n > 1 ? 's' : ''} added.`, 1800);
+  if (full) toast((cfg.adv ? T('All {a} pads are full. Remove one with ✕ first.').replace('{a}', usable()) : 'All 20 pads are full. Remove one with ✕ first.'));
+  else if (n) toast(`${n} loop${n > 1 ? 's' : ''} added.`, 1800);
   return n;
 }
+function renderBanks() {
+  const box = $('#banks'); if (!box) return; box.innerHTML = ''; if (!cfg.adv) return;
+  for (let b = 0; b < BANKS; b++) {
+    let n = 0; for (let k = 0; k < PADS; k++) if (S.pads[b * PADS + k]) n++;
+    const x = document.createElement('button'); x.className = 'sm' + (b === S.bank ? ' on' : ''); x.dataset.b = b; x.setAttribute('aria-pressed', b === S.bank);
+    x.textContent = T('Bank {a}').replace('{a}', b + 1) + (n ? ` · ${n}` : ''); box.appendChild(x);
+  }
+  const h = document.createElement('span'); h.className = 'hint'; h.textContent = 'Press [ or ] to change bank.'; box.appendChild(h);
+}
+function setBank(b) {
+  S.bank = clamp(b, 0, BANKS - 1);
+  S.pads.forEach(p => { if (p && wanted(p.i)) loadPad(p); }); balance(); renderPads(); renderBanks();
+}
+function setAdv(on, silent) {
+  cfg.adv = !!on; store.set('cfg', cfg); document.body.classList.toggle('adv', cfg.adv);
+  const b = $('#advBtn'); b.textContent = cfg.adv ? 'Simple view' : 'Advanced view'; b.setAttribute('aria-pressed', cfg.adv); b.classList.toggle('on', cfg.adv);
+  if (!cfg.adv) { if (S.ap.on) apStop(); S.bank = 0; if (!silent && S.pads.slice(PADS).some(Boolean)) toast('Loops in banks 2–5 are kept. They come back in the advanced view.', 5000); }
+  S.pads.forEach(p => { if (p && wanted(p.i)) loadPad(p); }); balance(); renderPads(); renderBanks();
+}
+$('#advBtn').onclick = () => setAdv(!cfg.adv);
+$('#banks').onclick = e => { const b = e.target.closest('button[data-b]'); if (b) setBank(+b.dataset.b); };
 function renderPads() {
   const box = $('#pads'); if (!box) return; box.innerHTML = '';
-  for (let i = 0; i < PADS; i++) {
+  for (let k = 0; k < PADS; k++) {
+    const i = curBank() * PADS + k;
     const p = S.pads[i], b = document.createElement('div'); b.className = 'pad' + (p ? ' has' : '') + (S.layers.some(L => L.pad === i) ? ' live' : ''); b.tabIndex = 0; b.dataset.i = i; b.setAttribute('role', 'button');
     b.setAttribute('aria-label', p ? `Pad ${i + 1}: ${p.name}` : `Empty pad ${i + 1}. Add a loop.`);
-    b.innerHTML = `<span class="k">${PAD_LABELS[i]}</span>` + (p ? '<span class="pn"></span><button class="x" aria-label="Remove loop">✕</button>' : '<span class="plus">+</span>');
+    b.innerHTML = `<span class="k">${PAD_LABELS[k]}</span>` + (p ? '<span class="pn"></span><button class="x" aria-label="Remove loop">✕</button>' : '<span class="plus">+</span>');
     if (p) { b.insertBefore(p.thumb, b.firstChild); b.querySelector('.pn').textContent = p.name; }
     box.appendChild(b);
   }
+  renderBanks();
 }
 $('#pads').onclick = e => {
   const b = e.target.closest('.pad'); if (!b) return; const i = +b.dataset.i;
@@ -86,18 +135,18 @@ addEventListener('dragover', e => e.preventDefault());
 addEventListener('drop', e => { e.preventDefault(); const pad = e.target.closest && e.target.closest('.pad'); const files = [...(e.dataTransfer?.files || [])];
   if (pad && !S.pads[+pad.dataset.i] && files[0]) { makePad(+pad.dataset.i, files[0]); addFiles(files.slice(1)); } else addFiles(files); });
 
-// trigger a pad on the selected layer
+// trigger a pad on the selected layer. `i` counts over all banks (pad 25 is the 5th pad of bank 2).
 function trigger(i) {
   const p = S.pads[i]; if (!p) { toast(`Pad ${i + 1} is empty.`); return; }
-  const L = S.layers[S.sel]; L.pad = i; L.on = true;
+  const L = S.layers[S.sel]; L.pad = i; L.on = true; loadPad(p);
   try { p.v.currentTime = 0; } catch {}
   p.v.play().catch(() => {});
-  pruneVideos(); renderLayers(); renderPads();
+  pruneVideos(); balance(); renderLayers(); renderPads();
 }
 function pruneVideos() {                       // pause pad videos that no layer uses, play the ones that are used
-  S.pads.forEach((p, i) => { if (!p) return; const used = S.layers.some(L => L.pad === i && L.on); if (used && p.v.paused) p.v.play().catch(() => {}); else if (!used && !p.v.paused) p.v.pause(); });
+  S.pads.forEach((p, i) => { if (!p || !p.loaded) return; const used = S.layers.some(L => L.pad === i && L.on); if (used && p.v.paused) p.v.play().catch(() => {}); else if (!used && !p.v.paused) p.v.pause(); });
 }
-function clearLayer(n) { const L = S.layers[n]; L.pad = -1; pruneVideos(); renderLayers(); renderPads(); }
+function clearLayer(n) { const L = S.layers[n]; L.pad = -1; pruneVideos(); balance(); renderLayers(); renderPads(); }
 
 // ------------------------------------------------------------------ layers UI
 function renderLayers() {
@@ -243,8 +292,9 @@ function tick() {
     applyFx(now); drawPoster(now); drawLogo();
   } catch (e) { S.log.push('draw: ' + e.message); }
   safe(listenKick, 'kick')(now);
+  safe(apTick, 'automix')(now);
   if (now - dotsT > 60) { dotsT = now; safe(updateDots, 'dots')(now); }
-  if (now - uiT > 400) { uiT = now; if (S.out && S.out.closed) S.out = null; $('#outstate').textContent = S.out ? 'Output window open' : ''; if (S.out) { try { S.out.setStream && S.out.setStream(S.stream); } catch {} } }
+  if (now - uiT > 400) { uiT = now; if (S.out && S.out.closed) S.out = null; $('#outstate').textContent = S.out ? 'Output window open' : ''; safe(statusUi, 'status')(now); if (S.out) { try { S.out.setStream && S.out.setStream(S.stream); } catch {} } }
 }
 function updateDots(now) {
   const dots = $('#dots').children, P = period();
@@ -259,6 +309,96 @@ function startTicker() {
 }
 function stopTicker() { if (worker) { worker.postMessage(0); worker.terminate(); worker = null; } if (fallback) { clearInterval(fallback); fallback = null; } }
 setInterval(() => { if (performance.now() - S.lastTick > 2500) { S.log.push('ticker restarted'); startTicker(); } }, 2000);
+
+// ------------------------------------------------------------------ auto mix (advanced view): the mixer plays on its own for as long as you like
+const AP = S.ap = { on: false, t0: 0, scene: 0, nextAt: 0, mixing: false, needPrep: false, last: [], pos: 0, stopAt: 0, startedRec: false };
+const apEveryMs = () => Math.max((+cfg.fadeSec || 4) * 1000 + 2000, cfg.apUnit === 'bars' ? (+cfg.apEvery || 8) * 4 * period() : (+cfg.apEvery || 30) * 1000);
+function apPool() { const r = []; S.pads.forEach((p, i) => { if (p && (cfg.apFrom === 'all' || bankOf(i) === curBank())) r.push(i); }); return r; }
+function apPick(n) {
+  const pool = apPool(); if (!pool.length) return []; n = Math.min(n, pool.length); const out = [];
+  if (cfg.apOrder === 'order') { for (let k = 0; k < n; k++) out.push(pool[(AP.pos + k) % pool.length]); AP.pos = (AP.pos + n) % pool.length; }
+  else { const free = pool.filter(i => !AP.last.includes(i)), src = free.length >= n ? free : pool; while (out.length < n) { const j = src[Math.floor(Math.random() * src.length)]; if (!out.includes(j)) out.push(j); } }
+  AP.last = out; return out;
+}
+function apPrepare(ch) {                 // fill the channel that nobody sees right now with the next loops
+  const picks = apPick(+cfg.apStack || 1);
+  S.layers.forEach((L, n) => {
+    if (L.ch !== ch) return; const k = n % 3, i = picks[k];
+    if (i == null) { L.pad = -1; return; }
+    const p = S.pads[i], shared = S.layers.some(x => x.ch !== ch && x.on && x.pad === i);
+    L.pad = i; L.on = true; L.op = k === 0 ? 1 : 0.65; L.blend = k === 0 ? 'source-over' : 'screen'; loadPad(p);
+    if (!shared) { try { p.v.currentTime = 0; } catch {} }
+  });
+  pruneVideos(); balance(); renderLayers(); renderPads();
+}
+function apUi() { const b = $('#apGo'); if (b) { b.textContent = AP.on ? 'Stop auto mix' : 'Start auto mix'; b.classList.toggle('on', AP.on); } if (!AP.on) { const s = $('#apStat'); if (s) s.textContent = ''; } }
+function apStart() {
+  if (AP.on) return;
+  if (!apPool().length) { toast('Add some loops first.'); return; }
+  const now = performance.now(), air = S.f < 0.5 ? 'A' : 'B', idle = air === 'A' ? 'B' : 'A';
+  Object.assign(AP, { on: true, t0: now, scene: 1, mixing: false, needPrep: false, last: [], pos: 0 });
+  if (!S.layers.some(L => L.ch === air && L.on && L.pad >= 0)) apPrepare(air);
+  AP.last = S.layers.filter(L => L.ch === air && L.pad >= 0).map(L => L.pad);
+  apPrepare(idle);
+  AP.nextAt = now + apEveryMs(); AP.stopAt = +cfg.apLen > 0 ? now + cfg.apLen * 60000 : 0;
+  if (cfg.apRec && !S.rec) startRec(true);
+  apUi();
+}
+function apStop(done) {
+  if (!AP.on) return; AP.on = false; AP.mixing = false; AP.needPrep = false;
+  if (AP.startedRec && S.rec) stopRec(); AP.startedRec = false; apUi();
+  if (done) toast('Auto mix finished.', 4000);
+}
+function apTick(now) {
+  if (!AP.on) return;
+  if (AP.mixing && !S.auto) { AP.mixing = false; AP.needPrep = true; AP.scene++; }
+  if (AP.needPrep && (S.f < 0.02 || S.f > 0.98)) { AP.needPrep = false; apPrepare(S.f < 0.5 ? 'B' : 'A'); }
+  if (AP.stopAt && now >= AP.stopAt && !S.auto) { apStop(true); return; }
+  if (!S.auto && !AP.mixing && !AP.needPrep && now >= AP.nextAt && mix()) { AP.mixing = true; AP.nextAt = now + apEveryMs(); }
+}
+$('#apGo').onclick = () => (AP.on ? apStop() : apStart());
+function bindAp() {
+  for (const id of ['apFrom', 'apOrder', 'apEvery', 'apUnit', 'apStack', 'apLen', 'apRec']) {
+    const el = $('#' + id); if (!el) continue; const chk = el.type === 'checkbox'; chk ? (el.checked = !!cfg[id]) : (el.value = cfg[id]);
+    el.addEventListener('input', () => { cfg[id] = chk ? el.checked : (typeof cfg[id] === 'number' ? +el.value : el.value); store.set('cfg', cfg); });
+  }
+}
+
+// ------------------------------------------------------------------ recording the output to a file (advanced view)
+const clock = ms => { const s = Math.floor(ms / 1000), h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60); return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(s % 60).padStart(2, '0'); };
+function recMime() { for (const m of ['video/mp4;codecs=avc1.42E01E', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm']) { try { if (MediaRecorder.isTypeSupported(m)) return m; } catch {} } return ''; }
+function recUi() { const b = $('#recBtn'); if (b) { b.textContent = S.rec ? 'Stop recording' : 'Record'; b.classList.toggle('on', !!S.rec); } }
+function startRec(fromAp) {
+  if (S.rec) return;
+  if (typeof MediaRecorder === 'undefined' || !S.stream) { toast('This browser cannot record the output.'); return; }
+  const mime = recMime(), [w, h] = cfg.res.split('x').map(Number), bps = w * h >= 1920 * 1080 ? 8e6 : 4e6; let mr;
+  try { mr = new MediaRecorder(S.stream, { ...(mime ? { mimeType: mime } : {}), videoBitsPerSecond: bps }); } catch (e) { toast('This browser cannot record the output.'); return; }
+  const r = S.rec = { mr, chunks: [], bytes: 0, t0: performance.now(), mime: mr.mimeType || mime || 'video/webm', bps };
+  AP.startedRec = !!fromAp;
+  mr.ondataavailable = e => { if (e.data && e.data.size) { r.chunks.push(e.data); r.bytes += e.data.size; if (r.bytes > 2e9 && S.rec === r) { toast('The recording reached 2 GB and was stopped. Save it now.', 8000); stopRec(); } } };
+  mr.onstop = () => finishRec(r); mr.onerror = () => { toast('The recording stopped because of an error.', 6000); finishRec(r); };
+  if (S.recFile && !S.recFile.saved) toast('The previous recording was not saved. It will be replaced when this one ends.', 6000);
+  mr.start(1000); $('#recSave').style.display = 'none'; recUi();
+}
+function stopRec() { const r = S.rec; if (!r) return; try { if (r.mr.state !== 'inactive') r.mr.stop(); else finishRec(r); } catch { finishRec(r); } }
+function finishRec(r) {
+  if (r.done) return; r.done = true; if (S.rec === r) S.rec = null; recUi();
+  const blob = new Blob(r.chunks, { type: r.mime.split(';')[0] }); r.chunks = [];
+  if (!blob.size) { toast('Nothing was recorded.'); return; }
+  if (S.recFile) try { URL.revokeObjectURL(S.recFile.url); } catch {}
+  const d = new Date(), pad2 = n => String(n).padStart(2, '0'), ext = /mp4/.test(r.mime) ? 'mp4' : 'webm';
+  const f = S.recFile = { url: URL.createObjectURL(blob), name: `vj-mix-${d.getFullYear()}${pad2(d.getMonth() + 1)}${pad2(d.getDate())}-${pad2(d.getHours())}${pad2(d.getMinutes())}.${ext}`, saved: false, size: blob.size };
+  const a = $('#recSave'); a.href = f.url; a.download = f.name; a.style.display = 'inline-block'; a.onclick = () => { f.saved = true; };
+  $('#recNote').textContent = 'Recording stopped. Save the video before you close this page. To get an mp4, open the file in the Tools.';
+}
+$('#recBtn').onclick = () => (S.rec ? stopRec() : startRec(false));
+function statusUi(now) {
+  if (AP.on) {
+    if (!apPool().length) { apStop(); return; }
+    const el = clock(now - AP.t0); $('#apStat').textContent = AP.stopAt ? T('Scene {a} · {b} of {c}').replace('{a}', AP.scene).replace('{b}', el).replace('{c}', clock(AP.stopAt - AP.t0)) : T('Scene {a} · {b}').replace('{a}', AP.scene).replace('{b}', el);
+  }
+  const rs = $('#recStat'); if (rs) rs.textContent = S.rec ? T('Recording… {a} · {b} MB').replace('{a}', clock(now - S.rec.t0)).replace('{b}', Math.round(S.rec.bytes / 1e6)) : '';
+}
 
 // ------------------------------------------------------------------ posters, logo
 function showPoster(over = {}) {
@@ -314,9 +454,10 @@ async function clearSession() { try { const db = await idb(); db.transaction('pa
 
 // ------------------------------------------------------------------ MIDI
 function midiAction({ action: a, value: v }) {
-  if (a === 'xfade') setF(v, true); else if (a === 'mix') mix(); else if (a === 'tap') tap(); else if (a === 'beat1') S.t0 = performance.now();
+  if (a === 'bankPrev') { if (cfg.adv) setBank(S.bank - 1); } else if (a === 'bankNext') { if (cfg.adv) setBank(S.bank + 1); }
+  else if (a === 'xfade') setF(v, true); else if (a === 'mix') mix(); else if (a === 'tap') tap(); else if (a === 'beat1') S.t0 = performance.now();
   else if (a === 'fxAmount') { cfg.fxAmt = Math.round(v * 100); $('#fxAmt').value = cfg.fxAmt; store.set('cfg', cfg); }
-  else if (a.startsWith('fx')) toggleFx(+a.slice(2) - 1); else if (a.startsWith('pad')) trigger(+a.slice(3) - 1);
+  else if (a.startsWith('fx')) toggleFx(+a.slice(2) - 1); else if (a.startsWith('pad')) trigger(curBank() * PADS + +a.slice(3) - 1);
   else if (a.startsWith('sel')) selectLayer(+a.slice(3) - 1); else if (a.startsWith('op')) { S.layers[+a.slice(2) - 1].op = v; renderLayers(); }
   else if (a.startsWith('poster') && a !== 'posterHide') slotShow(+a.slice(6)); else if (a === 'posterHide') hidePoster();
   else if (a === 'logo') { $('#logoOn').checked = !$('#logoOn').checked; logoSet(); }
@@ -349,7 +490,8 @@ addEventListener('keydown', e => {
   if (tag === 'BUTTON' && (e.key === ' ' || e.key === 'Enter')) return;
   if (e.target.classList && e.target.classList.contains('pad') && (e.key === 'Enter' || e.key === ' ')) return;
   const c = e.code, isRange = tag === 'INPUT' && t.type === 'range'; let i;
-  if ((i = PAD_CODES.indexOf(c)) >= 0 && !e.repeat) trigger(i);
+  if ((i = PAD_CODES.indexOf(c)) >= 0 && !e.repeat) trigger(curBank() * PADS + i);
+  else if (cfg.adv && (c === 'BracketLeft' || c === 'BracketRight') && !e.repeat) setBank(S.bank + (c === 'BracketRight' ? 1 : -1));
   else if ((i = LAYER_CODES.indexOf(c)) >= 0) selectLayer(i);
   else if ((i = FX_CODES.indexOf(c)) >= 0 && !e.repeat) toggleFx(i);
   else if (c === 'Space') { e.preventDefault(); mix(); }
@@ -360,7 +502,7 @@ addEventListener('keydown', e => {
   else if (c === 'Tab' && !e.shiftKey && tag === 'BODY') { e.preventDefault(); selectLayer((S.sel + 1) % 6); }
   else if (c === 'Backspace' && tag === 'BODY') { e.preventDefault(); clearLayer(S.sel); }
 });
-addEventListener('beforeunload', e => { if (S.pads.some(Boolean) && !cfg.remember) { e.preventDefault(); e.returnValue = ''; } });
+addEventListener('beforeunload', e => { if ((S.pads.some(Boolean) && !cfg.remember) || S.rec || (S.recFile && !S.recFile.saved)) { e.preventDefault(); e.returnValue = ''; } });
 let wl = null; const keepAwake = async () => { try { if (navigator.wakeLock && document.visibilityState === 'visible') wl = await navigator.wakeLock.request('screen'); } catch {} };
 document.addEventListener('visibilitychange', keepAwake);
 $('#theme').onclick = () => { const t = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'; document.documentElement.dataset.theme = t; store.set('theme', t); };
@@ -378,7 +520,7 @@ function initSettings() {
 }
 async function init() {
   document.documentElement.dataset.theme = store.get('theme', matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
-  initSettings(); setRes(); buildColors(); renderSlots(); fillPosterForm(); renderMidi(); buildFx(); renderPads(); renderLayers(); $('#bpm').value = S.bpm;
+  initSettings(); bindAp(); setRes(); buildColors(); renderSlots(); fillPosterForm(); renderMidi(); buildFx(); renderPads(); renderLayers(); setAdv(cfg.adv, true); $('#bpm').value = S.bpm;
   const lc = store.get('logoCfg', null); if (lc) { Object.assign(S.logo, lc); $('#logoOn').checked = lc.on; $('#logoSize').value = lc.size; $('#logoOp').value = lc.op; }
   const ld = store.get('logo', null); if (ld) { const i = new Image(); i.onload = () => { S.logo.img = i; }; i.src = ld; }
   S.stream = prog.captureStream(); setF(0); startTicker(); keepAwake();
@@ -387,4 +529,4 @@ async function init() {
   await restoreSession();
 }
 init();
-Object.assign(window.SPK, { trigger, mix, setF, tap, toggleFx, selectLayer, showPoster, hidePoster, addFiles, tick, onMidi, openOutput, slotShow, setBeatSource, setBpm, makePad, freePad, clearLayer });
+Object.assign(window.SPK, { setBank, setAdv, apStart, apStop, startRec, stopRec, AP, trigger, mix, setF, tap, toggleFx, selectLayer, showPoster, hidePoster, addFiles, tick, onMidi, openOutput, slotShow, setBeatSource, setBpm, makePad, freePad, clearLayer });
