@@ -1,4 +1,4 @@
-import { chooseFps, maxMBps, v2xVbvArgs, VIDEO_EXT, GIF_EXT, extOf, stemOf, defaultProfile, defaultNaming, makeName, encodeArgs, repeatsNeeded, natCompare, fmtSize, targetSize, cropFor, SIZE_STEPS, PRO_FORMATS } from './core.js';
+import { chooseFps, maxMBps, v2xVbvArgs, aiDevice, VIDEO_EXT, GIF_EXT, extOf, stemOf, defaultProfile, defaultNaming, makeName, encodeArgs, repeatsNeeded, natCompare, fmtSize, targetSize, cropFor, SIZE_STEPS, PRO_FORMATS } from './core.js';
 import * as CAT from './catalogue.js';
 import { FILTERS, filterChain } from './filters.js';
 import { getEngine } from './engine.js';
@@ -403,7 +403,7 @@ async function processOne(job, src, idx, srcName, folder, c, flt, v) {
       const plus = c.ex.aiModel === 'realesrgan-plus', sc = plus ? 4 : (+c.ex.aiScale || 2), anime4k = c.ex.aiModel === 'anime4k';
       if (info.width * sc > 7680 || info.height * sc > 7680) throw new Error('The result would be larger than 8K. Choose a smaller scale or a smaller clip.');
       const args = ['-i', path, '-o', out, ...(anime4k ? ['-p', 'libplacebo', '--libplacebo-shader', 'anime4k-v4-a+a', '-w', String(Math.round(info.width * sc / 2) * 2), '-h', String(Math.round(info.height * sc / 2) * 2)]
-        : ['-p', 'realesrgan', '--realesrgan-model', c.ex.aiModel, '-s', String(sc)]), '-c', 'libx264', '-e', 'crf=' + Math.round(+c.ex.aiCrf || 17), ...v2xVbvArgs(c.profile), ...gpuArgs(c.ex, engine.info && engine.info.v2x)];
+        : ['-p', 'realesrgan', '--realesrgan-model', c.ex.aiModel, '-s', String(sc)]), '-c', 'libx264', '-e', 'preset=' + (c.profile.preset || 'veryfast'), '-e', 'crf=' + Math.round(+c.ex.aiCrf || 17), ...v2xVbvArgs(c.profile), ...(await aiDevice(engine, +c.ex.aiGpu || 0)).args];
       const t0 = Date.now(), tick = setInterval(() => { const s = Math.round((Date.now() - t0) / 1000); job.current = `${srcName} · ` + (window.SPK_T ? window.SPK_T('AI upscaling… {a}').replace('{a}', Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0')) : 'AI upscaling… ' + s + ' s'); job.dirty = true; }, 1000);
       let r; try { r = await engine.v2x(args, { onProgress: prog }); } finally { clearInterval(tick); }
       if (r.code !== 0) throw new Error('Could not upscale this file (' + (r.log.filter(l => /error|invalid|fail|not supported|unknown|vulkan/i.test(l)).slice(-1)[0] || 'code ' + r.code).slice(0, 160) + ')');
@@ -412,7 +412,7 @@ async function processOne(job, src, idx, srcName, folder, c, flt, v) {
       const m = Math.round(+c.ex.slowFactor) || 2, smooth = c.ex.slowMode === 'smooth', fps = info.fps || 25;
       if (smooth && fps * m > 120) throw new Error('The result would have more than 120 frames per second. Choose a smaller number, or slow motion instead.');
       const tmp = smooth ? out : `t_${job.id}_${idx}.mp4`;
-      const args = ['-i', path, '-o', tmp, '-p', 'rife', '--rife-model', c.ex.slowModel, (engine.info && engine.info.v2x && engine.info.v2x.mul) || '-m', String(m), '-c', 'libx264', '-e', 'crf=' + Math.round(+c.ex.aiCrf || 17), ...v2xVbvArgs(c.profile), ...gpuArgs(c.ex, engine.info && engine.info.v2x)];
+      const args = ['-i', path, '-o', tmp, '-p', 'rife', '--rife-model', c.ex.slowModel, (engine.info && engine.info.v2x && engine.info.v2x.mul) || '-m', String(m), '-c', 'libx264', '-e', 'preset=' + (c.profile.preset || 'veryfast'), '-e', 'crf=' + Math.round(+c.ex.aiCrf || 17), ...v2xVbvArgs(c.profile), ...(await aiDevice(engine, +c.ex.aiGpu || 0)).args];
       const t0 = Date.now(), tick = setInterval(() => { const s = Math.round((Date.now() - t0) / 1000); job.current = `${srcName} · ` + (window.SPK_T ? window.SPK_T('AI slow motion… {a}').replace('{a}', Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0')) : 'AI slow motion… ' + s + ' s'); job.dirty = true; }, 1000);
       let r; try { r = await engine.v2x(args, { onProgress: x => prog(smooth ? x : x * .95) }); } finally { clearInterval(tick); }
       if (r.code !== 0) throw new Error('Could not make slow motion of this file (' + (r.log.filter(l => /error|invalid|fail|not supported|unknown|vulkan|rife/i.test(l)).slice(-1)[0] || 'code ' + r.code).slice(0, 160) + ')');

@@ -125,7 +125,26 @@ export function encodeArgs(src, dst, prof, info, { repeat = 1, trimFrames = 0, e
   else a.push('-an');
   if (trimFrames) a.push('-frames:v', String(Math.floor(trimFrames)));
   a.push('-fps_mode', 'cfr', ...(codec || codecArgs(prof)), '-map_metadata', '-1', dst);
+  // how long the result will be, so the engine can show true progress (the input is often shorter: repeats, slow motion, cuts)
+  let exp = trimFrames ? Math.floor(trimFrames) / (fps || 25) : (info.duration || 0) * Math.max(1, repeat);
+  if (limit > 0 && (!exp || limit < exp)) exp = limit;
+  Object.defineProperty(a, 'expect', { value: exp > 0 ? exp : 0, enumerable: false });
   return a;
+}
+
+// AI (Video2X) works on the graphics card. On many computers card 0 is a software driver (llvmpipe), which is extremely slow, so pick a real
+// card when there is one. pref > 0 = the number the user typed. Returns { args, name, soft, count } (args are the Video2X options to add).
+export async function aiDevice(engine, pref = 0) {
+  const v = engine.info && engine.info.v2x, flag = (v && v.dev) || '-g';
+  if (+pref > 0) return { args: [flag, String(Math.round(+pref))], name: '#' + Math.round(+pref), soft: false, count: 0 };
+  let lines = [];
+  try { const r = await engine.v2xGpus(); if (r && r.ok && Array.isArray(r.lines)) lines = r.lines; } catch (e) { /* no list: Video2X chooses */ }
+  const cards = lines.map(l => { const m = /^\s*\[?(\d+)\]?\s*[.:)\-]?\s+(.+)$/.exec(l); return m ? { n: +m[1], name: m[2].trim() } : null; }).filter(Boolean);
+  if (!cards.length) return { args: [], name: '', soft: false, count: 0 };
+  const soft = c => /llvmpipe|lavapipe|software|swiftshader|\bcpu\b|basic render/i.test(c.name), disc = c => /nvidia|geforce|rtx|gtx|radeon|\bamd\b|\barc\b/i.test(c.name);
+  const real = cards.filter(c => !soft(c)), best = real.find(disc) || real[0];
+  if (!best) return { args: [], name: cards[0].name, soft: true, count: cards.length };
+  return { args: [flag, String(best.n)], name: best.name, soft: false, count: cards.length };
 }
 
 // ---------------------------------------------------------------------------------------------

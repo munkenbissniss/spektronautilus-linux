@@ -26,7 +26,7 @@ export class WasmEngine {
       }
       const ff = new mod.FFmpeg();
       ff.on('log', ({ message }) => { if (this.cur) this.cur.log.push(message); });
-      ff.on('progress', ({ progress }) => { if (this.cur && this.cur.onProgress && progress >= 0 && progress <= 1) this.cur.onProgress(progress); });
+      ff.on('progress', ({ progress, time }) => { const c = this.cur; if (!c || !c.onProgress) return; if (c.expect > 0 && time >= 0) c.onProgress(Math.min(1, time / 1e6 / c.expect)); else if (progress >= 0 && progress <= 1) c.onProgress(progress); });
       await ff.load({ coreURL: new URL('core/ffmpeg-core.js', VENDOR).href, wasmURL: new URL('core/ffmpeg-core.wasm', VENDOR).href });
       this.ff = ff;
     })();
@@ -35,7 +35,7 @@ export class WasmEngine {
 
   async exec(args, { onProgress } = {}) {
     await this.load();
-    const cur = this.cur = { log: [], onProgress };   // kept in a local: Stop (terminate) clears this.cur while ffmpeg is still running
+    const cur = this.cur = { log: [], onProgress, expect: args.expect || 0 };   // kept in a local: Stop (terminate) clears this.cur while ffmpeg is still running
     let code;
     try { code = await this.ff.exec(args); }
     finally { if (this.cur === cur) this.cur = null; }
@@ -67,7 +67,7 @@ export class NativeEngine {
   async load() {}
   async _put(path, body) { const r = await fetch('/api/fs/' + encodeURI(path), { method: 'PUT', headers: { 'X-Spk': '1' }, body }); if (!r.ok) throw new Error('The local engine could not store a file (' + r.status + ').'); }
   async exec(args, { onProgress } = {}) {
-    const r = await fetch('/api/exec', { method: 'POST', headers: { 'X-Spk': '1', 'Content-Type': 'application/json' }, body: JSON.stringify(args) });
+    const r = await fetch('/api/exec', { method: 'POST', headers: { 'X-Spk': '1', 'Content-Type': 'application/json', ...(args.expect > 0 ? { 'X-Spk-Expect': String(args.expect) } : {}) }, body: JSON.stringify(args) });
     if (!r.ok || !r.body) throw new Error('The local engine did not start (' + r.status + ').');
     const rd = r.body.getReader(), dec = new TextDecoder(); let buf = '', out = null;
     for (;;) {

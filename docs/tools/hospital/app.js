@@ -31,7 +31,8 @@ const STEPS = [
     seg('factor', 'How much slower', [['2', '2×'], ['4', '4×'], ['8', '8×']], 1),
     seg('mode', 'Result', [['slow', 'Slow motion'], ['smooth', 'Same speed, smoother']], 0, 'Slow motion makes the clip longer. Smoother adds frames per second.'),
     seg('engine', 'Method', [['blend', 'Soft blend'], ['motion', 'Smooth motion'], ['ai', 'AI (best)']], 0, 'Soft blend is fast. Smooth motion is slower, but cleaner on fast movement. AI gives the best result, but needs the Linux version with Video2X and a graphics card. It can take a long time.'),
-    sel('model', 'AI model', [['rife-v4.6', 'General video'], ['rife-v4.26', 'Newest model']])] },
+    sel('model', 'AI model', [['rife-v4.6', 'General video'], ['rife-v4.26', 'Newest model']]),
+    { k: 'gpu', t: 'number', l: 'Graphics card number for AI (0 = automatic)', h: 'Automatic picks a real graphics card and avoids the slow software driver. Change it only if the wrong card is used.', adv: 1 }] },
   { s: 'life', ic: '🌿', title: 'Bring it to life', hint: 'Make still or short loops more alive: slow in and out, a gentle breathing, a floating camera. The clip is repeated to the length you choose, and the movement fits exactly, so it still loops without a jump.', f: [
     seg('style', 'Style', [['calm', 'Calm breathing'], ['float', 'Floating'], ['dream', 'Dreamy'], ['pulse', 'Pulse']], 0, 'Pick a style, then fine-tune under Advanced if you like.'),
     { k: 'minSeconds', t: 'range', l: 'Make it at least (seconds)', min: 0, max: 60, step: 1, h: 'The loop is repeated until it is this long. 16 s and longer suits the Magic Video Mixer.' },
@@ -103,7 +104,9 @@ function syncUI() {   // push the recipe into the inputs after a suggestion was 
   STEPS.forEach(st => setOn(st.s, !!R[st.s].on));
   lookCount(); info();
 }
+function aiBtn() { const b = $('#aiprev'); if (b) b.classList.toggle('hide', !(ST.v2xReady(engine) && ((R.slow.on && R.slow.engine === 'ai') || (R.up.on && R.up.engine === 'ai')))); }
 function info() {
+  aiBtn();
   const on = STEPS.filter(s => R[s.s].on).map(s => T(s.title));
   $('#info').textContent = on.length ? on.join(' → ') : T('No treatment ticked yet. The clip is only made VJ-friendly.');
 }
@@ -125,6 +128,7 @@ function onField(e) {
     else if (k !== 'minSeconds' && k !== 'style') { R.life.style = 'custom'; document.querySelectorAll('[data-s=life][data-k=style]').forEach(r => { r.checked = false; }); }
   }
   if (s === 'look') lookCount();
+  aiBtn();
 }
 document.addEventListener('input', onField); document.addEventListener('change', onField);
 
@@ -202,7 +206,7 @@ async function treat(file, out, rec, label, base) {
     path = await openInput(file);
     const inf = await L.probe(engine, path, file.name); if (!inf.width) throw new Error('No picture found in this file');
     const r = await ST.runRecipe(engine, L, path, out, inf, rec, base || baseProf(), { ctl, onProgress: prog, tmp: 'hosp_tmp_' + nextId + '.mp4',
-      onStage: (kind, sec) => setCur(fill(kind === 'up' ? 'AI upscaling… {a}' : 'AI slow motion… {a}', { a: Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0') })) });
+      onStage: (kind, sec, i) => setCur(T(kind === 'up' ? 'AI upscaling…' : 'AI slow motion…') + (i && i.gpu ? ' · ' + i.gpu : '') + (i && i.soft ? ' · ' + T('Only a software graphics driver was found. AI will be very slow. Install the Vulkan driver for your graphics card.') : '')) });
     const data = await engine.read(out); await engine.remove(out);
     return { data, note: r.note };
   } finally { if (path) await engine.unmount(path); }
@@ -236,6 +240,18 @@ $('#prev').onclick = () => run(async () => {
   const r = await treat(patient.file, 'hosp_prev.mp4', rec, 'preview', { ...baseProf(), preset: 'ultrafast' });
   const v = $('#vafter'); if (v.src) URL.revokeObjectURL(v.src); v.src = URL.createObjectURL(new Blob([r.data], { type: 'video/mp4' })); $('#fafter').classList.remove('hide');
   $('#msg').textContent = T(notUp ? 'Preview done. It is small and low quality, but shows the loop and life effects. It does not show the upscale.' : 'Preview done. It is small and low quality, but shows the loop and life effects. The saved file uses your chosen size.') + (aiSlow ? ' ' + T('The preview uses the fast slow-motion method, not AI.') : '');
+});
+
+$('#aiprev').onclick = () => run(async () => {   // the real AI on a couple of seconds: shows the quality and how long the whole clip will take
+  if (!patient || !patient.info) throw new Error('Choose a clip first.');
+  const rec = JSON.parse(JSON.stringify(ST.variants(R)[0].rec)), cap = 2, st = rec.cut.on ? rec.cut.start : 0;
+  rec.cut = { on: true, start: st, len: Math.min(rec.cut.on && rec.cut.len > 0 ? rec.cut.len : cap, cap) };
+  rec.out.minSeconds = 0; rec.loop.on = false; rec.life.on = false; rec.out.crf = 23;
+  setCur(T('Making an AI sample…')); const t0 = Date.now();
+  const r = await treat(patient.file, 'hosp_prev.mp4', rec, 'preview', { ...baseProf(), preset: 'ultrafast' });
+  const took = (Date.now() - t0) / 1000, whole = Math.max(1, (patient.info.duration || cap) - st) / cap;
+  const v = $('#vafter'); if (v.src) URL.revokeObjectURL(v.src); v.src = URL.createObjectURL(new Blob([r.data], { type: 'video/mp4' })); $('#fafter').classList.remove('hide');
+  $('#msg').textContent = T('AI sample done in {a}. The whole clip would take about {b}, plus the other steps.').replace('{a}', fmtDur(took)).replace('{b}', fmtDur(took * whole));
 });
 
 function addResult(name, data, note) {

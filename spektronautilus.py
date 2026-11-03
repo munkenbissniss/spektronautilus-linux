@@ -319,7 +319,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         except Exception as e:
             self.wfile.write((json.dumps({"code": 127, "log": [str(e)]}) + "\n").encode()); return
         with self.st.lock: self.st.procs.add(proc)
-        log, dur, last, buf = [], None, 0.0, b""
+        try: exp = float(self.headers.get("X-Spk-Expect") or 0)       # how long the result will be (the input is often shorter: repeats, slow motion)
+        except ValueError: exp = 0
+        log, dur, last, buf = [], (exp if 0 < exp < 86400 else None), 0.0, b""
         try:
             while True:
                 chunk = proc.stderr.read1(4096) if hasattr(proc.stderr, "read1") else proc.stderr.read(4096)
