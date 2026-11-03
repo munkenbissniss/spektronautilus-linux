@@ -30,6 +30,8 @@ input[type=text],input[type=number],select{font:inherit;width:100%;min-height:44
 .acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}.acts>*{flex:1 1 130px}
 .bar{position:fixed;left:0;right:0;bottom:0;padding:10px 14px calc(10px + env(safe-area-inset-bottom));background:linear-gradient(transparent,var(--bg) 30%);}.bar button{width:100%;max-width:560px;display:flex;margin:0 auto;min-height:52px;font-size:1.05rem}
 #st{min-height:1.3em}.vh{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;overflow:hidden}#st.err{color:var(--bad)}.note{color:var(--warn);font-size:.85rem}
+.dock{position:sticky;bottom:0;z-index:20;background:var(--panel,#fff);border:1px solid var(--line,#ccc);border-radius:12px;padding:8px 10px;margin:8px 0 0;display:flex;gap:10px;align-items:center;box-shadow:0 -4px 14px rgba(0,0,0,.15);padding-bottom:calc(8px + env(safe-area-inset-bottom,0px))}
+.dock .live{display:flex;gap:8px;align-items:center;flex:1;min-width:0;border:0;padding:0;background:none;font-weight:400;font-size:.8rem;text-align:left;color:inherit}.dock .live canvas{width:64px;height:36px;background:#000;border-radius:6px;flex:none}.dock .live span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 </style>
 <link rel="manifest" href="../manifest.webmanifest">
 <script src="../shared/sw-register.js" defer></script>
@@ -92,6 +94,7 @@ input[type=text],input[type=number],select{font:inherit;width:100%;min-height:44
  <p class="mute small">Keep this page open and the screen on while a video is made. It runs in real time, so a 4-minute track takes about 4 minutes. If you switch app, it pauses until you come back. On an iPhone, turn off Low Power Mode first, because it stops videos from playing.</p></div>
 </div>
 <div class="bar"><button class="main" id="add">Make video</button></div>
+<div class="dock" id="dock"><button class="live" id="live" type="button" title="Jump to the queue"><canvas id="mini" width="128" height="72"></canvas><span id="miniTxt">Queue</span></button><button class="main" id="add2" type="button">Make video</button></div>
 <input type="file" id="fA" class="vh" aria-label="Choose music file"><input type="file" id="fV" class="vh" multiple accept="video/*,.mp4,.mov,.m4v,.webm,.mkv" aria-label="Choose video files">
 
 <script>
@@ -510,8 +513,14 @@ const wakeOn=async()=>{try{if(navigator.wakeLock){if(!wake){wake=await navigator
 const POOL=3,pool=[];
 function mkPool(){if(pool.length)return;unlockEls();for(let i=0;i<POOL;i++)pool.push({el:ELS[i],loop:-1,url:'',t:0,ct:0,cat:performance.now(),frozen:0})}
 const holder=l=>pool.find(p=>p.loop===l);
+// The picture to draw for a looping clip. Just before it wraps round, a small copy of its last good frame is kept; while the
+// browser is jumping back to the start (it can freeze for a moment), that copy is shown instead of a gap or a frozen black frame.
+const SNAPW=320,SNAPH=180;
+function pic(el){const ok=el.readyState>=2&&el.videoWidth&&!el.seeking;
+ if(ok){if(el.duration>0&&el.duration-el.currentTime<.45){const t=performance.now();if(t-(el.__sn||0)>100){el.__sn=t;const c=el.__snap||(el.__snap=document.createElement('canvas'));c.width=SNAPW;c.height=SNAPH;c.getContext('2d').drawImage(el,0,0,SNAPW,SNAPH)}}return[el,el.videoWidth,el.videoHeight]}
+ return el.__snap?[el.__snap,el.__snap.width,el.__snap.height]:[null,0,0]}
 function acquire(L,l,need,m){const p=pool.find(p=>p.loop===-1)||pool.filter(p=>!need.has(p.loop)).sort((a,b)=>a.t-b.t)[0];if(!p)return;
- if(p.url)URL.revokeObjectURL(p.url);p.loop=l;p.t=m;p.ct=0;p.cat=performance.now();p.url=URL.createObjectURL(L[l].file);const el=p.el;
+ if(p.url)URL.revokeObjectURL(p.url);p.el.__snap=null;p.loop=l;p.t=m;p.ct=0;p.cat=performance.now();p.url=URL.createObjectURL(L[l].file);const el=p.el;
  el.addEventListener('loadedmetadata',()=>{el.currentTime=Math.random()*el.duration;el.play().catch(()=>{})},{once:true});el.src=p.url;el.load()}
 const trig=(A,mode)=>mode=='kick'?A.kicks.map((t,i)=>({t,w:.5+.5*A.kstr[i]})):A.bt.slice(1,-1).map((t,i)=>({t,i:i+1})).filter(x=>mode=='beat'||((x.i-A.phase)%4+4)%4==0).map(x=>({t:x.t,w:1}));
 const env=(a,m,d)=>{let lo=0,hi=a.length-1,r=-1;while(lo<=hi){const k=(lo+hi)>>1;if(a[k].t<=m){r=k;lo=k+1}else hi=k-1}return r<0?0:a[r].w*Math.exp(-d*(m-a[r].t))};
@@ -527,14 +536,14 @@ function renderJob(j,A,L,P){
   const ensure=(m,k)=>{const need=new Set();need.add(slots[k].loop);if(k>0&&m-ta[k]<slots[k].xf+1.5)need.add(slots[k-1].loop);if(k+1<slots.length&&ta[k+1]<m+8)need.add(slots[k+1].loop);   // only the clips that are on screen or about to be, so the phone decodes as few videos as possible
   need.forEach(l=>{const h=holder(l);if(h)h.t=m;else acquire(L,l,need,m)});
    for(const p of pool)if(p.loop>=0&&!need.has(p.loop)&&m-p.t>3){p.el.pause();p.el.removeAttribute('src');p.el.load();if(p.url)URL.revokeObjectURL(p.url);p.url='';p.loop=-1}};
-  const visible=(m,k)=>{const v=new Set([slots[k].loop]);if(k>0&&m-ta[k]<slots[k].xf)v.add(slots[k-1].loop);if(k+1<slots.length&&ta[k+1]-m<2.5)v.add(slots[k+1].loop);return v};
+  const visible=(m,k)=>{const v=new Set([slots[k].loop]);if(k>0&&m-ta[k]<slots[k].xf/2)v.add(slots[k-1].loop);if(k+1<slots.length&&ta[k+1]-m<2.5+slots[k+1].xf/2)v.add(slots[k+1].loop);return v};
   j.msg='Loading the first clips…';upd(j);
   for(let i=0;i<100;i++){ensure(0,0);const h=holder(slots[0].loop);if(h&&h.el.readyState>=2)break;await sleep(100)}
   const dest=AC.createMediaStreamDestination(),src=AC.createBufferSource();_src=src;src.buffer=A.buf;src.connect(dest);
   const sink=await openSink(`${j.id}-${Date.now()}.${EXT}`);j.sink=sink;
   let useMp3=false;if(EXT=='mp4'&&(j.audio.type=='audio/mpeg'||/\.mp3$/i.test(j.audio.name)))try{await mp3Info(j.audio);useMp3=true}catch(e){}
   let lastM=0;
-  const rec=new MediaRecorder(new MediaStream([...cv.captureStream(o.fps).getVideoTracks(),...dest.stream.getAudioTracks()]),{mimeType:MIME,videoBitsPerSecond:o.bitrate*1e6,audioBitsPerSecond:useMp3?64000:160000});_rec=rec;
+  const rec=new MediaRecorder(new MediaStream([...cv.captureStream(o.fps).getVideoTracks(),...dest.stream.getAudioTracks()]),{mimeType:MIME,videoBitsPerSecond:Math.min(24,o.bitrate)*1e6,audioBitsPerSecond:useMp3?64000:160000});_rec=rec;
   rec.ondataavailable=e=>{if(e.data.size)sink.write(e.data)};
   let ended=false,blocked=0;const finish0=async why=>{if(ended)return;ended=true;tickW.postMessage(0);wakeOff();try{localStorage.removeItem('mm_busy');localStorage.removeItem('mm_beat');localStorage.removeItem('mm_pos');localStorage.removeItem('mm_lead')}catch(e){}try{src.stop()}catch(e){}pool.forEach(p=>{try{p.el.pause();p.el.removeAttribute('src');p.el.load()}catch(e){}if(p.url)URL.revokeObjectURL(p.url);p.url='';p.loop=-1});   // give the videos back: a phone has little memory
    await new Promise(r=>{rec.onstop=r;if(rec.state!='inactive')rec.stop();else r()});let f=await sink.close();
@@ -549,7 +558,7 @@ function renderJob(j,A,L,P){
    resume:async()=>{if(j.status!='paused')return;j.status='rendering';j.msg='';j.note='';blocked=0;rec.state=='paused'&&rec.resume();await AC.resume();wakeOn();upd(j)},stop:()=>{if(j.status=='paused')AC.resume();finish('stopped')}};
   const tS=AC.currentTime+.3,tRec=AC.currentTime;src.start(tS);rec.start(1000);wakeOn();try{localStorage.setItem('mm_busy','1');localStorage.setItem('mm_lead',String(tS-tRec))}catch(e){}j.status='rendering';j.msg='';upd(j);let lastUI=0,lastRate=0;
   const tickBody=()=>{if(ended||j.status!='rendering')return;const m=AC.currentTime-tS;if(m<0)return;lastM=m;if(m>=A.dur){finish('done');return}
-   const k=findK(m);ensure(m,k);const s=slots[k],since=m-ta[k],bo=s.kind=='drop'?1.6:1,e=eAt(m),react=1-o.reactive+o.reactive*Math.min(1.4,e*1.6),look=looks[s.cluster],pl=k>0?looks[slots[k-1].cluster]:look,fx=s.xf>0&&since<s.xf?ease5(since/s.xf):1;
+   let k=findK(m);if(k+1<slots.length&&m>=ta[k+1]-slots[k+1].xf/2)k++;ensure(m,k);const s=slots[k],since=m-ta[k]+s.xf/2,bo=s.kind=='drop'?1.6:1,e=eAt(m),react=1-o.reactive+o.reactive*Math.min(1.4,e*1.6),look=looks[s.cluster],pl=k>0?looks[slots[k-1].cluster]:look,fx=s.xf>0&&since<s.xf?ease5(since/s.xf):1;
    const vis=visible(m,k),nowT=performance.now();for(const p of pool)if(p.loop>=0){const want=vis.has(p.loop);
     if(want&&p.el.paused&&p.el.readyState>=2){const pr=p.el.play();pr&&pr.catch(err=>{if(err&&err.name=='NotAllowedError')blocked++})}else if(!want&&!p.el.paused)p.el.pause();
     if(want&&!p.el.paused&&p.el.readyState>=2){if(Math.abs(p.el.currentTime-p.ct)>.001){p.ct=p.el.currentTime;p.cat=nowT}
@@ -557,8 +566,8 @@ function renderJob(j,A,L,P){
    if(blocked>=5){blocked=0;j.note='The phone is not letting the videos play. Turn off Low Power Mode, then tap Resume.';j.ctl.pause();return}
    if(m-lastRate>.5){lastRate=m;const rate=clamp(1-o.slowmo*.5*(1-e),.5,1);for(const p of pool)if(p.loop>=0&&vis.has(p.loop)&&Math.abs(p.el.playbackRate-rate)>.02)p.el.playbackRate=rate}
    const z=1+o.breathe*react*(.5-.5*Math.cos(2*Math.PI*m/(o.breathBars*4*beatS)))+o.zoom*bo*env(T.zoom,m,7);
-   const dv=(el,al)=>{if(!el||el.readyState<2||!el.videoWidth||al<=.003)return;g.globalAlpha=al;g.save();g.translate(W/2,H/2);g.scale(z,z);const sc=Math.max(W/el.videoWidth,H/el.videoHeight);
-    g.drawImage(el,-el.videoWidth*sc/2,-el.videoHeight*sc/2,el.videoWidth*sc,el.videoHeight*sc);g.restore();g.globalAlpha=1};
+   const dv=(el,al)=>{if(!el||al<=.003)return;const [src,vw,vh]=pic(el);if(!src)return;g.globalAlpha=al;g.save();g.translate(W/2,H/2);g.scale(z,z);const sc=Math.max(W/vw,H/vh);
+    g.drawImage(src,-vw*sc/2,-vh*sc/2,vw*sc,vh*sc);g.restore();g.globalAlpha=1};
    g.fillStyle='#000';g.fillRect(0,0,W,H);
    if(k>0&&fx<1){dv(holder(slots[k-1].loop)?.el,1);dv(holder(s.loop)?.el,fx)}else dv(holder(s.loop)?.el,1);
    for(const[lk,w]of[[pl,1-fx],[look,fx]])if(lk.tint>0&&w>.01){g.globalCompositeOperation='soft-light';g.fillStyle=`hsla(${lk.hue},80%,55%,${Math.min(1,lk.tint*react*w)})`;g.fillRect(0,0,W,H);g.globalCompositeOperation='source-over'}
@@ -572,7 +581,7 @@ function renderJob(j,A,L,P){
 
 /* ---------------- exports (queue) ---------------- */
 function lite(ab){const sr=ab.sampleRate;if(sr<=30000)return ab;const x=ab.getChannelData(0),n=x.length>>1,y=new Float32Array(n);for(let i=0;i<n;i++)y[i]=.5*(x[2*i]+x[2*i+1]);return{getChannelData:()=>y,sampleRate:sr/2,duration:ab.duration}}
-let jobs=[],jid=0,cur=null,running=false,AC=null,aCache={};
+let jobs=[],jid=0,cur=null,running=false,AC=null,aCache={};window.__mmCur=()=>cur;
 const CH={waiting:'Waiting',preparing:'Preparing',rendering:'Making video',paused:'Paused',finalizing:'Finishing',done:'Done',failed:'Failed',stopped:'Stopped'};
 function card(j){const d=document.createElement('div');d.className='job';
  d.innerHTML='<div class="jh"><b class="jn"></b><span class="chip"></span></div><div class="mute small jm"></div><canvas class="jt" width="240" height="135"></canvas><div class="prog"><i></i></div><div class="mute small jp"></div><div class="acts"></div><div class="small jf note"></div>';
@@ -593,7 +602,7 @@ function upd(j){try{window.__spkq&&window.__spkq(j)}catch(e){}const d=j.el;if(!d
  if(d.querySelector('.acts').dataset.h!=h){q('.acts').innerHTML=h;q('.acts').dataset.h=h}q('.jf').textContent=j.status=='failed'?j.err:(j.note||'')}
 function order(){const q=$('#queue');q.innerHTML='';if(!jobs.length){q.innerHTML='<p class="mute small" style="margin:6px 0">Nothing yet. Press "Make video" below.</p>';return}jobs.slice().reverse().forEach(j=>{if(!j.el)card(j);q.append(j.el);upd(j)})}
 function addJob(a,files,o,name){const j={id:++jid,name,audio:a,files:files.slice(),o,status:'waiting',prog:0,msg:'',dur:0};jobs.push(j);order();runQueue()}
-function rmJob(j){if(['rendering','paused','preparing','finalizing'].includes(j.status))return;if(j.url)URL.revokeObjectURL(j.url);j.sink&&j.sink.remove();jobs=jobs.filter(x=>x!==j);j.el&&j.el.remove();order()}
+function rmJob(j){if(['rendering','paused','preparing','finalizing'].includes(j.status))return;if(j.url)URL.revokeObjectURL(j.url);j.sink&&j.sink.remove();try{window.__spkforget&&window.__spkforget(j)}catch(e){}jobs=jobs.filter(x=>x!==j);j.el&&j.el.remove();order()}
 $('#add').onclick=async()=>{unlockEls();if(!audio)return st('Choose a music track first.',1);if(!pick.length)return st('Choose some video loops first.',1);if(!MIME)return st('This browser cannot record video.',1);
  AC??=new AudioContext();await AC.resume();const o=opts();o.seed=o.seed!==''?+o.seed:Math.floor(Math.random()*1e9);st('');addJob(audio,pick,o,audio.name.replace(/\.[^.]+$/,''))};
 async function runQueue(){if(running)return;running=true;
@@ -681,6 +690,7 @@ else if(localStorage.getItem('mm_busy')){const pos=(localStorage.getItem('mm_pos
 // report the render jobs to the shared queue page (Queue), and let it stop them
 import('../shared/queue.js').then(Q=>{
  const ST={waiting:'queued',preparing:'running',rendering:'running',paused:'running',finalizing:'running',done:'done',stopped:'cancelled',failed:'failed'};
+ window.__spkforget=j=>Q.forget('magic-mobile',j.id);
  window.__spkq=j=>{const st=ST[j.status]||'running',act=st=='queued'||st=='running';
   Q.report({id:j.id,app:'magic-mobile',appLabel:'Magic Mixer (phone)',url:location.pathname,title:j.name||'Video',status:st,progress:j.prog||0,total:0,current:j.msg||(j.status=='paused'?'Paused':''),error:j.err,results:[],canCancel:act,canPause:j.status=='rendering'||j.status=='paused',paused:j.status=='paused',pauseStart:j.pz0||0,pausedMs:j.pausedMs||0,started:j.started||0})};
  Q.onPause((app,id,on)=>{if(app!='magic-mobile')return;const j=jobs.find(x=>String(x.id)===id);if(!j||!j.ctl)return;if(on&&j.status=='rendering')j.ctl.pause();else if(!on&&j.status=='paused')j.ctl.resume()});
@@ -688,5 +698,11 @@ import('../shared/queue.js').then(Q=>{
  Q.onCancel((app,id)=>{if(app!='magic-mobile')return;const j=jobs.find(x=>String(x.id)===id);if(!j)return;
   if(j.ctl&&(j.status=='rendering'||j.status=='paused'))j.ctl.stop();else if(j.status=='waiting'||j.status=='preparing'){j.cancel=true;j.status=j.status=='waiting'?'stopped':j.status;upd(j)}});
  jobs.forEach(window.__spkq);setInterval(()=>jobs.forEach(j=>['waiting','preparing','rendering','paused','finalizing'].includes(j.status)&&window.__spkq(j)),5000)}).catch(()=>{});
+</script>
+<script>
+(function(){const $=s=>document.querySelector(s);$('#add2').onclick=()=>$('#add').click();$('#live').onclick=()=>$('#queue').scrollIntoView({behavior:'smooth',block:'start'});
+setInterval(()=>{try{const m=$('#mini').getContext('2d'),c=window.__mmCur&&window.__mmCur();
+ if(c&&c.tctx&&(c.status=='rendering'||c.status=='paused')){m.drawImage(c.tctx.canvas,0,0,128,72);$('#miniTxt').textContent=Math.round(100*c.prog)+'% · '+c.name}
+ else{m.fillStyle='#000';m.fillRect(0,0,128,72);$('#miniTxt').textContent='Queue'}}catch(e){}},400)})();
 </script>
 </body></html>

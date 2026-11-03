@@ -47,7 +47,9 @@ const urls = new Map();
 async function load() { for (const j of await Q.list()) if (!JOBS.has(j.key) || JOBS.get(j.key).updated < j.updated) JOBS.set(j.key, j); draw(); }
 const seen = new Map();   // key -> { p, t }: when the progress last changed (to tell "quiet for a while" from "stuck")
 const note = j => { const x = seen.get(j.key), p = (j.progress || 0) + '|' + (j.current || '') + '|' + j.status; if (!x || x.p !== p) seen.set(j.key, { p, t: Date.now() }); };
-Q.onUpdate(j => { note(j); JOBS.set(j.key, j); schedule(); });
+Q.onUpdate(j => { if (gone.has(j.key)) return; note(j); JOBS.set(j.key, j); schedule(); });
+const gone = new Set();   // removed elsewhere: a late heartbeat must not bring it back
+Q.onRemove(k => { gone.add(k); JOBS.delete(k); seen.delete(k); schedule(); });
 let t; const schedule = () => { clearTimeout(t); t = setTimeout(draw, 120); };
 const T = x => (window.SPK_T ? window.SPK_T(x) : x);
 const state = j => Q.isStale(j) ? 'lost' : j.status;

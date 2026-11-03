@@ -69,11 +69,25 @@ async function makePingpong(engine, inter, out, fps, ctl, budget = 200e6) {
     parts.push(p);
   }
   const list = tmpName('list', 'txt');
-  await engine.write(list, new TextEncoder().encode([inter, ...parts].map(p => `file '${p}'\n`).join('')));
-  const r = await engine.exec(['-y', '-f', 'concat', '-safe', '0', '-i', list, ...encOut(fps), out]);
+  await engine.write(list, new TextEncoder().encode([inter, ...parts, inter].map(p => `file '${p}'\n`).join('')));
+  // Organic turnaround: speed is constant everywhere, but eases to a stop and back over ~0.6 s at each
+  // reversal (cosine speed ramp), instead of flipping direction in one frame. Retimed with setpts and
+  // blended with `framerate`, so there are no repeated frames in the slow part.
+  const A = N - 1, E = Math.min(Math.round(0.6 * fps), Math.floor(A / 3));
+  let vf = [];
+  let total = 2 * N - 2;
+  if (E < 3) await engine.write(list, new TextEncoder().encode([inter, ...parts].map(p => `file '${p}'\n`).join('')));
+  if (E >= 3) {
+    const seg = A - 2 * E + Math.PI * E;
+    const j = 'if(gte(N,' + A + '),N-' + A + ',N)';
+    const t = `if(lt(${j},${E}),${E}*acos(1-${j}/${E}),if(gt(${j},${A - E}),${seg.toFixed(6)}-${E}*acos(1-(${A}-${j})/${E}),${(E * Math.PI / 2 - E).toFixed(6)}+${j}))`;
+    vf = ['-vf', `trim=end_frame=${2 * A + 1},setpts='(if(gte(N,${A}),${seg.toFixed(6)},0)+${t})/FRAME_RATE/TB',framerate=fps=${fps}:interp_start=0:interp_end=255:scene=100`];
+    total = Math.round(2 * seg);
+  }
+  const r = await engine.exec(['-y', '-f', 'concat', '-safe', '0', '-i', list, ...vf, ...(E >= 3 ? ['-frames:v', String(total)] : []), ...encOut(fps), out]);
   await engine.remove(list); for (const p of parts) await engine.remove(p);
   if (r.code !== 0) throw new Error('Joining the loop failed');
-  return 2 * N - 2;
+  return total;
 }
 
 async function makeCrossfade(engine, inter, out, fps, fadeS) {

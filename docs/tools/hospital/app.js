@@ -31,6 +31,15 @@ const STEPS = [
     seg('factor', 'How much slower', [['2', '2×'], ['4', '4×'], ['8', '8×']], 1),
     seg('mode', 'Result', [['slow', 'Slow motion'], ['smooth', 'Same speed, smoother']], 0, 'Slow motion makes the clip longer. Smoother adds frames per second.'),
     seg('engine', 'Method', [['blend', 'Soft blend'], ['motion', 'Smooth motion']], 0, 'Soft blend is fast. Smooth motion is slower, but cleaner on fast movement.')] },
+  { s: 'life', ic: '🌿', title: 'Bring it to life', hint: 'Make still or short loops more alive: slow in and out, a gentle breathing, a floating camera. The clip is repeated to the length you choose, and the movement fits exactly, so it still loops without a jump.', f: [
+    seg('style', 'Style', [['calm', 'Calm breathing'], ['float', 'Floating'], ['dream', 'Dreamy'], ['pulse', 'Pulse']], 0, 'Pick a style, then fine-tune under Advanced if you like.'),
+    { k: 'minSeconds', t: 'range', l: 'Make it at least (seconds)', min: 0, max: 60, step: 1, h: 'The loop is repeated until it is this long. 16 s and longer suits the Magic Video Mixer.' },
+    { k: 'ease', t: 'range', l: 'Slow in and out', min: 0, max: 100, step: 5, adv: 1, h: 'The movement lingers at the loop point and glides through the middle.' },
+    { k: 'breathe', t: 'range', l: 'Breathing zoom', min: 0, max: 100, step: 5, adv: 1 },
+    { k: 'drift', t: 'range', l: 'Floating', min: 0, max: 100, step: 5, adv: 1, h: 'The picture drifts slowly sideways and up and down. It is enlarged a little so no edges show.' },
+    { k: 'sway', t: 'range', l: 'Gentle tilt', min: 0, max: 100, step: 5, adv: 1 },
+    { k: 'glow', t: 'range', l: 'Light and colour breathing', min: 0, max: 100, step: 5, adv: 1 },
+    { k: 'trails', t: 'bool', l: 'Soft trails', adv: 1 }] },
   { s: 'up', ic: '🔍', title: 'Upscale', hint: 'Make the picture larger and sharper.', f: [
     seg('scale', 'Make it this much bigger', [['2', '2×'], ['3', '3×'], ['4', '4×']], 1),
     { k: 'sharp', t: 'range', l: 'Sharpness', min: 0, max: 100, step: 5 }] },
@@ -66,7 +75,7 @@ function field(s, f) {
 }
 function buildSteps() {
   $('#tiles').innerHTML = STEPS.map(st => `<button type="button" class="tile" data-tile="${st.s}" aria-pressed="${!!R[st.s].on}"><span class="ic" aria-hidden="true">${st.ic}</span><span>${esc(st.title)}</span></button>`).join('');
-  $('#steps').innerHTML = STEPS.map(st => `<section class="step${R[st.s].on ? '' : ' hide'}" data-step="${st.s}"><h3><span class="ic" aria-hidden="true">${st.ic}</span><span>${esc(st.title)}</span><span class="sp"></span><button type="button" class="x" data-off="${st.s}" aria-label="Remove this treatment" title="Remove this treatment">×</button></h3><div class="hint">${esc(st.hint)}</div><div class="fields">${st.f.map(f => field(st.s, f)).join('')}</div></section>`).join('');
+  $('#steps').innerHTML = STEPS.map(st => `<section class="step${R[st.s].on ? '' : ' hide'}" data-step="${st.s}"><h3><span class="ic" aria-hidden="true">${st.ic}</span><span>${esc(st.title)}</span><span class="sp"></span><button type="button" class="x" data-off="${st.s}" aria-label="Remove this treatment" title="Remove this treatment">×</button></h3><div class="hint">${esc(st.hint)}</div><div class="fields">${st.f.filter(f => !f.adv).map(f => field(st.s, f)).join('')}${st.f.some(f => f.adv) ? `<details class="adv"><summary>Advanced</summary><div class="fields" style="margin:8px 0 0">${st.f.filter(f => f.adv).map(f => field(st.s, f)).join('')}</div></details>` : ''}</div></section>`).join('');
   $('#outf').innerHTML = OUT.map(f => field('out', f)).join('');
   lookCount();
 }
@@ -108,6 +117,10 @@ function onField(e) {
   if (t.type === 'radio' && !t.checked) return;
   const v = t.type === 'checkbox' ? t.checked : (t.type === 'range' || t.type === 'number' || t.dataset.num) ? Number(t.value) : t.value;
   R[s][k] = v; if (t.type === 'range' && t.nextElementSibling) t.nextElementSibling.textContent = t.value;
+  if (s === 'life') {   // a style fills the sliders; touching a slider makes it a custom mix
+    if (k === 'style' && ST.LIFE_STYLES[v]) { Object.assign(R.life, ST.LIFE_STYLES[v]); syncUI(); }
+    else if (k !== 'minSeconds' && k !== 'style') { R.life.style = 'custom'; document.querySelectorAll('[data-s=life][data-k=style]').forEach(r => { r.checked = false; }); }
+  }
   if (s === 'look') lookCount();
 }
 document.addEventListener('input', onField); document.addEventListener('change', onField);
@@ -203,13 +216,16 @@ $('#stop').onclick = () => { if (ctl) ctl.cancel = true; engine.terminate(); set
 
 $('#prev').onclick = () => run(async () => {
   if (!patient || !patient.info) throw new Error('Choose a clip first.');
-  const rec = JSON.parse(JSON.stringify(ST.variants(R)[0].rec)), cap = rec.slow.on ? 2 : 4;   // a short, small try-out: no upscale, at most a few seconds
+  // Small but long enough to judge the loop seam and the life effects: low resolution (cheap), a few seconds of the
+  // clip, then the normal loop / life / repeat steps, so the preview runs for 12 to 20 seconds and loops in the player.
+  const rec = JSON.parse(JSON.stringify(ST.variants(R)[0].rec)), cap = rec.slow.on ? 4 : 8;
   rec.cut = { on: true, start: rec.cut.on ? rec.cut.start : 0, len: Math.min(rec.cut.on && rec.cut.len > 0 ? rec.cut.len : cap, cap) };
-  const notUp = rec.up.on; rec.up.on = false; rec.size = { on: true, box: '640x360', fit: 'keep', upscale: false }; rec.out.minSeconds = 0; rec.out.crf = 23;
+  const notUp = rec.up.on; rec.up.on = false; rec.size = { on: true, box: '480x270', fit: 'keep', upscale: false };
+  rec.out.minSeconds = Math.min(20, Math.max(12, rec.out.minSeconds || 0)); rec.out.crf = 28;
   setCur('Making a preview…');
   const r = await treat(patient.file, 'hosp_prev.mp4', rec, 'preview', { ...baseProf(), preset: 'ultrafast' });
   const v = $('#vafter'); if (v.src) URL.revokeObjectURL(v.src); v.src = URL.createObjectURL(new Blob([r.data], { type: 'video/mp4' })); $('#fafter').classList.remove('hide');
-  $('#msg').textContent = notUp ? 'Preview done. It is small and short, and does not show the upscale.' : '';
+  $('#msg').textContent = T(notUp ? 'Preview done. It is small and low quality, but shows the loop and life effects. It does not show the upscale.' : 'Preview done. It is small and low quality, but shows the loop and life effects. The saved file uses your chosen size.');
 });
 
 function addResult(name, data, note) {

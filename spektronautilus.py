@@ -150,7 +150,7 @@ def v2x_info():
 
 
 # Only these options (with values of the right shape) can reach Video2X. File names must stay inside the work folder.
-V2X_FLAGS = {"-p": r"(realesrgan|libplacebo|rife)", "-d": r"\d{1,2}", "-m": r"[2-8]", "--frame-rate-mul": r"[2-8]", "-s": r"[2-4]", "-c": r"(libx264|libx265|libx264rgb)", "-e": r"(crf=\d{1,2}|preset=[a-z]+)", "-g": r"\d{1,2}",
+V2X_FLAGS = {"-p": r"(realesrgan|libplacebo|rife)", "-d": r"\d{1,2}", "-m": r"[2-8]", "--frame-rate-mul": r"[2-8]", "-s": r"[2-4]", "-c": r"(libx264|libx265|libx264rgb)", "-e": r"(crf=\d{1,2}|preset=[a-z]+|(maxrate|bufsize)=\d{1,3}M)", "-g": r"\d{1,2}",
              "--realesrgan-model": r"[\w.+-]{1,60}", "--rife-model": r"[\w.+-]{1,60}", "--libplacebo-shader": r"[\w.+-]{1,60}", "-w": r"\d{2,5}", "-h": r"\d{2,5}"}
 def v2x_args_ok(args, st):
     if not isinstance(args, list) or not args or not all(isinstance(a, str) for a in args) or len(args) % 2: return False

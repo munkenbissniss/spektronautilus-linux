@@ -1,6 +1,6 @@
 // Treatment steps shared by the Tools page and the Loop Hospital.
 // Each helper returns a piece of an ffmpeg filter graph (no AI needed, works in the browser too).
-import { encodeArgs, cropFor, chooseFps, targetSize } from './core.js';
+import { encodeArgs, cropFor, chooseFps, targetSize, repeatsNeeded } from './core.js';
 import { filterChain } from './filters.js';
 
 const r3 = v => Math.round(v * 1000) / 1000;
@@ -47,6 +47,45 @@ export function slowPlan(info, { factor = 2, mode = 'slow', engine = 'blend' } =
   return { pre: `${interp(r3(F * m))},setpts=${m}*PTS`, fps: 0, durMul: m, note: `${m}× slower` };
 }
 
+// ---------------------------------------------------------------------------------------------- "Bring it to life": organic motion for still loops
+// Everything here is periodic over a whole number of loop lengths, so the result still loops without a seam.
+//   ease    slow in and out: the clip lingers around the loop point and glides through the middle (speed changes, length does not)
+//   breathe a slow zoom in and out        drift  a floating sideways/up-down movement      sway  a very small tilt
+//   glow    brightness and colour breathing                                              trails  soft ghosts of the last frames
+export const LIFE_STYLES = {
+  calm:   { ease: 60, breathe: 35, drift: 0,  sway: 0,  glow: 0,  trails: false },
+  float:  { ease: 40, breathe: 25, drift: 60, sway: 40, glow: 0,  trails: false },
+  dream:  { ease: 70, breathe: 40, drift: 40, sway: 25, glow: 35, trails: true },
+  pulse:  { ease: 30, breathe: 55, drift: 0,  sway: 0,  glow: 60, trails: false },
+};
+export function lifePeriod(D, minSeconds, repeatAfter) {      // one "breath" lasts a whole number of loop lengths that fits into the final length
+  if (!(D > 0)) return { P: 8, n: 1, T: 0 };
+  const n = repeatAfter ? 1 : repeatsNeeded(D, minSeconds || 0);
+  let m = 1; for (let k = n; k >= 1; k--) if (n % k === 0 && D * k <= 12) { m = k; break; }
+  return { P: D * m, n, T: D * n };
+}
+export function lifePlan(info, L, { minSeconds = 0, repeatAfter = false, outFps = 0 } = {}) {
+  const D = info.duration || 0, F = info.fps || 25, OF = outFps || F, c = v => Math.max(0, Math.min(100, +v || 0)) / 100, { P, T } = lifePeriod(D, minSeconds, repeatAfter);
+  const ease = c(L.ease), breathe = c(L.breathe), drift = c(L.drift), sway = c(L.sway), glow = c(L.glow), notes = [];
+  let pre = '', extra = []; const f = v => String(Math.round(v * 10000) / 10000);
+  if (ease > 0 && D > 0) {       // time stretches by (1 + a·cos) around the loop point: slow at the start and end, faster in the middle
+    const a = f(ease * 0.85), A = f(ease * 0.85 * D / (2 * Math.PI));
+    pre = `${F <= 31 ? `framerate=fps=${f(F * 2)},` : ''}setpts='PTS+${A}*sin(2*PI*PTS*TB/${f(D)})/TB'`; notes.push('slow in and out');
+  }
+  if (breathe > 0 || drift > 0 || sway > 0) {
+    const zA = breathe * 0.10, dA = drift * 0.03, th = sway * 0.015, marg = Math.min(0.35, 2 * dA + 3.6 * th + 0.006), s0 = 1 / (1 - marg);
+    const p1 = `(2*PI*on/${f(P * OF)})`, S = `(${f(s0)}+${f(zA)}*(0.5-0.5*cos(${p1})))`;
+    const cx = `(W/2+W*${f(dA)}*(sin(${p1}+0.7)+0.5*sin(2*${p1}+2.1))/1.5)`, cy = `(H/2+H*${f(dA * 0.7)}*(cos(${p1}+1.3)+0.5*sin(2*${p1}+0.4))/1.5)`;
+    const t = `(${f(th)}*sin(${p1}+2))`, hw = `(W/(2*${S}))`, hh = `(H/(2*${S}))`;
+    const q = e => `'${e}'`;
+    extra.push(`perspective=eval=frame:sense=source:interpolation=cubic:x0=${q(`${cx}-${hw}+${hh}*${t}`)}:y0=${q(`${cy}-${hw}*${t}-${hh}`)}:x1=${q(`${cx}+${hw}+${hh}*${t}`)}:y1=${q(`${cy}+${hw}*${t}-${hh}`)}:x2=${q(`${cx}-${hw}-${hh}*${t}`)}:y2=${q(`${cy}-${hw}*${t}+${hh}`)}:x3=${q(`${cx}+${hw}-${hh}*${t}`)}:y3=${q(`${cy}+${hw}*${t}+${hh}`)}`);
+    if (breathe > 0) notes.push('breathing zoom'); if (drift > 0) notes.push('floating'); if (sway > 0) notes.push('gentle tilt');
+  }
+  if (glow > 0) { extra.push(`eq=brightness='${f(0.05 * glow)}*sin(2*PI*t/${f(P)})':saturation='1+${f(0.25 * glow)}*sin(2*PI*t/${f(P)}+1.1)':eval=frame`); notes.push('light breathing'); }
+  if (L.trails) { extra.push(`tmix=frames=4:weights='4 3 2 1'`); notes.push('soft trails'); }
+  return { pre, extra: extra.join(','), notes, period: P, total: T };
+}
+
 // What is wrong with this clip, and what would help? info: probe result, loop: loop report (or null)
 export function diagnose(info, loop, { slowEngine = false } = {}) {
   const out = [];
@@ -55,6 +94,7 @@ export function diagnose(info, loop, { slowEngine = false } = {}) {
   if (info.width && short < 720) out.push({ id: 'small', text: `Small picture (${info.width}×${info.height}). It will look soft on a big screen.`, fix: { up: { on: true, scale: short < 400 ? 4 : 2 } } });
   if (info.duration && info.duration < 4) out.push({ id: 'short', text: `Very short (${Math.round(info.duration * 10) / 10} s). Slow motion makes it longer and calmer.`, fix: { slow: { on: true, factor: 2 } } });
   else if (info.fps && info.fps < 20) out.push({ id: 'lowfps', text: `Low frame rate (${Math.round(info.fps)} fps). Smooth mode adds frames.`, fix: { slow: { on: true, factor: 2, mode: 'smooth' } } });
+  if (info.duration && info.duration < 16) out.push({ id: 'still', text: `Only ${Math.round(info.duration * 10) / 10} s long. Short or still loops get much more interesting with slow-in-and-out motion and a gentle breathing zoom, repeated to 16 s.`, fix: { life: { ...LIFE_STYLES.calm, style: 'calm', minSeconds: 16 } } });
   if (loop && loop.verdict && loop.verdict !== 'seamless') out.push({ id: 'jump', text: loop.verdict === 'almost' ? 'The loop point is almost clean. A small fix will hide the jump.' : 'You can see a jump where the clip starts over.', fix: { loop: { mode: 'auto' } } });
   if (info.hasAudio) out.push({ id: 'audio', text: 'This clip has sound. The treated clip will be silent, which suits loops for mixing.', fix: {} });
   if (info.isGif) out.push({ id: 'gif', text: 'A GIF. It will become a smooth mp4.', fix: {} });
@@ -69,6 +109,7 @@ export const defaultRecipe = () => ({
   up: { on: false, scale: 2, sharp: 50 },
   size: { on: false, box: '1920x1080', fit: 'keep', upscale: false },
   look: { on: false, id: 'sepia', ids: ['sepia'], keepOriginal: false, amount: 50 },
+  life: { on: false, style: 'calm', ...LIFE_STYLES.calm, minSeconds: 16 },
   loop: { on: false, mode: 'auto', fade: 1.5, fallback: 'pingpong' },
   out: { fps: 0, crf: 18, minSeconds: 0, keepAudio: false },
 });
@@ -95,16 +136,22 @@ export function planRecipe(info, R, baseProf) {
     const sp = slowPlan({ ...info, fps: info.fps || 25 }, R.slow);
     if (sp.pre) { pre.push(sp.pre); dur *= sp.durMul; limit *= sp.durMul; if (sp.fps) fps = sp.fps; notes.push(sp.note); }
   }
+  const lifeAt = pre.length;   // the slow-in-and-out time remap goes here, before the picture is resized
   if (R.up.on) {
     const up = upscalePlan({ width: w, height: h }, R.up.scale, R.up.sharp);
     pre.push(up.filter); w = up.width; h = up.height; notes.push(`${R.up.scale}× bigger`);
   }
-  const prof = { ...baseProf, fps: fps || +R.out.fps || 0, crf: R.out.crf, minSeconds: R.out.minSeconds, keepAudio: !!R.out.keepAudio && !R.slow.on, maxFps: 60 };
+  const prof = { ...baseProf, fps: fps || +R.out.fps || 0, crf: R.out.crf, minSeconds: (R.life && R.life.on) ? Math.max(+R.out.minSeconds || 0, +R.life.minSeconds || 0) : R.out.minSeconds, keepAudio: !!R.out.keepAudio && !R.slow.on, maxFps: 60 };
+  let lifeP = null;
+  if (R.life && R.life.on) {
+    lifeP = lifePlan({ duration: dur, fps: info.fps || 25 }, R.life, { minSeconds: prof.minSeconds, repeatAfter: !!R.loop.on, outFps: chooseFps({ ...info, fps: info.fps || 25 }, prof) });
+    if (lifeP.pre) pre.splice(lifeAt, 0, lifeP.pre); notes.push(...lifeP.notes);
+  }
   if (R.size.on) { prof.size = R.size.box; prof.fit = R.size.fit; prof.upscale = !!R.size.upscale; }
   else { prof.size = `${w}x${h}`; prof.fit = 'keep'; prof.upscale = false; }
   const cur = { ...info, width: w, height: h, duration: dur };
   const [tw, th] = targetSize(cur, prof);
-  const extra = R.look.on ? filterChain(R.look.id, +R.look.amount, { w: tw, h: th, dur }) : '';
+  const extra = [lifeP && lifeP.extra, R.look.on ? filterChain(R.look.id, +R.look.amount, { w: tw, h: th, dur }) : ''].filter(Boolean).join(',');
   if (R.look.on) notes.push(`look ${R.look.id}`);
   return { pre: pre.join(','), seek, limit, prof, cur, extra, size: [tw, th], notes, duration: dur };
 }
@@ -113,7 +160,7 @@ export function planRecipe(info, R, baseProf) {
 export async function runRecipe(engine, loops, src, dst, info, R, baseProf, { ctl = { check() {} }, onProgress, tmp = 'hosp_tmp.mp4' } = {}) {
   const p = planRecipe(info, R, baseProf);
   const passes = R.loop.on ? 2 : 1, prog = (i, f) => f && (x => f((i + Math.min(1, x)) / passes));
-  const args = encodeArgs(src, R.loop.on ? tmp : dst, R.loop.on ? { ...p.prof, crf: 14, preset: 'veryfast', minSeconds: 0 } : p.prof, p.cur, { pre: p.pre, extra: p.extra, seek: p.seek, limit: p.limit, repeat: 1 });
+  const args = encodeArgs(src, R.loop.on ? tmp : dst, R.loop.on ? { ...p.prof, crf: 14, preset: 'veryfast', minSeconds: 0 } : p.prof, p.cur, { pre: p.pre, extra: p.extra, seek: p.seek, limit: p.limit, repeat: R.loop.on ? 1 : repeatsNeeded(p.duration, p.prof.minSeconds) });   // with the loop step on, makeLoop does the repeating
   const r = await engine.exec(args, { onProgress: prog(0, onProgress) });
   if (r.code !== 0) throw new Error('Could not treat this clip (' + (r.log.filter(l => /error|invalid|not supported|unknown|no such/i.test(l)).slice(-1)[0] || 'code ' + r.code).slice(0, 160) + ')');
   ctl.check();

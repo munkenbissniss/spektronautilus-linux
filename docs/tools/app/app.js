@@ -1,4 +1,4 @@
-import { chooseFps, VIDEO_EXT, GIF_EXT, extOf, stemOf, defaultProfile, defaultNaming, makeName, encodeArgs, repeatsNeeded, natCompare, fmtSize, targetSize, cropFor, SIZE_STEPS, PRO_FORMATS } from './core.js';
+import { chooseFps, maxMBps, v2xVbvArgs, VIDEO_EXT, GIF_EXT, extOf, stemOf, defaultProfile, defaultNaming, makeName, encodeArgs, repeatsNeeded, natCompare, fmtSize, targetSize, cropFor, SIZE_STEPS, PRO_FORMATS } from './core.js';
 import * as CAT from './catalogue.js';
 import { FILTERS, filterChain } from './filters.js';
 import { getEngine } from './engine.js';
@@ -46,6 +46,7 @@ const GROUPS = [
     { k: 'upscale', hf: 'sizes', t: 'bool', l: 'Enlarge small videos up to the box', h: 'Only with “Keep shape”. Good for tiny GIFs.' },
     { k: 'fps', t: 'select', num: 1, o: [['0', 'Keep (snapped to 24/25/30/50/60)'], ['24', '24'], ['25', '25'], ['30', '30'], ['50', '50'], ['60', '60']] },
     { k: 'crf', hf: 'pro', t: 'range', min: 12, max: 28, step: 1, l: 'Quality (lower = better, larger)' },
+    { k: 'maxMBps', hf: 'pro', t: 'select', num: 1, o: [['3', '3 MB/s (recommended)'], ['2', '2 MB/s'], ['4', '4 MB/s'], ['6', '6 MB/s'], ['0', 'No limit']], l: 'Highest data rate', h: 'A ceiling on top of the quality setting. VJ software plays many videos at once and reads every one from the disk, so keep it low. 3 MB/s is smooth for several full HD layers.' },
     { k: 'preset', hf: 'pro', t: 'select', o: ['ultrafast', 'superfast', 'veryfast', 'faster', 'fast', 'medium'], h: 'The browser is slower than the desktop version. veryfast is a good balance.' },
     { k: 'gop', hf: 'pro', t: 'range', min: 1, max: 120, step: 1, l: 'Keyframe every (frames)', h: 'Short = smooth scrubbing and looping in VJ software.' },
     { k: 'minSeconds', hf: 'crop', t: 'range', min: 0, max: 120, step: 1, l: 'Repeat until at least (s)', h: 'Whole loops are repeated. 0 = off. The Magic Video Mixer likes 16 s and longer.' },
@@ -378,15 +379,15 @@ async function processOne(job, src, idx, srcName, folder, c, flt, v) {
           const [tw, th] = targetSize(nat, c.profile), fps = chooseFps(nat, c.profile);
           const base = makeName(srcName, idx, c.naming, { ...nat }, job.taken, folder, {}), prog = r => setItemProg(job, r);
           job.abort && job.abort.signal.addEventListener('abort', () => SPK_IOS.cancelConvert(), { once: true });
-          const bpp = 0.2 * Math.pow(0.92, c.profile.crf - 17);
+          const cap = maxMBps(c.profile) * 8e6, bpp = Math.min(0.2 * Math.pow(0.92, c.profile.crf - 17), cap > 0 ? cap / (tw * th * fps) : 9);
           const blob = await SPK_IOS.convert(src, { width: tw, height: th, fit: c.profile.fit, fps, codec: 'h264', bpp, keepAudio: !!c.profile.keepAudio, gop: c.profile.gop, onProgress: prog });
           ctl.check();
           return { name: base + '.mp4', blob, size: blob.size, note: `${nat.width}x${nat.height} -> ${tw}x${th} (iPhone video chip)` };
         }
       } catch (e) { if (e instanceof Cancelled || ctl.cancel) throw new Cancelled(); /* otherwise fall back to the normal engine */ }
     }
-    path = await openInput(src);
-    const info = await L.probe(engine, path, srcName);
+    path = await openInput(src); ctl.check();   // Stop while a big file is still being copied in must not start the encode afterwards
+    const info = await L.probe(engine, path, srcName); ctl.check();
     if (!info.width) throw new Error('No picture found in this file');
     const PF = job.tool === 'pro' ? PRO_FORMATS[c.ex.proFormat] || PRO_FORMATS.hap : null, ext = PF ? PF.ext : '.mp4';
     if (v) {   // Sizes: a size bigger than the clip itself is not made
@@ -402,7 +403,7 @@ async function processOne(job, src, idx, srcName, folder, c, flt, v) {
       const plus = c.ex.aiModel === 'realesrgan-plus', sc = plus ? 4 : (+c.ex.aiScale || 2), anime4k = c.ex.aiModel === 'anime4k';
       if (info.width * sc > 7680 || info.height * sc > 7680) throw new Error('The result would be larger than 8K. Choose a smaller scale or a smaller clip.');
       const args = ['-i', path, '-o', out, ...(anime4k ? ['-p', 'libplacebo', '--libplacebo-shader', 'anime4k-v4-a+a', '-w', String(Math.round(info.width * sc / 2) * 2), '-h', String(Math.round(info.height * sc / 2) * 2)]
-        : ['-p', 'realesrgan', '--realesrgan-model', c.ex.aiModel, '-s', String(sc)]), '-c', 'libx264', '-e', 'crf=' + Math.round(+c.ex.aiCrf || 17), ...gpuArgs(c.ex, engine.info && engine.info.v2x)];
+        : ['-p', 'realesrgan', '--realesrgan-model', c.ex.aiModel, '-s', String(sc)]), '-c', 'libx264', '-e', 'crf=' + Math.round(+c.ex.aiCrf || 17), ...v2xVbvArgs(c.profile), ...gpuArgs(c.ex, engine.info && engine.info.v2x)];
       const t0 = Date.now(), tick = setInterval(() => { const s = Math.round((Date.now() - t0) / 1000); job.current = `${srcName} · ` + (window.SPK_T ? window.SPK_T('AI upscaling… {a}').replace('{a}', Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0')) : 'AI upscaling… ' + s + ' s'); job.dirty = true; }, 1000);
       let r; try { r = await engine.v2x(args, { onProgress: prog }); } finally { clearInterval(tick); }
       if (r.code !== 0) throw new Error('Could not upscale this file (' + (r.log.filter(l => /error|invalid|fail|not supported|unknown|vulkan/i.test(l)).slice(-1)[0] || 'code ' + r.code).slice(0, 160) + ')');
@@ -411,7 +412,7 @@ async function processOne(job, src, idx, srcName, folder, c, flt, v) {
       const m = Math.round(+c.ex.slowFactor) || 2, smooth = c.ex.slowMode === 'smooth', fps = info.fps || 25;
       if (smooth && fps * m > 120) throw new Error('The result would have more than 120 frames per second. Choose a smaller number, or slow motion instead.');
       const tmp = smooth ? out : `t_${job.id}_${idx}.mp4`;
-      const args = ['-i', path, '-o', tmp, '-p', 'rife', '--rife-model', c.ex.slowModel, (engine.info && engine.info.v2x && engine.info.v2x.mul) || '-m', String(m), '-c', 'libx264', '-e', 'crf=' + Math.round(+c.ex.aiCrf || 17), ...gpuArgs(c.ex, engine.info && engine.info.v2x)];
+      const args = ['-i', path, '-o', tmp, '-p', 'rife', '--rife-model', c.ex.slowModel, (engine.info && engine.info.v2x && engine.info.v2x.mul) || '-m', String(m), '-c', 'libx264', '-e', 'crf=' + Math.round(+c.ex.aiCrf || 17), ...v2xVbvArgs(c.profile), ...gpuArgs(c.ex, engine.info && engine.info.v2x)];
       const t0 = Date.now(), tick = setInterval(() => { const s = Math.round((Date.now() - t0) / 1000); job.current = `${srcName} · ` + (window.SPK_T ? window.SPK_T('AI slow motion… {a}').replace('{a}', Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0')) : 'AI slow motion… ' + s + ' s'); job.dirty = true; }, 1000);
       let r; try { r = await engine.v2x(args, { onProgress: x => prog(smooth ? x : x * .95) }); } finally { clearInterval(tick); }
       if (r.code !== 0) throw new Error('Could not make slow motion of this file (' + (r.log.filter(l => /error|invalid|fail|not supported|unknown|vulkan|rife/i.test(l)).slice(-1)[0] || 'code ' + r.code).slice(0, 160) + ')');
@@ -474,10 +475,10 @@ async function processOne(job, src, idx, srcName, folder, c, flt, v) {
 
 // catalogue and loop pack: read each file (length, size, loop quality, one picture) instead of making a new video
 async function inspectOne(job, src, idx, srcName, folder, c) {
-  let path;
+  const ctl = job.ctl; let path;
   try {
-    path = await openInput(src);
-    const info = await L.probe(engine, path, srcName);
+    path = await openInput(src); ctl.check();   // Stop while a big file is still being copied in must not start the encode afterwards
+    const info = await L.probe(engine, path, srcName); ctl.check();
     if (!info.width) throw new Error('No picture found in this file');
     const want = job.tool === 'pack' ? c.ex.packLoop : c.ex.checkLoop;
     let loop = null; if (want && info.duration > 0 && info.duration <= 60) { try { loop = await L.analyze(engine, path, info); } catch (e) { loop = null; } }
@@ -668,7 +669,7 @@ $('#jobs').onclick = async e => {
   if (a === 'cancel') cancelJob(j);
   if (a === 'pause') setPause(j, !j.pauseReq);
   if (a === 'up') { const r = j.results.find(x => x.name === b.dataset.rn && x.blob); if (r && window.SPK_UP) SPK_UP.open(new File([r.blob], r.name, { type: r.blob.type || 'video/mp4' }), { title: stemOf(r.name), name: r.name }); }
-  if (a === 'del') { j.results.forEach(r => urls.has(r) && URL.revokeObjectURL(urls.get(r))); JOBS.splice(JOBS.indexOf(j), 1); }
+  if (a === 'del') { j.results.forEach(r => urls.has(r) && URL.revokeObjectURL(urls.get(r))); JOBS.splice(JOBS.indexOf(j), 1); Q.forget('tools', j.id); }
   if (a === 'prev') j.open = !j.open;
   if (a === 'zip') { try { const z = await makeZip(j.results.filter(r => r.blob).map(r => ({ name: r.name, blob: r.blob }))), u = URL.createObjectURL(z), l = document.createElement('a'); l.href = u; l.download = `vjtools-${j.id}.zip`; l.click(); setTimeout(() => URL.revokeObjectURL(u), 60000); } catch (er) { $('#msg').textContent = er.message; } }
   if (a === 'save') { try { const d = await window.showDirectoryPicker({ mode: 'readwrite' }); for (const r of j.results.filter(x => x.blob)) { const fh = await d.getFileHandle(r.name, { create: true }), w = await fh.createWritable(); await w.write(r.blob); await w.close(); } $('#msg').textContent = 'Saved.'; } catch (er) { if (er.name !== 'AbortError') $('#msg').textContent = er.message; } }

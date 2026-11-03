@@ -32,6 +32,10 @@ details{border-top:1px solid var(--line);padding:8px 0}summary{cursor:pointer;fo
 .jb{display:flex;gap:12px;margin-top:8px}.jb canvas.jt{width:192px;height:108px;background:#000;border-radius:8px;flex:none}@media(max-width:700px){.jb{flex-direction:column}}
 .jr{flex:1;min-width:0}.prog{height:8px;background:var(--line);border-radius:4px;overflow:hidden;margin:2px 0}.prog i{display:block;height:100%;background:var(--b);width:0}canvas.jl{width:100%;height:44px;display:block;margin:6px 0}
 .acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}.fmt{font-size:.82rem;margin-top:6px}
+.dock{position:sticky;top:0;z-index:20;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:8px 12px;margin:0 0 16px;display:flex;gap:10px;align-items:center;box-shadow:0 4px 14px rgba(0,0,0,.12)}
+.dock .mood{display:flex;gap:8px;align-items:center;min-width:0;flex:1}.dock #pre{display:flex;gap:6px;overflow-x:auto;padding:2px;scrollbar-width:thin}.dock #pre button{white-space:nowrap}
+.dock .live{display:flex;gap:8px;align-items:center;flex:none;border:0;padding:0;background:none;font-weight:400;font-size:.8rem;color:var(--mute);text-align:left}.dock .live canvas{width:80px;height:45px;background:#000;border-radius:6px;display:block}
+@media(max-width:700px){.dock{flex-wrap:wrap}.dock .live span{display:none}}
 </style>
 <link rel="manifest" href="../manifest.webmanifest">
 <script src="../shared/sw-register.js" defer></script>
@@ -41,6 +45,10 @@ details{border-top:1px solid var(--line);padding:8px 0}summary{cursor:pointer;fo
 <p style="margin:0 0 6px"><a href="../" style="color:inherit;font-size:.9rem;text-decoration:none">← Spektronautilus</a></p>
 <h1>Magic Video Mixer</h1>
 <p class="sub">Slow, soft video mixes for your music, exported as a video file. Everything runs in your browser (CPU and GPU), and your files are never uploaded. Add a rhythmic track and up to 100 seamless loops, then add one or more exports to the queue.</p>
+
+<div class="dock" id="dock"><div class="mood"><b>Mood:</b> <span id="pre"></span></div>
+ <button class="live" id="live" type="button" title="Jump to the queue"><canvas id="mini" width="160" height="90"></canvas><span id="miniTxt">Queue</span></button>
+ <button class="main sm" id="add2" type="button">Add to export queue</button></div>
 
 <div class="two">
  <div class="card"><h2>1. Music</h2>
@@ -53,7 +61,7 @@ details{border-top:1px solid var(--line);padding:8px 0}summary{cursor:pointer;fo
 <input type="file" id="fA" hidden><input type="file" id="fV" accept="video/*,.mp4,.mov,.m4v,.webm,.mkv" multiple hidden><input type="file" id="fD" webkitdirectory multiple hidden>
 
 <div class="card"><h2>3. Mix settings</h2>
- <div class="bar"><b>Mood:</b> <span id="pre"></span><span class="mute" id="pmsg"></span></div><div class="pace" id="recWhy" style="margin-top:8px;display:none"></div><div id="groups"></div></div>
+ <div class="bar mute" style="font-size:.9rem">Pick a mood in the bar at the top, then fine-tune here. <span id="pmsg"></span></div><div class="pace" id="recWhy" style="margin-top:8px;display:none"></div><div id="groups"></div></div>
 
 <div class="card"><h2>4. Export</h2>
  <div class="bar"><label style="flex-wrap:wrap">Name <input type="text" id="jname" placeholder="(track name)" style="width:220px;max-width:100%"></label>
@@ -261,7 +269,7 @@ const DEFS=[
   Sel('pulseMode','Pulse type',['light','dark'],'dark','Light = flash brighter, dark = dip darker.',1)]],
  ['Output','',[
   Sel('res','Picture size',['1280x720','1920x1080','2560x1440','3840x2160','1080x1920'],'1920x1080','Larger is sharper but needs a stronger computer. If the export stutters, choose a smaller size.'),
-  Sel('bitrate','Quality (Mbit/s)',[4,8,16,32],8,'Higher = better picture and a larger file. 8 Mbit/s is about 600 MB for 10 minutes.'),
+  Sel('bitrate','Quality (Mbit/s)',[4,8,16,24],8,'Higher = better picture and a larger file. 8 Mbit/s is about 600 MB for 10 minutes. 24 Mbit/s (3 MB/s) is the highest, so the video still plays smoothly in VJ software.'),
   Sel('fps','Frame rate',[24,30,60],60,'',1),
   R('sync','Sync offset (ms)',-200,200,5,0,'If the picture feels slightly early or late compared with the music, shift it here.',1)]]];
 const PRE={Drift:{shotBars:32,follow:.2,minBars:8,maxBars:32,setSize:3,fade:32,layerDensity:.3,lookVar:.2,trails:.3,slowmo:.6,breathe:.05,zoom:0,shake:0,pulse:0},
@@ -584,8 +592,14 @@ const holder=l=>pool.find(p=>p.loop===l);
 // give a video element back: its decoder and the blob behind it are freed (10 hidden videos otherwise stay loaded between jobs)
 function freeEl(p){try{p.el.pause();p.el.removeAttribute('src');p.el.load()}catch(e){}if(p.url)URL.revokeObjectURL(p.url);p.url='';p.loop=-1}
 function releasePool(){pool.forEach(freeEl)}
+// The picture to draw for a looping clip. Just before it wraps round, a small copy of its last good frame is kept; while the
+// browser is jumping back to the start (it can freeze for a moment), that copy is shown instead of a gap or a frozen black frame.
+const SNAPW=480,SNAPH=270;
+function pic(el){const ok=el.readyState>=2&&el.videoWidth&&!el.seeking;
+ if(ok){if(el.duration>0&&el.duration-el.currentTime<.45){const t=performance.now();if(t-(el.__sn||0)>100){el.__sn=t;const c=el.__snap||(el.__snap=document.createElement('canvas'));c.width=SNAPW;c.height=SNAPH;c.getContext('2d').drawImage(el,0,0,SNAPW,SNAPH)}}return[el,el.videoWidth,el.videoHeight]}
+ return el.__snap?[el.__snap,el.__snap.width,el.__snap.height]:[null,0,0]}
 function acquire(L,l,need,m){const p=pool.find(p=>p.loop===-1)||pool.filter(p=>!need.has(p.loop)).sort((a,b)=>a.t-b.t)[0];if(!p)return;
- if(p.url)URL.revokeObjectURL(p.url);p.loop=l;p.t=m;p.url=URL.createObjectURL(L[l].file);const el=p.el;
+ if(p.url)URL.revokeObjectURL(p.url);p.el.__snap=null;p.loop=l;p.t=m;p.url=URL.createObjectURL(L[l].file);const el=p.el;
  el.addEventListener('loadedmetadata',()=>{el.currentTime=Math.random()*el.duration;el.play().catch(()=>{})},{once:true});el.src=p.url;el.load()}
 const trig=(A,mode)=>mode=='kick'?A.kicks.map((t,i)=>({t,w:.5+.5*A.kstr[i]})):A.bt.slice(1,-1).map((t,i)=>({t,i:i+1})).filter(x=>mode=='beat'||((x.i-A.phase)%4+4)%4==0).map(x=>({t:x.t,w:1}));
 const env=(a,m,d)=>{let lo=0,hi=a.length-1,r=-1;while(lo<=hi){const k=(lo+hi)>>1;if(a[k].t<=m){r=k;lo=k+1}else hi=k-1}return r<0?0:a[r].w*Math.exp(-d*(m-a[r].t))};
@@ -600,14 +614,14 @@ function renderJob(j,A,L,P){
   const eAt=m=>{let lo=0,hi=A.nb-1;while(lo<hi){const k=(lo+hi+1)>>1;if(A.bt[k]<=m)lo=k;else hi=k-1}return A.energy[lo]};
   const ensure=(m,k)=>{const need=new Set();for(let i=Math.max(0,k-1);i<slots.length&&ta[i]<m+LOOK;i++)need.add(slots[i].loop);layers.forEach(l=>{if(l.t0-l.fade<m+LOOK&&l.t1>m-1)need.add(l.loop)});
    need.forEach(l=>{const h=holder(l);if(h)h.t=m;else acquire(L,l,need,m)});for(const p of pool)if(p.loop>=0&&!need.has(p.loop)&&m-p.t>6)freeEl(p)};
-  const visible=(m,k)=>{const v=new Set([slots[k].loop]);if(k>0&&m-ta[k]<slots[k].xf)v.add(slots[k-1].loop);if(k+1<slots.length&&ta[k+1]-m<2.5)v.add(slots[k+1].loop);layers.forEach(l=>{if(l.t0-l.fade-2.5<m&&m<l.t1+.2)v.add(l.loop)});return v};
+  const visible=(m,k)=>{const v=new Set([slots[k].loop]);if(k>0&&m-ta[k]<slots[k].xf/2)v.add(slots[k-1].loop);if(k+1<slots.length&&ta[k+1]-m<2.5+slots[k+1].xf/2)v.add(slots[k+1].loop);layers.forEach(l=>{if(l.t0-l.fade-2.5<m&&m<l.t1+.2)v.add(l.loop)});return v};
   j.msg='Loading the first clips…';upd(j);
   for(let i=0;i<80;i++){ensure(0,0);const h=holder(slots[0].loop);if(h&&h.el.readyState>=2)break;await sleep(100)}
   const dest=AC.createMediaStreamDestination(),src=AC.createBufferSource();_src=src;src.buffer=A.buf;src.connect(dest);
   const sink=await openSink(`${j.id}-${Date.now()}.${EXT}`);j.sink=sink;
   let useMp3=false;if(EXT=='mp4'&&(j.audio.type=='audio/mpeg'||/\.mp3$/i.test(j.audio.name)))try{await mp3Info(j.audio);useMp3=true}catch(e){}
   let lastM=0;
-  const rec=new MediaRecorder(new MediaStream([...cv.captureStream(o.fps).getVideoTracks(),...dest.stream.getAudioTracks()]),{mimeType:MIME,videoBitsPerSecond:o.bitrate*1e6,audioBitsPerSecond:192000});_rec=rec;
+  const rec=new MediaRecorder(new MediaStream([...cv.captureStream(o.fps).getVideoTracks(),...dest.stream.getAudioTracks()]),{mimeType:MIME,videoBitsPerSecond:Math.min(24,o.bitrate)*1e6,audioBitsPerSecond:192000});_rec=rec;
   rec.ondataavailable=e=>{if(e.data.size)sink.write(e.data)};
   let ended=false;const finish0=async why=>{if(ended)return;ended=true;tickW.postMessage(0);wakeOff();try{localStorage.removeItem('mm_beat')}catch(e){}try{src.stop()}catch(e){}releasePool();
    await new Promise(r=>{rec.onstop=r;if(rec.state!='inactive')rec.stop();else r()});let f=await sink.close();
@@ -621,13 +635,13 @@ function renderJob(j,A,L,P){
    resume:async()=>{if(j.status!='paused')return;j.status='rendering';rec.state=='paused'&&rec.resume();await AC.resume();upd(j)},stop:()=>{if(j.status=='paused')AC.resume();finish('stopped')}};
   const tS=AC.currentTime+.3,tRec=AC.currentTime;src.start(tS);rec.start(1000);wakeOn();j.status='rendering';j.msg='';upd(j);let lastUI=0,lastRate=0,rate=1;
   const tickBody=()=>{if(ended||j.status!='rendering')return;const m=AC.currentTime-tS+o.sync/1000;if(m<0)return;lastM=Math.max(0,m-o.sync/1000);if(m>=A.dur){finish('done');return}
-   const k=findK(m);ensure(m,k);const s=slots[k],since=m-ta[k],bo=s.kind=='drop'?1.6:1,e=eAt(m),react=1-o.reactive+o.reactive*Math.min(1.4,e*1.6),look=looks[s.cluster],pl=k>0?looks[slots[k-1].cluster]:look,
+   let k=findK(m);if(k+1<slots.length&&m>=ta[k+1]-slots[k+1].xf/2)k++;ensure(m,k);const s=slots[k],since=m-ta[k]+s.xf/2,bo=s.kind=='drop'?1.6:1,e=eAt(m),react=1-o.reactive+o.reactive*Math.min(1.4,e*1.6),look=looks[s.cluster],pl=k>0?looks[slots[k-1].cluster]:look,
     fx=s.xf>0&&since<s.xf?(o.smooth>0?ease5(since/s.xf):ease(since/s.xf)):1;
    const vis=visible(m,k);for(const p of pool)if(p.loop>=0){const want=vis.has(p.loop);if(want&&p.el.paused&&p.el.readyState>=2)p.el.play().catch(()=>{});else if(!want&&!p.el.paused)p.el.pause()}
    if(m-lastRate>.4){lastRate=m;rate=clamp(1-o.slowmo*.5*(1-e),.5,1);for(const p of pool)if(p.loop>=0&&vis.has(p.loop)&&Math.abs(p.el.playbackRate-rate)>.02)p.el.playbackRate=rate}
    const z=1+o.breathe*react*(.5-.5*Math.cos(2*Math.PI*m/(o.breathBars*4*beatS)))+2*o.shake+o.zoom*bo*env(T.zoom,m,7),sh=env(T.shake,m,14)*o.shake,dx=sh*W*Math.sin(m*610),dy=sh*H*Math.sin(m*470),a0=o.trails>0?1-o.trails*.85:1;
-   const dv=(el,al,blend)=>{if(!el||el.readyState<2||!el.videoWidth||al<=.003)return;g.globalAlpha=al;g.globalCompositeOperation=blend||'source-over';g.save();g.translate(W/2+dx,H/2+dy);g.scale(z,z);
-    const sc=Math.max(W/el.videoWidth,H/el.videoHeight);g.drawImage(el,-el.videoWidth*sc/2,-el.videoHeight*sc/2,el.videoWidth*sc,el.videoHeight*sc);g.restore();g.globalAlpha=1;g.globalCompositeOperation='source-over'};
+   const dv=(el,al,blend)=>{if(!el||al<=.003)return;const [src,vw,vh]=pic(el);if(!src)return;g.globalAlpha=al;g.globalCompositeOperation=blend||'source-over';g.save();g.translate(W/2+dx,H/2+dy);g.scale(z,z);
+    const sc=Math.max(W/vw,H/vh);g.drawImage(src,-vw*sc/2,-vh*sc/2,vw*sc,vh*sc);g.restore();g.globalAlpha=1;g.globalCompositeOperation='source-over'};
    if(!(o.trails>0)){g.fillStyle='#000';g.fillRect(0,0,W,H)}
    if(k>0&&fx<1){dv(holder(slots[k-1].loop)?.el,a0);dv(holder(s.loop)?.el,a0*fx)}else dv(holder(s.loop)?.el,a0);
    for(const l of layers){if(m<l.t0-l.fade||m>l.t1+l.fade)continue;const x=Math.min(1,(m-(l.t0-l.fade))/l.fade,(l.t1+l.fade-m)/l.fade);dv(holder(l.loop)?.el,l.alpha*ease(Math.max(0,x))*react,CM[l.blend]||l.blend)}
@@ -675,7 +689,7 @@ function summary(){const c=s=>jobs.filter(j=>s.includes(j.status)).length,left=j
  const live=cur&&(cur.status=='rendering'||cur.status=='paused');$('#qpause').disabled=!live;$('#qstop').disabled=!live;$('#qpause').textContent=cur&&cur.status=='paused'?'Resume':'Pause'}
 function order(){const q=$('#queue');if(!jobs.length){q.innerHTML='<p class="mute">The queue is empty.</p>';return}if(q.querySelector('p'))q.innerHTML='';jobs.forEach(j=>{if(!j.el){card(j);}q.append(j.el);upd(j)})}
 function addJob(a,files,o,name){const j={id:++jid,name,audio:a,files:files.slice(),o,status:'waiting',prog:0,msg:'',dur:0};jobs.push(j);order();runQueue()}
-function rmJob(j){if(j.status=='rendering'||j.status=='paused'||j.status=='preparing')return;if(j.url)URL.revokeObjectURL(j.url);j.sink&&j.sink.remove();jobs=jobs.filter(x=>x!==j);j.el&&j.el.remove();order();summary()}
+function rmJob(j){if(j.status=='rendering'||j.status=='paused'||j.status=='preparing')return;if(j.url)URL.revokeObjectURL(j.url);j.sink&&j.sink.remove();try{window.__spkforget&&window.__spkforget(j)}catch(e){}jobs=jobs.filter(x=>x!==j);j.el&&j.el.remove();order();summary()}
 $('#add').onclick=async()=>{if(!audio)return st('Choose a music file first.',1);if(!pick.length)return st('Add some video loops first.',1);if(!MIME)return st('This browser cannot record video.',1);
  AC??=new AudioContext();await AC.resume();const o=getO(),nv=clamp(+$('#nver').value||1,1,10),base=$('#jname').value.trim()||audio.name.replace(/\.[^.]+$/,'');st('');
  for(let i=0;i<nv;i++)addJob(audio,pick,{...o,seed:o.seed!==''?+o.seed+i:Math.floor(Math.random()*1e9)},nv>1?`${base} #${i+1}`:base)};
@@ -694,12 +708,18 @@ async function doJob(j){
  j.info=`${A.tempo.toFixed(0)} BPM · ${P.slots.length} shots · ${A.sections.length} sections · ${P.coverage.used}/${P.coverage.total} loops used${useClip?' · CLIP':''}${bad?` · ${bad} unreadable`:''}`;
  drawTL(j,A,P);msg('');await renderJob(j,A,L,P)}
 addEventListener('beforeunload',e=>{if(jobs.some(j=>['preparing','rendering','paused','finalizing'].includes(j.status)||(['done','stopped'].includes(j.status)&&j.url&&!j.saved))){e.preventDefault();e.returnValue=''}});   // also when a finished video was not downloaded yet: leaving the page deletes it
+$('#add2').onclick=()=>$('#add').click();
+$('#live').onclick=()=>$('#queue').scrollIntoView({behavior:'smooth',block:'start'});
+setInterval(()=>{try{const m=$('#mini').getContext('2d'),live=cur&&(cur.status=='rendering'||cur.status=='paused');
+ if(live&&cur.tctx){m.drawImage(cur.tctx.canvas,0,0,160,90);$('#miniTxt').textContent=Math.round(100*cur.prog)+'% · '+cur.name}
+ else{m.fillStyle='#000';m.fillRect(0,0,160,90);const d=jobs.filter(j=>j.status=='done').length;$('#miniTxt').textContent=jobs.length?`Queue · ${d}/${jobs.length}`:'Queue'}}catch(e){}},400);
 $('#pre').querySelector('[data-p="Chill"]').click();paceTxt();summary();
 </script>
 <script>
 // report the render jobs to the shared queue page (Queue), and let it stop them
 import('../shared/queue.js').then(Q=>{
  const ST={waiting:'queued',preparing:'running',rendering:'running',paused:'running',finalizing:'running',done:'done',stopped:'cancelled',failed:'failed'};
+ window.__spkforget=j=>Q.forget('magic',j.id);
  window.__spkq=j=>{const st=ST[j.status]||'running',act=st=='queued'||st=='running';
   Q.report({id:j.id,app:'magic',appLabel:'Magic Mixer',url:location.pathname,title:j.name||'Video',status:st,progress:j.prog||0,total:0,current:j.msg||(j.status=='paused'?'Paused':''),error:j.err,results:[],canCancel:act,canPause:j.status=='rendering'||j.status=='paused',paused:j.status=='paused',pauseStart:j.pz0||0,pausedMs:j.pausedMs||0,started:j.started||0})};
  Q.onPause((app,id,on)=>{if(app!='magic')return;const j=jobs.find(x=>String(x.id)===id);if(!j||!j.ctl)return;if(on&&j.status=='rendering')j.ctl.pause();else if(!on&&j.status=='paused')j.ctl.resume()});

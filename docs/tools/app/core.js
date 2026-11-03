@@ -8,7 +8,7 @@ export const stemOf = n => String(n || '').replace(/^.*[\/\\]/, '').replace(/\.[
 
 export const defaultProfile = () => ({
   size: '1920x1080', fit: 'keep', upscale: false, fps: 0, maxFps: 60, crf: 17, preset: 'veryfast', gop: 30,
-  bg: 'black', minSeconds: 0, keepAudio: false,
+  bg: 'black', minSeconds: 0, keepAudio: false, maxMBps: 3,
 });
 export const defaultNaming = () => ({ template: '{name}', prefix: '', suffix: '', start: 1, ascii: true, spaces: '_', case: 'keep' });
 
@@ -99,9 +99,14 @@ export function repeatsNeeded(duration, minSeconds) {
   return Math.ceil(minSeconds / duration - 1e-9);
 }
 
+// A ceiling for the data rate (MB per second), on top of the quality setting: VJ software plays many layers at once and every layer must be
+// read from the disk and decoded in real time. 3 MB/s (= 24 Mbit/s) is smooth for several 1080p layers; 0 = no ceiling.
+export const maxMBps = prof => (prof.maxMBps === undefined || prof.maxMBps === null || prof.maxMBps === '') ? 3 : Math.max(0, +prof.maxMBps || 0);
+export function vbvArgs(prof) { const m = maxMBps(prof); return m > 0 ? ['-maxrate', `${m * 8}M`, '-bufsize', `${m * 4}M`] : []; }
+export function v2xVbvArgs(prof) { const m = maxMBps(prof); return m > 0 ? ['-e', `maxrate=${m * 8}M`, '-e', `bufsize=${m * 4}M`] : []; }
 export function codecArgs(prof) {
   const g = String(Math.max(1, Math.floor(prof.gop)));
-  return ['-c:v', 'libx264', '-preset', prof.preset, '-crf', String(prof.crf), '-pix_fmt', 'yuv420p', '-g', g, '-keyint_min', g,
+  return ['-c:v', 'libx264', '-preset', prof.preset, '-crf', String(prof.crf), ...vbvArgs(prof), '-pix_fmt', 'yuv420p', '-g', g, '-keyint_min', g,
     '-sc_threshold', '0', '-profile:v', 'high', '-movflags', '+faststart', '-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'bt709'];
 }
 

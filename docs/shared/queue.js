@@ -5,7 +5,7 @@ const DB = 'spk_queue', CHAN = 'spk-queue', STALE = 90000, BLOB_CAP = 600e6;
 export const ACTIVE = ['queued', 'running'];
 const tab = Math.random().toString(36).slice(2, 8);
 let chan = null; try { chan = new BroadcastChannel(CHAN); } catch {}
-const handlers = { cancel: [], pause: [], update: [] }, last = new Map(), own = new Map();
+const handlers = { cancel: [], pause: [], update: [], remove: [] }, last = new Map(), own = new Map();
 
 const idb = () => new Promise((res, rej) => { const r = indexedDB.open(DB, 1); r.onupgradeneeded = () => { r.result.createObjectStore('jobs', { keyPath: 'key' }); r.result.createObjectStore('blobs'); }; r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
 const tx = async (store, mode, fn) => { const db = await idb(); return new Promise((res, rej) => { const t = db.transaction(store, mode), s = t.objectStore(store); let out; try { out = fn(s); } catch (e) { rej(e); return; } t.oncomplete = () => { db.close(); res(out && out.result !== undefined ? out.result : out); }; t.onerror = () => rej(t.error); }); };
@@ -49,6 +49,14 @@ try { const w = new Worker(URL.createObjectURL(new Blob(['setInterval(()=>postMe
 export const hello = () => { try { chan && chan.postMessage({ t: 'hello' }); } catch {} };
 export function onPause(fn) { handlers.pause.push(fn); }
 export function requestPause(key, on) { try { chan && chan.postMessage({ t: 'pause', key, on: !!on }); } catch {} }
+// A page that removes a job from its own list also removes it here, and every open Queue (page or panel) drops it at once.
+export async function forget(app, id) {
+  const key = ownKey(app, id); own.delete(key); last.delete(key);
+  try { const j = (await list()).find(x => x.key === key); if (j) await remove(j); } catch {}
+  try { chan && chan.postMessage({ t: 'remove', key }); } catch {}
+  try { publishCount(Date.now()); } catch {}
+}
+export function onRemove(fn) { handlers.remove.push(fn); }
 export const isStale = j => ACTIVE.includes(j.status) && Date.now() - j.updated > STALE;
 // the page that owns a job listens for stop requests: fn(app, id)
 export function onCancel(fn) { handlers.cancel.push(fn); }
@@ -58,6 +66,7 @@ if (chan) chan.onmessage = e => {
   const m = e.data; if (!m) return;
   if (m.t === 'cancel' && last.has(m.key)) { const p = m.key.split(':'); handlers.cancel.forEach(f => f(p[1], p.slice(2).join(':'))); }
   if (m.t === 'pause' && last.has(m.key)) { const p = m.key.split(':'); handlers.pause.forEach(f => f(p[1], p.slice(2).join(':'), m.on)); }
+  if (m.t === 'remove') handlers.remove.forEach(f => f(m.key));
   if (m.t === 'hello') own.forEach(j => { try { chan.postMessage({ t: 'job', job: { ...j, updated: Date.now() } }); } catch {} });
   if (m.t === 'job') handlers.update.forEach(f => f(m.job));
 };
