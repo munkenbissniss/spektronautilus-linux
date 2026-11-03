@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="apple-touch-icon" href="../apple-touch-icon.png"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="Spektro"><meta name="apple-mobile-web-app-status-bar-style" content="default">
 <script>(function(){try{if(location.search.indexOf('desktop=1')>-1){localStorage.setItem('spk_desktop','1');return}
 if(!localStorage.getItem('spk_desktop')&&matchMedia('(pointer:coarse) and (max-width:900px)').matches)location.replace('../vj-mobile/')}catch(e){}})();</script>
 <title>VJ Mixer – Spektronautilus</title>
@@ -111,12 +112,22 @@ body:not(.adv) .advonly{display:none!important}
     <input type="number" id="bpm" min="40" max="220" step="0.1" value="120" aria-label="Beats per minute"><span class="hint">BPM</span>
     <button id="tap" class="main">Tap</button><button id="half" class="sm">÷2</button><button id="dbl" class="sm">×2</button><button id="beat1" class="sm" title="Make this moment beat 1">Beat 1 now</button>
     <div class="dots" id="dots"><i class="one"></i><i></i><i></i><i></i></div>
-    <label class="hint">Beat from <select id="bsrc"><option value="clock">Tap / BPM</option><option value="audio">Audio input (kick drum)</option></select></label>
+    <label class="hint">Beat from <select id="bsrc"><option value="clock">Tap / BPM</option><option value="audio">Audio input (kick drum)</option><option value="file">Audio file (mp3, wav …)</option><option value="share">Browser tab or screen sound</option></select></label>
     <label class="hint" id="sensL" style="display:none">Sensitivity <input type="range" id="sens" min="0" max="100" value="50" style="width:90px"></label>
     <span class="hint" id="bnote"></span>
   </div>
   <div class="drow"><label class="hint">Effect amount <input type="range" id="fxAmt" min="0" max="100" value="60" style="width:150px"></label>
     <label class="hint">Pulse every <select id="every"><option value="1">1 beat</option><option value="2">2 beats</option><option value="4">4 beats</option></select></label></div>
+  <div class="drow" id="audioRow" style="display:none;gap:10px">
+    <label class="hint" id="adevL" style="display:none">Sound input <select id="adev" style="font:inherit;max-width:260px"><option value="">Default input</option></select></label>
+    <span id="afileRow" style="display:none;gap:8px;align-items:center;flex-wrap:wrap">
+      <button class="sm" id="aAdd">Add audio files…</button><input type="file" id="aFiles" accept="audio/*,.mp3,.wav,.ogg,.m4a,.flac,.aac,.opus" multiple hidden aria-label="Audio files">
+      <button class="sm" id="aPrev" aria-label="Previous track">⏮</button><button class="sm main" id="aPlay">Play</button><button class="sm" id="aNext" aria-label="Next track">⏭</button>
+      <label class="hint">Volume <input type="range" id="aVol" min="0" max="100" value="80" style="width:90px"></label>
+      <label class="hint"><input type="checkbox" id="aRep"> Repeat the list</label>
+    </span>
+    <span class="hint apstat" id="aInfo"></span>
+  </div>
   <div class="fx" id="fx"></div>
   <p class="hint" style="margin:6px 0 0">Careful with Flash, Strobe and Invert at a fast tempo: flashing light can trigger seizures in some people. Keep it slow at public events.</p>
 </div>
@@ -144,7 +155,8 @@ body:not(.adv) .advonly{display:none!important}
 </details>
 
 <details class="card advonly" id="recCard" open><summary>Record the mix</summary>
-  <p class="hint" style="margin-top:0">Saves what you see in the output as a video file, without sound. The recording is kept in memory until you save it, so save it before you close the page.</p>
+  <p class="hint" style="margin-top:0">Saves what you see in the output as a video file. The recording is kept in memory until you save it, so save it before you close the page.</p>
+  <label class="hint" style="display:flex;gap:6px;align-items:center;margin:0 0 8px"><input type="checkbox" id="recAudio"> Include sound from the sound source above (input, audio file or shared tab)</label>
   <div class="drow"><button id="recBtn" class="rec">Record</button><span id="recStat" class="apstat"></span><a id="recSave" class="btn hide" style="display:none;text-decoration:none">Save video</a></div>
   <p class="hint" id="recNote" style="margin:6px 0 0"></p>
 </details>

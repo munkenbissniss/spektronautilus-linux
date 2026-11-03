@@ -5,7 +5,7 @@ const store = {
   get(k, d) { try { const v = localStorage.getItem('spk_vj_' + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
   set(k, v) { try { localStorage.setItem('spk_vj_' + k, JSON.stringify(v)); } catch {} },
 };
-const cfg = Object.assign({ res: '1280x720', fps: 30, fit: 'cover', fadeSec: 4, remember: false, bsrc: 'clock', sens: 50, every: 1, fxAmt: 60, adv: false, apFrom: 'bank', apOrder: 'shuffle', apEvery: 30, apUnit: 'sec', apStack: 1, apLen: 0, apRec: false }, store.get('cfg', {}));
+const cfg = Object.assign({ res: '1280x720', fps: 30, fit: 'cover', fadeSec: 4, remember: false, adev: '', recAudio: false, bsrc: 'clock', sens: 50, every: 1, fxAmt: 60, adv: false, apFrom: 'bank', apOrder: 'shuffle', apEvery: 30, apUnit: 'sec', apStack: 1, apLen: 0, apRec: false }, store.get('cfg', {}));
 const LAYERS = ['A1', 'A2', 'A3', 'B1', 'B2', 'B3'];
 const S = {
   f: 0, auto: null, pads: Array(MAXPADS).fill(null), sel: 0, bank: 0, rec: null, recFile: null,
@@ -206,21 +206,90 @@ function toggleFx(i) { S.fx[i] = !S.fx[i]; store.set('fxOn', S.fx); buildFx(); }
 // effect strength 0..1 for the current moment
 function fxPhase(now) {
   const every = +cfg.every || 1;
-  if (cfg.bsrc === 'audio') { const P = Math.max(250, period()); return (now - S.kick.trigT) / P; }
+  if (isAudioBeat()) { const P = Math.max(250, period()); return (now - S.kick.trigT) / P; }
   return beatPos(now, S.t0, period(), every);
 }
-async function setBeatSource(src) {
-  cfg.bsrc = src; store.set('cfg', cfg); $('#sensL').style.display = src === 'audio' ? '' : 'none';
-  if (src === 'audio') {
-    if (S.mic) return;
-    try {
-      const st = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
-      const ctx = new (window.AudioContext || window.webkitAudioContext)(), an = ctx.createAnalyser(), lp = ctx.createBiquadFilter();
-      lp.type = 'lowpass'; lp.frequency.value = 150; an.fftSize = 1024; ctx.createMediaStreamSource(st).connect(lp); lp.connect(an);
-      S.mic = { st, ctx, an, buf: new Uint8Array(an.fftSize) }; $('#bnote').textContent = 'Listening… the beat follows the kick drum.';
-    } catch (e) { $('#bnote').textContent = 'Could not use the audio input: ' + e.message; cfg.bsrc = 'clock'; $('#bsrc').value = 'clock'; $('#sensL').style.display = 'none'; }
-  } else if (S.mic) { S.mic.st.getTracks().forEach(t => t.stop()); S.mic.ctx.close().catch(() => {}); S.mic = null; $('#bnote').textContent = ''; }
+// ------------------------------------------------------------------ sound: a microphone or other input, an audio file played here, or the sound of a shared browser tab
+// All three go through the same small filter (low notes only) so the beat can follow the kick drum. The sound can also be added to a recording.
+const isAudioBeat = () => cfg.bsrc !== 'clock';
+const PL = { files: [], idx: -1, url: null, el: null };
+function audioUi() {
+  const src = cfg.bsrc; $('#sensL').style.display = src === 'clock' ? 'none' : '';
+  $('#audioRow').style.display = src === 'clock' || src === 'share' ? 'none' : 'flex';
+  $('#adevL').style.display = src === 'audio' ? '' : 'none'; $('#afileRow').style.display = src === 'file' ? 'flex' : 'none';
 }
+async function listInputs() {
+  const sel = $('#adev'); if (!sel || !navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
+  try {
+    const d = (await navigator.mediaDevices.enumerateDevices()).filter(x => x.kind === 'audioinput'); sel.innerHTML = '';
+    const def = document.createElement('option'); def.value = ''; def.textContent = 'Default input'; sel.appendChild(def);
+    d.forEach((x, k) => { if (x.deviceId === 'default') return; const o = document.createElement('option'); o.value = x.deviceId; o.textContent = x.label || `Input ${k + 1}`; sel.appendChild(o); });
+    sel.value = [...sel.options].some(o => o.value === cfg.adev) ? cfg.adev : '';
+  } catch {}
+}
+function stopAudio() {
+  if (PL.el) { try { PL.el.pause(); } catch {} }
+  if (S.mic) { try { S.mic.st && S.mic.st.getTracks().forEach(t => t.stop()); } catch {} S.mic.ctx.close().catch(() => {}); S.mic = null; }
+  PL.el = null; fileUi();
+}
+let srcSeq = 0;      // a newer choice wins: slow answers from an older choice (a permission dialog, a sharing window) are dropped
+async function setBeatSource(src) {
+  const my = ++srcSeq; cfg.bsrc = src; store.set('cfg', cfg); stopAudio(); audioUi(); $('#bnote').textContent = '';
+  if (src === 'clock') return;
+  if (!(window.AudioContext || window.webkitAudioContext)) { fallbackClock('This browser cannot use sound input.'); return; }
+  const ctx = new (window.AudioContext || window.webkitAudioContext)(), an = ctx.createAnalyser(), lp = ctx.createBiquadFilter(), rec = ctx.createMediaStreamDestination();
+  lp.type = 'lowpass'; lp.frequency.value = 150; an.fftSize = 1024; lp.connect(an);
+  const m = S.mic = { st: null, ctx, an, rec, buf: new Uint8Array(an.fftSize) };
+  try {
+    if (ctx.state === 'suspended') await ctx.resume().catch(() => {});
+    if (src === 'audio') {
+      const a = { echoCancellation: false, noiseSuppression: false, autoGainControl: false }; if (cfg.adev) a.deviceId = { exact: cfg.adev };
+      m.st = await navigator.mediaDevices.getUserMedia({ audio: a });
+      if (my !== srcSeq) { m.st.getTracks().forEach(t => t.stop()); return; }
+      const n = ctx.createMediaStreamSource(m.st); n.connect(lp); n.connect(rec);
+      $('#bnote').textContent = 'Listening… the beat follows the kick drum.'; listInputs();
+    } else if (src === 'share') {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) throw new Error('This browser cannot share sound. Use Chrome or Edge.');
+      const st = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true }), au = st.getAudioTracks();
+      st.getVideoTracks().forEach(t => t.stop());
+      if (my !== srcSeq) { au.forEach(t => t.stop()); return; }
+      if (!au.length) throw new Error('No sound was shared. In the sharing window choose a browser tab and tick “Share tab audio”.');
+      m.st = new MediaStream(au); const n = ctx.createMediaStreamSource(m.st); n.connect(lp); n.connect(rec);
+      au[0].addEventListener('ended', () => { if (S.mic === m) { fallbackClock('The shared sound has ended.'); } });
+      $('#bnote').textContent = 'Sharing sound… the beat follows it.';
+    } else if (src === 'file') {
+      const el = PL.el = new Audio(); el.preload = 'auto'; el.volume = (+$('#aVol').value || 80) / 100;
+      const n = ctx.createMediaElementSource(el); n.connect(lp); n.connect(ctx.destination); n.connect(rec);      // to the speakers, to the beat and to the recording
+      el.addEventListener('ended', () => nextTrack(true)); el.addEventListener('error', () => { if (el.src) toast('Could not play this audio file.', 5000); });
+      el.addEventListener('timeupdate', fileUi); el.addEventListener('play', fileUi); el.addEventListener('pause', fileUi);
+      $('#bnote').textContent = PL.files.length ? 'Playing from the file. The beat follows the music.' : 'Add one or more audio files, then press Play. The beat follows the music.';
+      if (PL.files.length) loadTrack(Math.max(0, PL.idx), false); fileUi();
+    }
+  } catch (e) { if (my !== srcSeq) return; fallbackClock(src === 'audio' ? 'Could not use the audio input: ' + e.message : e.message); }
+}
+function fallbackClock(msg) { stopAudio(); cfg.bsrc = 'clock'; store.set('cfg', cfg); $('#bsrc').value = 'clock'; audioUi(); $('#bnote').textContent = msg; }
+function loadTrack(i, play) {
+  if (!PL.el || !PL.files.length) return; PL.idx = clamp(i, 0, PL.files.length - 1);
+  if (PL.url) try { URL.revokeObjectURL(PL.url); } catch {}
+  PL.url = URL.createObjectURL(PL.files[PL.idx]); PL.el.src = PL.url; if (play) PL.el.play().catch(() => {}); fileUi();
+}
+function nextTrack(auto) {
+  if (!PL.files.length) return; let i = PL.idx + 1;
+  if (i >= PL.files.length) { if (auto && !$('#aRep').checked) { fileUi(); return; } i = 0; }
+  loadTrack(i, true);
+}
+function fileUi() {
+  const el = PL.el, b = $('#aPlay'); if (!b) return;
+  b.textContent = el && !el.paused ? 'Pause' : 'Play';
+  const nm = PL.files[PL.idx] ? PL.files[PL.idx].name : '', tm = el && isFinite(el.duration) ? clock(el.currentTime * 1000) + ' / ' + clock(el.duration * 1000) : '';
+  $('#aInfo').textContent = PL.files.length ? [nm, T('Track {a} of {b}').replace('{a}', PL.idx + 1).replace('{b}', PL.files.length), tm].filter(Boolean).join(' · ') : '';
+}
+$('#aAdd').onclick = () => $('#aFiles').click();
+$('#aFiles').onchange = e => { const f = [...e.target.files].filter(x => x.type.startsWith('audio/') || /\.(mp3|wav|ogg|m4a|flac|aac|opus)$/i.test(x.name)); e.target.value = ''; if (!f.length) return; const first = !PL.files.length; PL.files.push(...f); if (PL.el && first) loadTrack(0, false); fileUi(); toast('Audio files added.', 1800); };
+$('#aPlay').onclick = () => { const el = PL.el; if (!el) return; if (!PL.files.length) { $('#aFiles').click(); return; } if (S.mic && S.mic.ctx.state === 'suspended') S.mic.ctx.resume(); if (!el.src) loadTrack(0, true); else if (el.paused) el.play().catch(() => {}); else el.pause(); };
+$('#aNext').onclick = () => nextTrack(false); $('#aPrev').onclick = () => { if (PL.el && PL.el.currentTime > 3) PL.el.currentTime = 0; else loadTrack(PL.idx - 1, true); };
+$('#aVol').oninput = () => { if (PL.el) PL.el.volume = $('#aVol').value / 100; };
+$('#adev').onchange = () => { cfg.adev = $('#adev').value; store.set('cfg', cfg); if (cfg.bsrc === 'audio') setBeatSource('audio'); };
 function listenKick(now) {
   const m = S.mic; if (!m) return;
   m.an.getByteTimeDomainData(m.buf); let s = 0; for (const x of m.buf) { const d = (x - 128) / 128; s += d * d; } const e = Math.sqrt(s / m.buf.length);
@@ -298,7 +367,7 @@ function tick() {
 }
 function updateDots(now) {
   const dots = $('#dots').children, P = period();
-  const b = cfg.bsrc === 'audio' ? S.kick.count : Math.floor((now - S.t0) / P), within = cfg.bsrc === 'audio' ? now - S.kick.t < 120 : ((now - S.t0) % P) / P < 0.25;
+  const b = isAudioBeat() ? S.kick.count : Math.floor((now - S.t0) / P), within = isAudioBeat() ? now - S.kick.t < 120 : ((now - S.t0) % P) / P < 0.25;
   const idx = ((b % 4) + 4) % 4; for (let i = 0; i < 4; i++) dots[i].classList.toggle('on', within && i === idx);
 }
 let worker = null, fallback = null;
@@ -372,7 +441,9 @@ function startRec(fromAp) {
   if (S.rec) return;
   if (typeof MediaRecorder === 'undefined' || !S.stream) { toast('This browser cannot record the output.'); return; }
   const mime = recMime(), [w, h] = cfg.res.split('x').map(Number), bps = w * h >= 1920 * 1080 ? 8e6 : 4e6; let mr;
-  try { mr = new MediaRecorder(S.stream, { ...(mime ? { mimeType: mime } : {}), videoBitsPerSecond: bps }); } catch (e) { toast('This browser cannot record the output.'); return; }
+  let src = S.stream, withSound = false;
+  if (cfg.recAudio) { if (S.mic && S.mic.rec && S.mic.rec.stream.getAudioTracks().length) { src = new MediaStream([...S.stream.getVideoTracks(), ...S.mic.rec.stream.getAudioTracks()]); withSound = true; } else toast('No sound source is on, so the recording has no sound.', 5000); }
+  try { mr = new MediaRecorder(src, { ...(mime ? { mimeType: mime } : {}), videoBitsPerSecond: bps }); } catch (e) { toast('This browser cannot record the output.'); return; }
   const r = S.rec = { mr, chunks: [], bytes: 0, t0: performance.now(), mime: mr.mimeType || mime || 'video/webm', bps };
   AP.startedRec = !!fromAp;
   mr.ondataavailable = e => { if (e.data && e.data.size) { r.chunks.push(e.data); r.bytes += e.data.size; if (r.bytes > 2e9 && S.rec === r) { toast('The recording reached 2 GB and was stopped. Save it now.', 8000); stopRec(); } } };
@@ -428,6 +499,11 @@ for (const id of ['logoOn', 'logoSize', 'logoOp']) $('#' + id).addEventListener(
 
 // ------------------------------------------------------------------ output window
 async function openOutput() {
+  if (window.SPK_IOS && SPK_IOS.features && SPK_IOS.features.display) {   // iPhone/iPad app: send the picture to a connected screen
+    if (SPK_IOS.display.running) { await SPK_IOS.display.stop(); toast('Output stopped.', 3000); return; }
+    const ok = await SPK_IOS.display.start(prog, { fps: 30 });
+    toast(ok ? 'Output is on the external screen. Tap again to stop.' : 'No external screen found. Connect a projector or TV with an adapter.', 5000); return;
+  }
   let feat = 'popup,width=960,height=540';
   try { if (window.getScreenDetails) { const sd = await window.getScreenDetails(); const x = sd.screens.find(s => !s.isPrimary); if (x) feat = `popup,left=${x.availLeft},top=${x.availTop},width=${x.availWidth},height=${x.availHeight}`; } } catch {}
   const w = window.open('output.html', 'spk_output', feat);
@@ -508,7 +584,7 @@ document.addEventListener('visibilitychange', keepAwake);
 $('#theme').onclick = () => { const t = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'; document.documentElement.dataset.theme = t; store.set('theme', t); };
 
 function initSettings() {
-  const map = { res: 'value', fps: 'value', fit: 'value', fadeSec: 'value', remember: 'checked', every: 'value', fxAmt: 'value', sens: 'value', bsrc: 'value' };
+  const map = { res: 'value', fps: 'value', fit: 'value', fadeSec: 'value', remember: 'checked', recAudio: 'checked', every: 'value', fxAmt: 'value', sens: 'value', bsrc: 'value' };
   for (const [id, prop] of Object.entries(map)) {
     const el = $('#' + (id === 'every' ? 'every' : id)); if (!el) continue; el[prop] = cfg[id];
     el.addEventListener('input', () => {
@@ -524,7 +600,8 @@ async function init() {
   const lc = store.get('logoCfg', null); if (lc) { Object.assign(S.logo, lc); $('#logoOn').checked = lc.on; $('#logoSize').value = lc.size; $('#logoOp').value = lc.op; }
   const ld = store.get('logo', null); if (ld) { const i = new Image(); i.onload = () => { S.logo.img = i; }; i.src = ld; }
   S.stream = prog.captureStream(); setF(0); startTicker(); keepAwake();
-  if (cfg.bsrc === 'audio') { cfg.bsrc = 'clock'; $('#bsrc').value = 'clock'; }       // the microphone needs a click first
+  if (cfg.bsrc !== 'clock') { cfg.bsrc = 'clock'; $('#bsrc').value = 'clock'; }       // the microphone, the shared sound and the audio output need a click first
+  audioUi(); listInputs();
   if (store.get('midiOn', false) && navigator.requestMIDIAccess) enableMidi();
   await restoreSession();
 }

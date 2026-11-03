@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="apple-touch-icon" href="../apple-touch-icon.png"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="Spektro"><meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="theme-color" content="#14182b">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>Magic Video Mixer Mobile – Spektronautilus</title>
@@ -440,9 +441,10 @@ async function loopsFor(files,msg,clip){
 /* ---------------- optional CLIP, run in a separate worker that is closed afterwards so its memory is given back ---------------- */
 const CLIP_SRC=`import * as T from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.2';
 const id='Xenova/clip-vit-base-patch32',norm=a=>{const n=Math.hypot(...a)||1;return Array.from(a,x=>x/n)};let vis=null;
-const load=async(M,gpu)=>{if(gpu){try{return await M.from_pretrained(id,{device:'webgpu'})}catch(e){}}return await M.from_pretrained(id,{})};
+const pf={};const pcb=e=>{if(e&&e.status=='progress'&&e.total){pf[e.file]={l:e.loaded,t:e.total};let l=0,t=0;for(const k in pf){l+=pf[k].l;t+=pf[k].t}postMessage({t:'status',m:'Loading the AI model… '+Math.round(100*l/t)+' % ('+Math.round(l/1e6)+' of '+Math.round(t/1e6)+' MB, first time only)'})}};
+const load=async(M,gpu)=>{if(gpu){try{return await M.from_pretrained(id,{device:'webgpu',progress_callback:pcb})}catch(e){}}return await M.from_pretrained(id,{progress_callback:pcb})};
 onmessage=async e=>{const d=e.data;try{
- if(d.cmd=='images'){postMessage({t:'status',m:'Loading the AI model (the first time it is about 90 MB)…'});const proc=await T.AutoProcessor.from_pretrained(id);vis=await load(T.CLIPVisionModelWithProjection,d.gpu);const out=[];
+ if(d.cmd=='images'){postMessage({t:'status',m:'Loading the AI model (the first time it is about 90 MB)…'});const proc=await T.AutoProcessor.from_pretrained(id,{progress_callback:pcb});vis=await load(T.CLIPVisionModelWithProjection,d.gpu);const out=[];
   for(let i=0;i<d.frames.length;i++){const f=d.frames[i],im=new T.RawImage(new Uint8ClampedArray(f.data),f.width,f.height,4).rgb(),{image_embeds}=await vis(await proc(im));out.push(norm(image_embeds.data));postMessage({t:'prog',i:i+1,n:d.frames.length})}
   postMessage({t:'done',out})}
  else if(d.cmd=='text'){try{vis&&await vis.dispose()}catch(x){}vis=null;postMessage({t:'status',m:'Loading the AI text model…'});const tok=await T.AutoTokenizer.from_pretrained(id),tm=await load(T.CLIPTextModelWithProjection,d.gpu),{text_embeds}=await tm(tok([d.text],{padding:true,truncation:true}));postMessage({t:'done',out:norm(text_embeds.data)})}
@@ -580,7 +582,8 @@ function card(j){const d=document.createElement('div');d.className='job';
   if(a=='vimeo')vimeoUp(j);if(a=='rm')rmJob(j);if(a=='again')addJob(j.audio,j.files,{...j.o,seed:Math.floor(Math.random()*1e9)},j.name);
   if(a=='share'){try{await navigator.share({files:[j.file],title:j.name})}catch(e){}}};return d}
 function upd(j){try{window.__spkq&&window.__spkq(j)}catch(e){}const d=j.el;if(!d)return;const q=s=>d.querySelector(s);q('.jn').textContent=j.name;const ch=q('.chip');ch.textContent=CH[j.status];ch.className='chip '+j.status;
- q('.jm').textContent=`${j.o.res} · ${j.o.shotBars}-bar clips · seed ${j.o.seed}`+(j.info?' · '+j.info:'');q('.prog i').style.width=Math.round(100*j.prog)+'%';
+ q('.jm').textContent=`${j.o.res} · ${j.o.shotBars}-bar clips · seed ${j.o.seed}`+(j.info?' · '+j.info:'');q('.prog i').style.width=Math.round(100*j.prog)+'%';if(!j.started&&j.status!='waiting')j.started=Date.now();if(j.status=='paused'){j.pz0=j.pz0||Date.now()}else if(j.pz0){j.pausedMs=(j.pausedMs||0)+Date.now()-j.pz0;j.pz0=0}
+ {const pr=q('.prog');pr.classList.toggle('ind',['preparing','finalizing','rendering'].includes(j.status)&&(j.prog||0)<.002);pr.classList.toggle('pz',j.status=='paused')}
  const dur=j.dur||0,live=j.status=='rendering'||j.status=='paused';q('.jp').textContent=j.msg||(dur?`${fmtT(j.prog*dur)} / ${fmtT(dur)}${live?` · about ${fmtT(dur*(1-j.prog))} left`:''}`:'');
  q('.jt').style.display=live?'':'none';q('.prog').style.display=['done','failed','stopped'].includes(j.status)?'none':'';
  const b=(a,t,c)=>`<button data-a="${a}" class="${c||''}">${t}</button>`;let h='';
@@ -679,7 +682,9 @@ else if(localStorage.getItem('mm_busy')){const pos=(localStorage.getItem('mm_pos
 import('../shared/queue.js').then(Q=>{
  const ST={waiting:'queued',preparing:'running',rendering:'running',paused:'running',finalizing:'running',done:'done',stopped:'cancelled',failed:'failed'};
  window.__spkq=j=>{const st=ST[j.status]||'running',act=st=='queued'||st=='running';
-  Q.report({id:j.id,app:'magic-mobile',appLabel:'Magic Mixer (phone)',url:location.pathname,title:j.name||'Video',status:st,progress:j.prog||0,total:0,current:j.msg||(j.status=='paused'?'Paused':''),error:j.err,results:[],canCancel:act})};
+  Q.report({id:j.id,app:'magic-mobile',appLabel:'Magic Mixer (phone)',url:location.pathname,title:j.name||'Video',status:st,progress:j.prog||0,total:0,current:j.msg||(j.status=='paused'?'Paused':''),error:j.err,results:[],canCancel:act,canPause:j.status=='rendering'||j.status=='paused',paused:j.status=='paused',pauseStart:j.pz0||0,pausedMs:j.pausedMs||0,started:j.started||0})};
+ Q.onPause((app,id,on)=>{if(app!='magic-mobile')return;const j=jobs.find(x=>String(x.id)===id);if(!j||!j.ctl)return;if(on&&j.status=='rendering')j.ctl.pause();else if(!on&&j.status=='paused')j.ctl.resume()});
+ import('../shared/progress.js').then(m=>m.injectCSS()).catch(()=>{});
  Q.onCancel((app,id)=>{if(app!='magic-mobile')return;const j=jobs.find(x=>String(x.id)===id);if(!j)return;
   if(j.ctl&&(j.status=='rendering'||j.status=='paused'))j.ctl.stop();else if(j.status=='waiting'||j.status=='preparing'){j.cancel=true;j.status=j.status=='waiting'?'stopped':j.status;upd(j)}});
  jobs.forEach(window.__spkq);setInterval(()=>jobs.forEach(j=>['waiting','preparing','rendering','paused','finalizing'].includes(j.status)&&window.__spkq(j)),5000)}).catch(()=>{});

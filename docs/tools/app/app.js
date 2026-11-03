@@ -1,4 +1,4 @@
-import { VIDEO_EXT, GIF_EXT, extOf, stemOf, defaultProfile, defaultNaming, makeName, encodeArgs, repeatsNeeded, natCompare, fmtSize, targetSize, cropFor, SIZE_STEPS, PRO_FORMATS } from './core.js';
+import { chooseFps, VIDEO_EXT, GIF_EXT, extOf, stemOf, defaultProfile, defaultNaming, makeName, encodeArgs, repeatsNeeded, natCompare, fmtSize, targetSize, cropFor, SIZE_STEPS, PRO_FORMATS } from './core.js';
 import * as CAT from './catalogue.js';
 import { FILTERS, filterChain } from './filters.js';
 import { getEngine } from './engine.js';
@@ -370,6 +370,21 @@ async function processOne(job, src, idx, srcName, folder, c, flt, v) {
   // src: File. Returns { name, blob?, size, note }  (or { skip } when a size is not needed)
   const ctl = job.ctl; let path;
   try {
+    // iPhone/iPad app: plain conversions use the phone's own video chips (fast, cool, no memory copy)
+    if (window.SPK_IOS && SPK_IOS.features && SPK_IOS.features.transcode && job.tool === 'convert' && !v && !flt && !(c.profile.minSeconds > 0)) {
+      try {
+        const nat = await SPK_IOS.probe(src);
+        if (nat.width) {
+          const [tw, th] = targetSize(nat, c.profile), fps = chooseFps(nat, c.profile);
+          const base = makeName(srcName, idx, c.naming, { ...nat }, job.taken, folder, {}), prog = r => setItemProg(job, r);
+          job.abort && job.abort.signal.addEventListener('abort', () => SPK_IOS.cancelConvert(), { once: true });
+          const bpp = 0.2 * Math.pow(0.92, c.profile.crf - 17);
+          const blob = await SPK_IOS.convert(src, { width: tw, height: th, fit: c.profile.fit, fps, codec: 'h264', bpp, keepAudio: !!c.profile.keepAudio, gop: c.profile.gop, onProgress: prog });
+          ctl.check();
+          return { name: base + '.mp4', blob, size: blob.size, note: `${nat.width}x${nat.height} -> ${tw}x${th} (iPhone video chip)` };
+        }
+      } catch (e) { if (e instanceof Cancelled || ctl.cancel) throw new Cancelled(); /* otherwise fall back to the normal engine */ }
+    }
     path = await openInput(src);
     const info = await L.probe(engine, path, srcName);
     if (!info.width) throw new Error('No picture found in this file');
@@ -381,7 +396,7 @@ async function processOne(job, src, idx, srcName, folder, c, flt, v) {
     const aiv = isAi(job.tool) ? aiVariant(c.ex, job.tool) : null;
     const nm = flt ? withFilterTemplate(c.naming) : (v || aiv) ? withVariantTemplate(c.naming) : c.naming;
     const base = makeName(srcName, idx, nm, { ...info }, job.taken, folder, flt ? { filter: flt } : v ? { variant: v.id + 'p' } : aiv ? { variant: aiv } : {}), out = `o_${job.id}_${idx}${ext}`;
-    const prog = r => { job.progress = (job.finished + r) / job.total; job.dirty = true; };
+    const prog = r => setItemProg(job, r);
     let note;
     if (job.tool === 'ai' && c.ex.upEngine === 'ai') {
       const plus = c.ex.aiModel === 'realesrgan-plus', sc = plus ? 4 : (+c.ex.aiScale || 2), anime4k = c.ex.aiModel === 'anime4k';
@@ -495,16 +510,16 @@ async function buildInspectOutputs(job) {
 }
 
 async function runJob(job) {
-  const c = job.c; job.status = 'running'; render();
+  const c = job.c; job.status = 'running'; job.started = Date.now(); job.lastChange = job.started; render();
   try {
-    await ensureEngine();
+    if (!(window.SPK_IOS && SPK_IOS.features && SPK_IOS.features.transcode && job.tool === "convert")) await ensureEngine();   // iPhone app: plain conversions never need ffmpeg.wasm (it loads by itself if the fallback is used)
     if (job.dir) job.taken = await stems(job.dir);
     const credits = [];
     for (let i = 0; i < job.items.length; i++) {
-      job.ctl.check(); const it = job.items[i]; job.current = it.label; render();
+      job.ctl.check(); await waitIfPaused(job); job.ctl.check(); const it = job.items[i]; job.current = (job.total > 1 ? `${i + 1}/${job.total} · ` : '') + it.label; job.dl = false; job.lastChange = Date.now(); render();
       try {
         let file = it.file, srcName = it.name, folder = it.folder || '';
-        if (it.result) { job.current = 'Downloading ' + it.label; render(); file = await SR.download(it.result, p => { job.progress = (job.finished + p * .5) / job.total; job.dirty = true; }, job.abort.signal); srcName = file.name; }
+        if (it.result) { job.current = T_('Downloading') + ' ' + it.label; job.lastChange = Date.now(); render(); job.dl = true; file = await SR.download(it.result, p => { const f = (job.finished + clamp01(p) * .5) / job.total; if (f > job.progress) { job.progress = f; job.lastChange = Date.now(); } job.dirty = true; }, job.abort.signal); srcName = file.name; }
         if (job.tool === 'catalog' || job.tool === 'pack') { const row = await inspectOne(job, file, i, srcName, folder, c); job.rows.push(row); job.log.push(`OK  ${it.label}  ${row.info.width}x${row.info.height}, ${Math.round(row.info.duration * 10) / 10} s${row.loop ? ', ' + row.loop.verdict : ''}`); job.finished++; job.progress = job.finished / job.total; render(); continue; }
         const r = await processOne(job, file, i, srcName, folder, c, it.filter, it.v);
         if (r.skip) { job.log.push(`--  ${it.label}  ${r.skip}`); job.finished++; job.progress = job.finished / job.total; render(); continue; }
@@ -516,7 +531,7 @@ async function runJob(job) {
         if (e instanceof Cancelled || job.ctl.cancel) throw new Cancelled();
         job.failed++; job.log.push(`ERR ${it.label}  ${String(e.message).slice(0, 250)}`);
       }
-      job.finished++; job.progress = job.finished / job.total; render();
+      job.dl = false; job.finished++; job.progress = Math.max(job.progress, job.finished / job.total); job.lastChange = Date.now(); render();
       if (isAi(job.tool) && i < job.items.length - 1) {   // never start the next AI clip on a card that is still very hot (NVIDIA only; needs nvidia-smi)
         for (let w = 0; w < 100; w++) {
           const g = engine.gpu ? await engine.gpu() : { ok: false }, sn = engine.sensors ? await engine.sensors() : { ok: false };
@@ -541,7 +556,7 @@ async function runJob(job) {
     job.status = (e instanceof Cancelled || job.ctl.cancel) ? 'cancelled' : 'failed';
     if (job.status === 'failed') job.error = e.message;
   }
-  job.progress = job.status === 'done' ? 1 : job.progress; job.current = ''; render();
+  job.progress = job.status === 'done' ? 1 : job.progress; job.current = ''; job.paused = false; job.pauseReq = false; render();
   if (job.ctl.cancel) engine.terminate();
 }
 
@@ -594,6 +609,19 @@ $('#fetchgo').onclick = () => {
   start('search', urls.map(u => ({ result: { provider: 'url', id: u.split('/').pop().split('?')[0] || 'clip', url: u, title: u, author: '', license: 'unknown - check the source', licenseUrl: '', page: u }, label: u, name: u })));
 };
 
+// ---- progress rules (see shared/progress.js): never backwards, never outside 0..1, a download counts as the first half of its file
+import { injectCSS, barHTML, timeLine, quietNote, clamp01 } from '../../shared/progress.js';
+injectCSS();
+function setItemProg(job, r) { const lo = job.dl ? .5 : 0, f = Math.min(1, (job.finished + lo + (1 - lo) * clamp01(r)) / job.total); if (f > job.progress + 1e-4) { job.progress = f; job.lastChange = Date.now(); } job.dirty = true; }
+// ---- pause: a conversion that is running cannot be frozen, so "Pause" takes effect after the current file; Resume carries on with the next one
+const T_ = s => (window.SPK_T ? window.SPK_T(s) : s);
+async function waitIfPaused(job) {
+  if (!job.pauseReq) return;
+  job.paused = true; job.pauseStart = Date.now(); job.current = T_('Paused'); job.dirty = true; render();
+  try { while (job.pauseReq) { job.ctl.check(); await new Promise(r => setTimeout(r, 200)); } }
+  finally { job.pausedMs = (job.pausedMs || 0) + (Date.now() - job.pauseStart); job.paused = false; job.lastChange = Date.now(); job.dirty = true; render(); }
+}
+function setPause(j, on) { if (!j || j.status !== 'running') return; j.pauseReq = !!on; j.dirty = true; render(); }
 const NAMES = { convert: 'Convert', gif2mp4: 'GIF → MP4', loop: 'Make loops', filters: 'Filters', search: 'Find loops', crop: 'Crop & trim', sizes: 'Sizes', pro: 'HAP / ProRes', ai: 'Upscale', slowmo: 'Slow motion', catalog: 'Catalogue', pack: 'Loop pack' };
 let rT;
 function render() { clearTimeout(rT); rT = setTimeout(draw, 60); }
@@ -609,10 +637,11 @@ function qsync(j, force) {
   if (!force && j.qT && now - j.qT < 700 && j.qS === j.status) return;
   j.qT = now; const was = j.qS; j.qS = j.status;
   const names = j.items.map(i => i.label).slice(0, 2).join(', ') + (j.items.length > 2 ? ` +${j.items.length - 2}` : '');
-  const key = Q.report({ id: j.id, app: 'tools', appLabel: TOOL_LABEL[j.tool] || 'Tools', url: location.pathname, title: names || 'Job', status: j.status, progress: j.progress, done: j.finished, total: j.total, failed: j.failed, current: j.current, error: j.error, created: j.created, canCancel: act, results: j.results.map(r => ({ name: r.name, size: r.size })) });
+  const key = Q.report({ id: j.id, app: 'tools', appLabel: TOOL_LABEL[j.tool] || 'Tools', url: location.pathname, title: names || 'Job', status: j.status, progress: j.progress, done: j.finished, total: j.total, failed: j.failed, current: j.current, error: j.error, created: j.created, canCancel: act, canPause: j.status === 'running' && (j.total - j.finished) > 1, paused: !!j.paused, pauseStart: j.pauseStart, started: j.started, pausedMs: j.pausedMs || 0, results: j.results.map(r => ({ name: r.name, size: r.size })) });
   if (!act && was !== j.status && !j.dir) { const fs = j.results.filter(r => r.blob).map(r => ({ name: r.name, blob: r.blob })); if (fs.length) Q.saveResults(key, fs); }
 }
 Q.onCancel((app, id) => { if (app === 'tools') cancelJob(JOBS.find(x => String(x.id) === id)); });
+Q.onPause((app, id, on) => { if (app === 'tools') setPause(JOBS.find(x => String(x.id) === id), on); });
 setInterval(() => JOBS.forEach(j => { if (j.status === 'queued' || j.status === 'running') qsync(j, true); }), 5000);
 function draw() {
   JOBS.forEach(j => qsync(j));
@@ -620,21 +649,24 @@ function draw() {
   $('#jobs').innerHTML = JOBS.map(j => {
     const run = j.status === 'running' || j.status === 'queued', fl = j.results.filter(r => r.name !== 'credits.csv' || !j.dir);
     return `<div class="card job" data-id="${j.id}"><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><b>${NAMES[j.tool]}</b><span class="chip ${j.status}">${j.status}</span><span class="muted">${new Date(j.created).toLocaleTimeString()}</span><span class="muted">${j.finished}/${j.total}</span>${j.failed ? `<span class="warn">${j.failed} failed</span>` : ''}</div>
- ${run ? `<div class="bar"><i style="width:${Math.round(j.progress * 100)}%"></i></div><div class="cur">${esc(j.current)}${j.status === 'queued' ? 'Waiting in line…' : ''}</div>` : ''}
+ ${run ? `${barHTML({ frac: j.progress, running: j.status === 'running', paused: !!j.paused })}<div class="ptime">${j.paused ? esc(T_('Paused')) + ' · ' : j.pauseReq ? esc(T_('Pausing after this file…')) + ' · ' : ''}${esc(timeLine(j))}</div><div class="cur">${esc(j.current)}${j.status === 'queued' ? T_('Waiting in line…') : ''}</div><div class="muted qn" style="font-size:.8rem">${j.paused ? '' : esc(quietNote(j.lastChange))}</div>` : ''}
  ${j.error ? `<div class="warn">${esc(j.error)}</div>` : ''}
  ${j.dir ? `<div class="muted" style="font-size:.85rem">Saved into the folder you chose.</div>` : ''}
  <div class="res">${fl.slice(0, 8).map(r => r.blob ? `<div class="rr"><a href="${blobUrl(r)}" download="${esc(r.name)}">${esc(r.name)} <small class="muted">${fmtSize(r.size)}</small></a>${/\.(mp4|mov|webm)$/i.test(r.name) ? `<button class="sm" data-a="up" data-rn="${esc(r.name)}">Upload…</button>` : ''}</div>` : `<div class="rr"><a style="pointer-events:none">${esc(r.name)} <small class="muted">${fmtSize(r.size)} · saved</small></a></div>`).join('')}${fl.length > 8 ? `<span class="muted">… and ${fl.length - 8} more</span>` : ''}</div>
  ${j.open && fl[0] && fl[0].blob ? `<video controls loop muted autoplay src="${blobUrl(fl[0])}"></video>` : ''}
  ${j.log.length ? `<details><summary>Log (${j.log.length})</summary><pre>${esc(j.log.slice(-60).join('\n'))}</pre></details>` : ''}
- <div class="acts">${run ? `<button class="sm" data-a="cancel">Stop</button>` : `${fl.some(r => r.blob) ? `<button class="sm" data-a="prev">${j.open ? 'Hide preview' : 'Preview first'}</button><button class="sm" data-a="zip">Download all (zip)</button>${HAS_DIR ? '<button class="sm" data-a="save">Save all to a folder</button>' : ''}` : ''}<button class="sm" data-a="del">Remove from list</button>`}</div></div>`;
+ <div class="acts">${run ? `${j.status === 'running' && (j.total - j.finished) > 1 ? `<button class="sm" data-a="pause">${j.pauseReq ? T_('Resume') : T_('Pause after this file')}</button>` : ''}<button class="sm" data-a="cancel">Stop</button>` : `${fl.some(r => r.blob) ? `<button class="sm" data-a="prev">${j.open ? 'Hide preview' : 'Preview first'}</button><button class="sm" data-a="zip">Download all (zip)</button>${HAS_DIR ? '<button class="sm" data-a="save">Save all to a folder</button>' : ''}` : ''}<button class="sm" data-a="del">Remove from list</button>`}</div></div>`;
   }).join('');
 }
 const urls = new WeakMap();
 function blobUrl(r) { if (!urls.has(r)) urls.set(r, URL.createObjectURL(r.blob)); return urls.get(r); }
 setInterval(() => { if (JOBS.some(j => j.dirty)) { JOBS.forEach(j => j.dirty = false); draw(); } }, 400);
+// the clock and the "still working" note keep moving between redraws, so nobody thinks it froze
+setInterval(() => document.querySelectorAll('#jobs .job').forEach(el => { const j = JOBS.find(x => x.id === +el.dataset.id); if (!j) return; if (j._cur !== j.current) { j._cur = j.current; j.lastChange = Date.now(); } const t = el.querySelector('.ptime'), n = el.querySelector('.qn'); if (t) t.textContent = (j.paused ? T_('Paused') + ' · ' : j.pauseReq ? T_('Pausing after this file…') + ' · ' : '') + timeLine(j); if (n) n.textContent = j.paused ? '' : quietNote(j.lastChange); }), 1000);
 $('#jobs').onclick = async e => {
   const b = e.target.closest('[data-a]'); if (!b) return; const j = JOBS.find(x => x.id === +b.closest('.job').dataset.id), a = b.dataset.a;
   if (a === 'cancel') cancelJob(j);
+  if (a === 'pause') setPause(j, !j.pauseReq);
   if (a === 'up') { const r = j.results.find(x => x.name === b.dataset.rn && x.blob); if (r && window.SPK_UP) SPK_UP.open(new File([r.blob], r.name, { type: r.blob.type || 'video/mp4' }), { title: stemOf(r.name), name: r.name }); }
   if (a === 'del') { j.results.forEach(r => urls.has(r) && URL.revokeObjectURL(urls.get(r))); JOBS.splice(JOBS.indexOf(j), 1); }
   if (a === 'prev') j.open = !j.open;

@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="apple-touch-icon" href="../apple-touch-icon.png"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="Spektro"><meta name="apple-mobile-web-app-status-bar-style" content="default">
 <title>Queue – Spektronautilus</title>
 <meta name="robots" content="noindex">
 <link rel="icon" href="../favicon.svg" type="image/svg+xml">
@@ -18,7 +19,8 @@ button:focus-visible,summary:focus-visible,a:focus-visible{outline:3px solid var
 .chip{font-size:.75rem;font-weight:800;border:1px solid currentColor;border-radius:999px;padding:0 9px}.queued,.running{color:var(--a)}.done{color:var(--ok)}.failed,.cancelled,.lost{color:var(--bad)}
 .app{font-size:.75rem;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:0 7px;color:var(--mute)}
 .bar{height:8px;background:var(--line);border-radius:4px;overflow:hidden;margin:8px 0 2px}.bar i{display:block;height:100%;background:var(--b);transition:width .4s}
-.res a{display:block;font-size:.88rem}.acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.res a{display:block;font-size:.88rem;overflow-wrap:anywhere}
+.card{min-width:0;overflow-wrap:anywhere}.card .row>b{min-width:0;max-width:100%;overflow-wrap:anywhere}.cur{overflow-wrap:anywhere}.acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
 .top{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:6px}.top a.back{display:inline-block;padding:10px 0;color:var(--mute);text-decoration:none;font-size:.9rem}
 </style>
 <link rel="manifest" href="../manifest.webmanifest">
@@ -35,36 +37,44 @@ button:focus-visible,summary:focus-visible,a:focus-visible{outline:3px solid var
 </div>
 <script type="module">
 import * as Q from '../shared/queue.js';
+import { injectCSS, barHTML, timeLine, quietNote } from '../shared/progress.js';
+injectCSS();
 import { makeZip } from '../tools/app/zip.js';
 const $ = s => document.querySelector(s), esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const fmt = b => b >= 1e6 ? (b / 1e6).toFixed(1) + ' MB' : Math.max(1, Math.round(b / 1e3)) + ' kB';
 const JOBS = new Map();                                   // key -> job
 const urls = new Map();
 async function load() { for (const j of await Q.list()) if (!JOBS.has(j.key) || JOBS.get(j.key).updated < j.updated) JOBS.set(j.key, j); draw(); }
-Q.onUpdate(j => { JOBS.set(j.key, j); schedule(); });
+const seen = new Map();   // key -> { p, t }: when the progress last changed (to tell "quiet for a while" from "stuck")
+const note = j => { const x = seen.get(j.key), p = (j.progress || 0) + '|' + (j.current || '') + '|' + j.status; if (!x || x.p !== p) seen.set(j.key, { p, t: Date.now() }); };
+Q.onUpdate(j => { note(j); JOBS.set(j.key, j); schedule(); });
 let t; const schedule = () => { clearTimeout(t); t = setTimeout(draw, 120); };
+const T = x => (window.SPK_T ? window.SPK_T(x) : x);
 const state = j => Q.isStale(j) ? 'lost' : j.status;
 async function draw() {
   const all = [...JOBS.values()].sort((a, b) => b.created - a.created);
   const act = all.filter(j => Q.ACTIVE.includes(state(j))).length;
   $('#sum').textContent = all.length ? `${act} running or waiting · ${all.length - act} finished` : '';
-  if (!all.length) { $('#list').innerHTML = '<p class="muted">Nothing here yet. Start a job in <a href="../tools/app/">Tools</a> or the <a href="../mixer/">Magic Mixer</a>.</p>'; return; }
-  $('#list').innerHTML = all.map(j => {
+  if (!all.length) { lastHtml = ''; $('#list').innerHTML = '<p class="muted">Nothing here yet. Start a job in <a href="../tools/app/">Tools</a> or the <a href="../mixer/">Magic Mixer</a>.</p>'; return; }
+  const html = all.map(j => {
     const st = state(j), run = Q.ACTIVE.includes(st), res = j.results || [];
-    return `<div class="card" data-k="${esc(j.key)}"><div class="row"><span class="app">${esc(j.appLabel || j.app)}</span><b>${esc(j.title)}</b><span class="chip ${st}">${st === 'lost' ? 'lost – page closed?' : st}</span><span class="muted">${new Date(j.created).toLocaleTimeString()}</span>${j.total ? `<span class="muted">${j.done || 0}/${j.total}</span>` : ''}${j.failed ? `<span class="warn">${j.failed} failed</span>` : ''}</div>
-      ${run ? `<div class="bar"><i style="width:${Math.round((j.progress || 0) * 100)}%"></i></div><div class="muted" style="font-size:.85rem">${esc(j.current || (st === 'queued' ? 'Waiting in line…' : ''))}</div>` : ''}
+    return `<div class="card" data-k="${esc(j.key)}"><div class="row"><span class="app">${esc(j.appLabel || j.app)}</span><b>${esc(j.title)}</b><span class="chip ${j.paused ? 'cancelled' : st}">${st === 'lost' ? 'lost – page closed?' : j.paused && run ? 'paused' : st}</span><span class="muted">${new Date(j.created).toLocaleTimeString()}</span>${j.total ? `<span class="muted">${j.done || 0}/${j.total}</span>` : ''}${j.failed ? `<span class="warn">${j.failed} failed</span>` : ''}</div>
+      ${run ? `${barHTML({ frac: j.progress, running: true, paused: !!j.paused })}<div class="ptime">${j.paused ? esc(T('Paused')) + ' · ' : ''}${esc(timeLine(j))}</div><div class="muted cur" style="font-size:.85rem">${esc(j.current || (st === 'queued' ? T('Waiting in line…') : ''))}</div>${j.paused ? '' : `<div class="muted" style="font-size:.8rem">${esc(quietNote((seen.get(j.key) || {}).t))}</div>`}` : ''}
       ${j.error ? `<div class="warn" style="font-size:.9rem">${esc(j.error)}</div>` : ''}
       <div class="res">${res.slice(0, 8).map(r => `<a href="#" data-dl="${esc(r.name)}">${esc(r.name)} <span class="muted">${fmt(r.size)}</span></a>`).join('')}${res.length > 8 ? `<span class="muted">… and ${res.length - 8} more</span>` : ''}</div>
-      <div class="acts">${run && j.canCancel ? '<button class="sm" data-a="stop">Stop</button>' : ''}${j.url ? `<a class="btn sm" href="${esc(j.url)}">Open page</a>` : ''}${!run && res.length ? '<button class="sm" data-a="zip">Download all (zip)</button>' : ''}${!run || st === 'lost' ? '<button class="sm" data-a="rm">Remove</button>' : ''}</div></div>`;
+      <div class="acts">${run && j.canPause ? `<button class="sm" data-a="pause">${j.paused ? 'Resume' : 'Pause'}</button>` : ''}${run && j.canCancel ? '<button class="sm" data-a="stop">Stop</button>' : ''}${j.url ? `<a class="btn sm" href="${esc(j.url)}">Open page</a>` : ''}${!run && res.length ? '<button class="sm" data-a="zip">Download all (zip)</button>' : ''}${!run || st === 'lost' ? '<button class="sm" data-a="rm">Remove</button>' : ''}</div></div>`;
   }).join('');
+  if (html !== lastHtml) { lastHtml = html; $('#list').innerHTML = html; }
 }
+let lastHtml = '';
 $('#list').onclick = async e => {
   const card = e.target.closest('[data-k]'); if (!card) return; const j = JOBS.get(card.dataset.k), a = e.target.dataset.a, dl = e.target.closest('[data-dl]');
   if (dl) { e.preventDefault(); const b = await Q.getBlob(j.key, dl.dataset.dl); if (!b) { alert('This file is no longer stored. Run the job again.'); return; } const u = URL.createObjectURL(b), l = document.createElement('a'); l.href = u; l.download = dl.dataset.dl; l.click(); setTimeout(() => URL.revokeObjectURL(u), 60000); }
+  if (a === 'pause') { Q.requestPause(j.key, !j.paused); e.target.disabled = true; setTimeout(() => e.target.disabled = false, 800); }
   if (a === 'stop') { Q.requestCancel(j.key); e.target.disabled = true; e.target.textContent = 'Stopping…'; }
   if (a === 'rm') { await Q.remove(j); JOBS.delete(j.key); draw(); }
   if (a === 'zip') { const files = []; for (const r of j.results || []) { const b = await Q.getBlob(j.key, r.name); if (b) files.push({ name: r.name, blob: b }); } if (!files.length) { alert('These files are no longer stored.'); return; } const z = await makeZip(files), u = URL.createObjectURL(z), l = document.createElement('a'); l.href = u; l.download = 'spektronautilus-job.zip'; l.click(); setTimeout(() => URL.revokeObjectURL(u), 60000); }
 };
 $('#clear').onclick = async () => { for (const j of [...JOBS.values()]) if (!Q.ACTIVE.includes(state(j)) || state(j) === 'lost') { await Q.remove(j); JOBS.delete(j.key); } draw(); };
-setInterval(draw, 5000); load(); window.__queue = { JOBS };
+setInterval(draw, 5000); setInterval(() => document.querySelectorAll('[data-k]').forEach(c => { const j = JOBS.get(c.dataset.k), e = c.querySelector('.ptime'); if (j && e && Q.ACTIVE.includes(state(j))) e.textContent = (j.paused ? T('Paused') + ' · ' : '') + timeLine(j); }), 1000); Q.hello(); load(); window.__queue = { JOBS, draw };
 </script></body></html>

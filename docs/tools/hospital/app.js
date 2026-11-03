@@ -4,6 +4,8 @@ import { getEngine } from '../app/engine.js';
 import * as L from '../app/loops.js';
 import * as ST from '../app/steps.js';
 import { makeZip } from '../app/zip.js';
+import { injectCSS, clamp01, fmtDur } from '../../shared/progress.js';
+injectCSS();
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -158,9 +160,21 @@ drop.addEventListener('drop', e => choose([...(e.dataTransfer.files || [])][0]))
 const baseProf = () => ({ ...defaultProfile(), preset: engine.kind === 'native' ? 'fast' : 'veryfast', maxFps: 60 });
 const setBusy = b => {
   busy = b; ['prev', 'go', 'pickmore', 'healall'].forEach(i => { const e = $('#' + i); if (e) e.disabled = b; });
-  $('#stop').classList.toggle('hide', !b); $('#bar').classList.toggle('hide', !b);
+  $('#stop').classList.toggle('hide', !b); $('#bar').classList.toggle('hide', !b); if (!b) { $('#pausebtn').classList.add('hide'); pauseReq = false; } else $('#pausebtn').classList.toggle('hide', units.total < 2);
 };
-const prog = x => { $('#bar i').style.width = Math.round(Math.max(0, Math.min(1, x)) * 100) + '%'; };
+// One bar for the whole run (all looks of all clips), never backwards; stripes while nothing is known yet.
+let units = { done: 0, total: 1 }, best = 0, pauseReq = false;
+const prog = x => {
+  best = Math.max(best, Math.min(1, (units.done + clamp01(x)) / units.total));
+  $('#bar i').style.width = Math.round(best * 1000) / 10 + '%'; $('#bar').classList.toggle('ind', best < 0.002 && !pauseReq);
+};
+async function waitPause() {   // pause takes effect between clips/looks: a pass that is running cannot be frozen
+  if (!pauseReq) return;
+  const t = Date.now(); $('#bar').classList.add('pz'); $('#bar').classList.remove('ind'); $('#pausebtn').textContent = T('Resume');
+  try { while (pauseReq) { ctl.check(); $('#cur').textContent = T('Paused') + ' · ' + curLabel; await new Promise(r => setTimeout(r, 200)); } }
+  finally { $('#bar').classList.remove('pz'); pausedMs += Date.now() - t; $('#pausebtn').textContent = T('Pause after this clip'); }
+}
+let pausedMs = 0;
 async function treat(file, out, rec, label, base) {
   let path; ctl = ctl || { cancel: false, check() { if (this.cancel) throw new Error('cancelled'); } };
   try {
@@ -174,15 +188,17 @@ async function treat(file, out, rec, label, base) {
 let curLabel = '';
 const setCur = s => { curLabel = s; $('#cur').textContent = s; };
 async function run(fn) {
-  if (busy) return; $('#msg').textContent = ''; setBusy(true); prog(0); ctl = { cancel: false, check() { if (this.cancel) throw new Error('cancelled'); } };
-  const c = ctl, t0 = Date.now();   // a clock, so you can see that it is working even when the browser reports no progress
+  if (busy) return; $('#msg').textContent = ''; best = 0; pausedMs = 0; pauseReq = false; setBusy(true); prog(0); ctl = { cancel: false, check() { if (this.cancel) throw new Error('cancelled'); } };
+  const c = ctl, t0 = Date.now(), started = t0;   // a clock, so you can see that it is working even when the browser reports no progress
   const tick = setInterval(() => {
-    const s = Math.round((Date.now() - t0) / 1000);
-    $('#cur').textContent = curLabel + ' · ' + Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0') + (s >= 60 ? ' — ' + T('Still working. Slow motion and loop fixes are heavy for a browser, especially on a phone. Short clips finish sooner.') : '');
+    if (pauseReq && $('#bar').classList.contains('pz')) return;
+    const s = Math.round((Date.now() - t0 - pausedMs) / 1000), left = best >= 0.03 && s >= 8 && best < 1 ? ' · ' + T('about {a} left').replace('{a}', fmtDur(s * (1 - best) / best)) : '';
+    $('#cur').textContent = curLabel + (best > 0 ? ' · ' + Math.floor(best * 100) + '%' : '') + ' · ' + Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0') + left + (s >= 60 && best < 0.5 ? ' — ' + T('Still working. Slow motion and loop fixes are heavy for a browser, especially on a phone. Short clips finish sooner.') : '');
   }, 1000);
   try { await ensureEngine(); await fn(); } catch (e) { $('#msg').textContent = (c.cancel || e.message === 'cancelled') ? T('Stopped.') : e.message; }
   clearInterval(tick); setBusy(false); ctl = null; setCur('');
 }
+$('#pausebtn').onclick = () => { pauseReq = !pauseReq; $('#pausebtn').textContent = pauseReq ? T('Resume') : T('Pause after this clip'); };
 $('#stop').onclick = () => { if (ctl) ctl.cancel = true; engine.terminate(); setCur(T('Stopping…')); };
 
 $('#prev').onclick = () => run(async () => {
@@ -208,14 +224,15 @@ const lookName = id => (FILTERS.find(x => x.id === id) || {}).name || id;
 async function treatClip(file, label) {
   const vs = ST.variants(R); let n = 0;
   for (const v of vs) {
-    ctl.check(); n++; prog(0);
+    ctl.check(); await waitPause(); ctl.check(); n++;
     setCur(label + (vs.length > 1 ? ` · ${v.suffix ? lookName(v.suffix) : T('No look')} (${n}/${vs.length})` : ''));
     const r = await treat(file, `hosp_${nextId}.mp4`, v.rec, 'clip');
-    addResult(outName(file, v.suffix), r.data, r.note);
+    addResult(outName(file, v.suffix), r.data, r.note); units.done++; prog(0);
   }
 }
 $('#go').onclick = () => run(async () => {
   if (!patient || !patient.info) throw new Error('Choose a clip first.');
+  units = { done: 0, total: ST.variants(R).length }; $('#pausebtn').classList.toggle('hide', units.total < 2);
   await treatClip(patient.file, patient.file.name);
   const v = $('#vafter'); if (v.src) URL.revokeObjectURL(v.src); v.src = URL.createObjectURL(RESULTS[RESULTS.length - 1].blob); $('#fafter').classList.remove('hide'); $('#fafter figcaption').textContent = 'After';
 });
@@ -224,11 +241,11 @@ $('#pickmore').onclick = () => $('#pickermore').click();
 $('#pickermore').onchange = e => {
   const files = [...e.target.files].filter(okFile); e.target.value = ''; if (!files.length) return;
   run(async () => {
-    let n = 0, bad = 0;
+    let n = 0, bad = 0; const per = ST.variants(R).length; units = { done: 0, total: files.length * per }; $('#pausebtn').classList.toggle('hide', units.total < 2);
     for (const f of files) {
-      ctl.check(); prog(0);
+      ctl.check();
       try { await treatClip(f, `${f.name} (${++n}/${files.length})`); }
-      catch (er) { if (er.message === 'cancelled') throw er; bad++; $('#msg').textContent = `${f.name}: ${er.message}`; }
+      catch (er) { if (er.message === 'cancelled') throw er; bad++; units.done = Math.min(units.total, n * per); prog(0); $('#msg').textContent = `${f.name}: ${er.message}`; }
     }
     if (!bad) $('#msg').textContent = '';
   });

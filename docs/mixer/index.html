@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="apple-touch-icon" href="../apple-touch-icon.png"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="Spektro"><meta name="apple-mobile-web-app-status-bar-style" content="default">
 <title>Magic Video Mixer – Spektronautilus</title>
 <script>(function(){try{if(location.search.indexOf('desktop=1')>-1){localStorage.setItem('spk_desktop','1');return}
 if(!localStorage.getItem('spk_desktop')&&matchMedia('(pointer:coarse) and (max-width:900px)').matches)location.replace('../mixer-mobile/')}catch(e){}})();</script>
@@ -11,6 +12,7 @@ if(!localStorage.getItem('spk_desktop')&&matchMedia('(pointer:coarse) and (max-w
 @media (prefers-color-scheme:dark){:root{--bg:#10122a;--ink:#eceefb;--mute:#a0a6c8;--line:#2a2e57;--panel:#171a3a;--b:#ff6fa3;--a:#7f8bff;--ok:#3fd6a4;--bad:#ff7088;--warn:#f0b254;color-scheme:dark}}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
 .wrap{max-width:1080px;margin:0 auto;padding:20px}h1{font-size:2rem;letter-spacing:-.03em;margin:6px 0 2px}h2{font-size:1.1rem;margin:0 0 8px}
+.drop,#an,.jm,.jn,.jp,.jf,#thumbs{overflow-wrap:anywhere;min-width:0}
 .mute,.sub{color:var(--mute)}.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:16px}
 .two{display:grid;grid-template-columns:1fr 1.6fr;gap:16px}@media(max-width:800px){.two{grid-template-columns:1fr}}
 button,.btn{font:inherit;cursor:pointer;border:2px solid var(--ink);background:transparent;color:var(--ink);padding:6px 16px;border-radius:999px;font-weight:600;text-decoration:none;display:inline-block}
@@ -54,7 +56,7 @@ details{border-top:1px solid var(--line);padding:8px 0}summary{cursor:pointer;fo
  <div class="bar"><b>Mood:</b> <span id="pre"></span><span class="mute" id="pmsg"></span></div><div class="pace" id="recWhy" style="margin-top:8px;display:none"></div><div id="groups"></div></div>
 
 <div class="card"><h2>4. Export</h2>
- <div class="bar"><label>Name <input type="text" id="jname" placeholder="(track name)" style="width:220px"></label>
+ <div class="bar"><label style="flex-wrap:wrap">Name <input type="text" id="jname" placeholder="(track name)" style="width:220px;max-width:100%"></label>
   <label>Versions <input type="number" id="nver" value="1" min="1" max="10" style="width:60px"></label>
   <button class="main" id="add">Add to export queue</button></div>
  <div class="mute" style="font-size:.85rem;margin-top:4px">Each version gets its own random seed (or the seed you set, plus 1, 2, …). Settings are saved with each job, so you can change them and queue more.</div>
@@ -360,7 +362,8 @@ async function loadClip(msg){
  if(clipM)return clipM;msg('Loading the CLIP model (first time: about 100–150 MB download)…');
  const T=await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.2');const id='Xenova/clip-vit-base-patch32';let dev={};
  try{if(navigator.gpu&&(await navigator.gpu.requestAdapter()))dev={device:'webgpu'}}catch(e){}
- const mk=async o=>({proc:await T.AutoProcessor.from_pretrained(id),vis:await T.CLIPVisionModelWithProjection.from_pretrained(id,o),tok:await T.AutoTokenizer.from_pretrained(id),txt:await T.CLIPTextModelWithProjection.from_pretrained(id,o)});
+ const files={};const pcb=e=>{if(e&&e.status=='progress'&&e.total){files[e.file]={l:e.loaded,t:e.total};let l=0,t=0;for(const k in files){l+=files[k].l;t+=files[k].t}msg(`Loading the CLIP model… ${Math.round(100*l/t)} % (${Math.round(l/1e6)} of ${Math.round(t/1e6)} MB, first time only)`)}};
+ const mk=async o=>({proc:await T.AutoProcessor.from_pretrained(id,{progress_callback:pcb}),vis:await T.CLIPVisionModelWithProjection.from_pretrained(id,{...o,progress_callback:pcb}),tok:await T.AutoTokenizer.from_pretrained(id,{progress_callback:pcb}),txt:await T.CLIPTextModelWithProjection.from_pretrained(id,{...o,progress_callback:pcb})});
  let m;try{m=await mk(dev)}catch(e){m=await mk({})}
  const norm=a=>{const n=Math.hypot(...a)||1;return Array.from(a,x=>x/n)};
  return clipM={norm,
@@ -658,7 +661,8 @@ function card(j){const d=document.createElement('div');d.className='job';
 const CH={waiting:'Waiting',preparing:'Preparing',finalizing:'Finalizing',rendering:'Rendering',paused:'Paused',done:'Done',failed:'Failed',stopped:'Stopped'};
 function upd(j){try{window.__spkq&&window.__spkq(j)}catch(e){}const d=j.el;if(!d)return;const q=s=>d.querySelector(s);q('.jn').textContent=j.name;const ch=q('.chip');ch.textContent=CH[j.status];ch.className='chip '+j.status;
  q('.jm').textContent=`${j.audio.name} · ${j.files.length} loops · ${j.o.res} · ${j.o.shotBars}-bar shots · seed ${j.o.seed}`+(j.info?' · '+j.info:'');
- q('.prog i').style.width=Math.round(100*j.prog)+'%';const dur=j.dur||0,live=j.status=='rendering'||j.status=='paused';
+ q('.prog i').style.width=Math.round(100*j.prog)+'%';if(!j.started&&j.status!='waiting')j.started=Date.now();if(j.status=='paused'){j.pz0=j.pz0||Date.now()}else if(j.pz0){j.pausedMs=(j.pausedMs||0)+Date.now()-j.pz0;j.pz0=0}
+ {const pr=q('.prog');pr.classList.toggle('ind',['preparing','finalizing','rendering'].includes(j.status)&&(j.prog||0)<.002);pr.classList.toggle('pz',j.status=='paused')}const dur=j.dur||0,live=j.status=='rendering'||j.status=='paused';
  q('.jp').textContent=j.msg||(dur?`${fmtT(j.prog*dur)} / ${fmtT(dur)}${live?` · about ${fmtT(dur*(1-j.prog))} left`:''}`:(j.status=='waiting'?'In the queue':''));
  const act=q('.acts'),b=(a,t,m)=>`<button class="sm ${m||''}" data-a="${a}">${t}</button>`;
  let h='';if(live)h+=b('pause',j.status=='paused'?'Resume':'Pause')+b('stop','Stop (keep what is done)');else if(j.status=='waiting')h+=b('up','Move up')+b('stop','Cancel')+b('rm','Remove');else if(j.status=='preparing')h+=b('stop','Cancel');
@@ -697,7 +701,9 @@ $('#pre').querySelector('[data-p="Chill"]').click();paceTxt();summary();
 import('../shared/queue.js').then(Q=>{
  const ST={waiting:'queued',preparing:'running',rendering:'running',paused:'running',finalizing:'running',done:'done',stopped:'cancelled',failed:'failed'};
  window.__spkq=j=>{const st=ST[j.status]||'running',act=st=='queued'||st=='running';
-  Q.report({id:j.id,app:'magic',appLabel:'Magic Mixer',url:location.pathname,title:j.name||'Video',status:st,progress:j.prog||0,total:0,current:j.msg||(j.status=='paused'?'Paused':''),error:j.err,results:[],canCancel:act})};
+  Q.report({id:j.id,app:'magic',appLabel:'Magic Mixer',url:location.pathname,title:j.name||'Video',status:st,progress:j.prog||0,total:0,current:j.msg||(j.status=='paused'?'Paused':''),error:j.err,results:[],canCancel:act,canPause:j.status=='rendering'||j.status=='paused',paused:j.status=='paused',pauseStart:j.pz0||0,pausedMs:j.pausedMs||0,started:j.started||0})};
+ Q.onPause((app,id,on)=>{if(app!='magic')return;const j=jobs.find(x=>String(x.id)===id);if(!j||!j.ctl)return;if(on&&j.status=='rendering')j.ctl.pause();else if(!on&&j.status=='paused')j.ctl.resume()});
+ import('../shared/progress.js').then(m=>m.injectCSS()).catch(()=>{});
  Q.onCancel((app,id)=>{if(app!='magic')return;const j=jobs.find(x=>String(x.id)===id);if(!j)return;
   if(j.ctl&&(j.status=='rendering'||j.status=='paused'))j.ctl.stop();else if(j.status=='waiting'||j.status=='preparing'){j.cancel=true;j.status=j.status=='waiting'?'stopped':j.status;upd(j)}});
  jobs.forEach(window.__spkq);setInterval(()=>jobs.forEach(j=>['waiting','preparing','rendering','paused','finalizing'].includes(j.status)&&window.__spkq(j)),5000)}).catch(()=>{});
