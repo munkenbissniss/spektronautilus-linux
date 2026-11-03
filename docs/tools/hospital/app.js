@@ -30,7 +30,8 @@ const STEPS = [
   { s: 'slow', ic: '🐢', title: 'Slow motion', hint: 'Make the clip slower, or smoother.', f: [
     seg('factor', 'How much slower', [['2', '2×'], ['4', '4×'], ['8', '8×']], 1),
     seg('mode', 'Result', [['slow', 'Slow motion'], ['smooth', 'Same speed, smoother']], 0, 'Slow motion makes the clip longer. Smoother adds frames per second.'),
-    seg('engine', 'Method', [['blend', 'Soft blend'], ['motion', 'Smooth motion']], 0, 'Soft blend is fast. Smooth motion is slower, but cleaner on fast movement.')] },
+    seg('engine', 'Method', [['blend', 'Soft blend'], ['motion', 'Smooth motion'], ['ai', 'AI (best)']], 0, 'Soft blend is fast. Smooth motion is slower, but cleaner on fast movement. AI gives the best result, but needs the Linux version with Video2X and a graphics card. It can take a long time.'),
+    sel('model', 'AI model', [['rife-v4.6', 'General video'], ['rife-v4.26', 'Newest model']])] },
   { s: 'life', ic: '🌿', title: 'Bring it to life', hint: 'Make still or short loops more alive: slow in and out, a gentle breathing, a floating camera. The clip is repeated to the length you choose, and the movement fits exactly, so it still loops without a jump.', f: [
     seg('style', 'Style', [['calm', 'Calm breathing'], ['float', 'Floating'], ['dream', 'Dreamy'], ['pulse', 'Pulse']], 0, 'Pick a style, then fine-tune under Advanced if you like.'),
     { k: 'minSeconds', t: 'range', l: 'Make it at least (seconds)', min: 0, max: 60, step: 1, h: 'The loop is repeated until it is this long. 16 s and longer suits the Magic Video Mixer.' },
@@ -41,8 +42,10 @@ const STEPS = [
     { k: 'glow', t: 'range', l: 'Light and colour breathing', min: 0, max: 100, step: 5, adv: 1 },
     { k: 'trails', t: 'bool', l: 'Soft trails', adv: 1 }] },
   { s: 'up', ic: '🔍', title: 'Upscale', hint: 'Make the picture larger and sharper.', f: [
+    seg('engine', 'Method', [['sharp', 'Sharp (fast)'], ['ai', 'AI (best)']], 0, 'Sharp works everywhere. AI gives the best result, but needs the Linux version with Video2X and a graphics card. It can take a long time.'),
     seg('scale', 'Make it this much bigger', [['2', '2×'], ['3', '3×'], ['4', '4×']], 1),
-    { k: 'sharp', t: 'range', l: 'Sharpness', min: 0, max: 100, step: 5 }] },
+    { k: 'sharp', t: 'range', l: 'Sharpness (Sharp method)', min: 0, max: 100, step: 5 },
+    sel('model', 'Kind of picture (AI)', [['realesr-animevideov3', 'Cartoons and animation'], ['realesrgan-plus', 'Photos and real film (always 4×)'], ['anime4k', 'Fast, for animation (Anime4K)']])] },
   { s: 'size', ic: '📐', title: 'Resize', hint: 'Fit the clip to a size box. Portrait clips are turned automatically.', f: [
     sel('box', 'Size', ['1280x720', '1920x1080', '2560x1440', '3840x2160']),
     seg('fit', 'Fit', [['keep', 'Only shrink'], ['fit', 'Letterbox'], ['fill', 'Crop to fill']]),
@@ -127,7 +130,12 @@ document.addEventListener('input', onField); document.addEventListener('change',
 
 // ---------------------------------------------------------------------------------------------- engine and files
 const status = t => { $('#engine').textContent = t || ''; };
-async function ensureEngine() { if (engine.pick) { try { await engine.pick(); } catch (e) { /* the web engine loads below */ } } await engine.load(status); status(''); }
+function aiAvail() {   // the AI choices only work with the local Linux version and Video2X
+  const ok = ST.v2xReady(engine), why = T('AI needs the Linux version with Video2X installed.');
+  document.querySelectorAll('[data-s=slow][data-k=engine][value=ai], [data-s=up][data-k=engine][value=ai]').forEach(r => { r.disabled = !ok; r.parentElement.title = ok ? '' : why; });
+  ['slow', 'up'].forEach(k => { if (!ok && R[k].engine === 'ai') { R[k].engine = k === 'up' ? 'sharp' : 'blend'; syncUI(); } });
+}
+async function ensureEngine() { if (engine.pick) { try { await engine.pick(); } catch (e) { /* the web engine loads below */ } } await engine.load(status); status(''); aiAvail(); }
 const openInput = async file => engine.mount(new File([file], 'src' + (extOf(file.name) || '.mp4'), { type: file.type }));
 const okFile = f => OK_EXT.has(extOf(f.name));
 
@@ -193,7 +201,8 @@ async function treat(file, out, rec, label, base) {
   try {
     path = await openInput(file);
     const inf = await L.probe(engine, path, file.name); if (!inf.width) throw new Error('No picture found in this file');
-    const r = await ST.runRecipe(engine, L, path, out, inf, rec, base || baseProf(), { ctl, onProgress: prog, tmp: 'hosp_tmp_' + nextId + '.mp4' });
+    const r = await ST.runRecipe(engine, L, path, out, inf, rec, base || baseProf(), { ctl, onProgress: prog, tmp: 'hosp_tmp_' + nextId + '.mp4',
+      onStage: (kind, sec) => setCur(fill(kind === 'up' ? 'AI upscaling… {a}' : 'AI slow motion… {a}', { a: Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0') })) });
     const data = await engine.read(out); await engine.remove(out);
     return { data, note: r.note };
   } finally { if (path) await engine.unmount(path); }
@@ -220,12 +229,13 @@ $('#prev').onclick = () => run(async () => {
   // clip, then the normal loop / life / repeat steps, so the preview runs for 12 to 20 seconds and loops in the player.
   const rec = JSON.parse(JSON.stringify(ST.variants(R)[0].rec)), cap = rec.slow.on ? 4 : 8;
   rec.cut = { on: true, start: rec.cut.on ? rec.cut.start : 0, len: Math.min(rec.cut.on && rec.cut.len > 0 ? rec.cut.len : cap, cap) };
+  const aiSlow = rec.slow.on && rec.slow.engine === 'ai'; if (aiSlow) rec.slow.engine = 'blend';
   const notUp = rec.up.on; rec.up.on = false; rec.size = { on: true, box: '480x270', fit: 'keep', upscale: false };
   rec.out.minSeconds = Math.min(20, Math.max(12, rec.out.minSeconds || 0)); rec.out.crf = 28;
   setCur('Making a preview…');
   const r = await treat(patient.file, 'hosp_prev.mp4', rec, 'preview', { ...baseProf(), preset: 'ultrafast' });
   const v = $('#vafter'); if (v.src) URL.revokeObjectURL(v.src); v.src = URL.createObjectURL(new Blob([r.data], { type: 'video/mp4' })); $('#fafter').classList.remove('hide');
-  $('#msg').textContent = T(notUp ? 'Preview done. It is small and low quality, but shows the loop and life effects. It does not show the upscale.' : 'Preview done. It is small and low quality, but shows the loop and life effects. The saved file uses your chosen size.');
+  $('#msg').textContent = T(notUp ? 'Preview done. It is small and low quality, but shows the loop and life effects. It does not show the upscale.' : 'Preview done. It is small and low quality, but shows the loop and life effects. The saved file uses your chosen size.') + (aiSlow ? ' ' + T('The preview uses the fast slow-motion method, not AI.') : '');
 });
 
 function addResult(name, data, note) {

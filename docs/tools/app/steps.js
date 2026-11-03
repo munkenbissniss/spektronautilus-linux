@@ -1,6 +1,6 @@
 // Treatment steps shared by the Tools page and the Loop Hospital.
 // Each helper returns a piece of an ffmpeg filter graph (no AI needed, works in the browser too).
-import { encodeArgs, cropFor, chooseFps, targetSize, repeatsNeeded } from './core.js';
+import { encodeArgs, cropFor, chooseFps, targetSize, repeatsNeeded, v2xVbvArgs } from './core.js';
 import { filterChain } from './filters.js';
 
 const r3 = v => Math.round(v * 1000) / 1000;
@@ -105,8 +105,8 @@ export const defaultRecipe = () => ({
   cut: { on: false, start: 0, len: 0 },
   crop: { on: false, shape: '169', pos: 'c' },
   rotate: { on: false, turn: '90', flip: 'none' },
-  slow: { on: false, factor: 2, mode: 'slow', engine: 'blend' },
-  up: { on: false, scale: 2, sharp: 50 },
+  slow: { on: false, factor: 2, mode: 'slow', engine: 'blend', model: 'rife-v4.6' },
+  up: { on: false, scale: 2, sharp: 50, engine: 'sharp', model: 'realesr-animevideov3' },
   size: { on: false, box: '1920x1080', fit: 'keep', upscale: false },
   look: { on: false, id: 'sepia', ids: ['sepia'], keepOriginal: false, amount: 50 },
   life: { on: false, style: 'calm', ...LIFE_STYLES.calm, minSeconds: 16 },
@@ -157,7 +157,73 @@ export function planRecipe(info, R, baseProf) {
 }
 
 // Run the plan: one ffmpeg pass, then loop smoothing when asked. loops = the loops.js module. Returns { note }.
-export async function runRecipe(engine, loops, src, dst, info, R, baseProf, { ctl = { check() {} }, onProgress, tmp = 'hosp_tmp.mp4' } = {}) {
+// ---------------------------------------------------------------------------------------------- AI steps (Video2X, Linux local version)
+export const v2xReady = engine => !!(engine && engine.kind === 'native' && engine.info && engine.info.v2x && engine.info.v2x.ok && engine.v2x);
+export const wantsAi = R => !!((R.slow.on && R.slow.engine === 'ai') || (R.up.on && R.up.engine === 'ai'));
+const clone = o => JSON.parse(JSON.stringify(o));
+const errLine = (r, re) => (r.log.filter(l => re.test(l)).slice(-1)[0] || 'code ' + r.code).slice(0, 160);
+
+// AI stages run first, each as its own pass: [cut, rotate, crop, soft slow motion] -> AI slow motion -> AI upscale. What is left
+// (look, life, size, loop, repeat) goes through the normal pass afterwards. Returns { path, info, R, notes, tmps }.
+async function aiStages(engine, loops, src, info, R, baseProf, ctl, report, onStage, tag) {
+  const tmps = [], notes = [], v = engine.info.v2x, aiSlow = R.slow.on && R.slow.engine === 'ai', aiUp = R.up.on && R.up.engine === 'ai';
+  const R3 = clone(R), pre = clone(R);
+  let path = src, cur = info, done = 0;
+  const W = { a: 1, ai: 6, fin: 2 }, usesA = R.cut.on || R.rotate.on || R.crop.on || (R.slow.on && !aiSlow);
+  const total = (usesA ? W.a : 0) + (aiSlow ? W.ai : 0) + (aiUp ? W.ai : 0) + W.fin;
+  const rep = (w, x) => report && report((done + w * Math.min(1, x)) / total);
+  const finish = w => { done += w; };
+  const tick = kind => { const t0 = Date.now(); onStage && onStage(kind, 0); return setInterval(() => onStage && onStage(kind, Math.round((Date.now() - t0) / 1000)), 1000); };
+  // pass A: plain ffmpeg work that comes before the AI, kept near lossless
+  if (usesA) {
+    pre.up.on = false; pre.life.on = false; pre.look.on = false; pre.loop.on = false; pre.size.on = false; pre.out = { ...pre.out, crf: 12, minSeconds: 0, fps: 0, keepAudio: false };
+    if (aiSlow) pre.slow.on = false;
+    const pa = planRecipe(info, pre, { ...baseProf, maxMBps: 0, preset: 'veryfast' }), out = `${tag}_a.mp4`; tmps.push(out);
+    ctl.check();
+    const r = await engine.exec(encodeArgs(src, out, { ...pa.prof, crf: 12, minSeconds: 0, maxMBps: 0, preset: 'veryfast' }, pa.cur, { pre: pa.pre, seek: pa.seek, limit: pa.limit, repeat: 1 }), { onProgress: x => rep(W.a, x) });
+    if (r.code !== 0) throw new Error('Could not prepare this clip (' + errLine(r, /error|invalid|not supported|unknown|no such/i) + ')');
+    finish(W.a); path = out; cur = await loops.probe(engine, out);
+    R3.cut.on = false; R3.rotate.on = false; R3.crop.on = false; if (R.slow.on && !aiSlow) R3.slow.on = false;
+  }
+  if (aiSlow) {
+    const m = Math.min(8, Math.max(2, Math.round(+R.slow.factor) || 2)), smooth = R.slow.mode === 'smooth', fps = cur.fps || 25;
+    if (smooth && fps * m > 120) throw new Error('The result would have more than 120 frames per second. Choose a smaller number, or slow motion instead.');
+    const out = `${tag}_s.mp4`; tmps.push(out); ctl.check();
+    const t = tick('slow');
+    let r; try { r = await engine.v2x(['-i', path, '-o', out, '-p', 'rife', '--rife-model', R.slow.model || 'rife-v4.6', v.mul || '-m', String(m), '-c', 'libx264', '-e', 'crf=14'], { onProgress: x => rep(W.ai, x) }); } finally { clearInterval(t); }
+    if (r.code !== 0) throw new Error('Could not make slow motion of this file (' + errLine(r, /error|invalid|fail|not supported|unknown|vulkan|rife/i) + ')');
+    finish(W.ai); path = out;
+    if (!smooth) {   // the new frames play at the old speed: stretch the time stamps without encoding again (the sound would no longer fit)
+      const o2 = `${tag}_s2.mp4`; tmps.push(o2);
+      const r2 = await engine.exec(['-y', '-itsscale', String(m), '-i', path, '-an', '-c', 'copy', '-movflags', '+faststart', o2], {});
+      if (r2.code !== 0) throw new Error('Could not make slow motion of this file (' + errLine(r2, /error|invalid|not supported|unknown/i) + ')');
+      path = o2;
+    }
+    cur = await loops.probe(engine, path); R3.slow.on = false; notes.push(smooth ? `AI smoother, ${m}× frames` : `AI slow motion ${m}× slower`);
+  }
+  if (aiUp) {
+    const plus = R.up.model === 'realesrgan-plus', sc = plus ? 4 : Math.min(4, Math.max(2, Math.round(+R.up.scale) || 2)), a4k = R.up.model === 'anime4k';
+    if (cur.width * sc > 7680 || cur.height * sc > 7680) throw new Error('The result would be larger than 8K. Choose a smaller scale or a smaller clip.');
+    const out = `${tag}_u.mp4`; tmps.push(out); ctl.check();
+    const model = a4k ? ['-p', 'libplacebo', '--libplacebo-shader', 'anime4k-v4-a+a', '-w', String(even(cur.width * sc)), '-h', String(even(cur.height * sc))] : ['-p', 'realesrgan', '--realesrgan-model', R.up.model || 'realesr-animevideov3', '-s', String(sc)];
+    const t = tick('up');
+    let r; try { r = await engine.v2x(['-i', path, '-o', out, ...model, '-c', 'libx264', '-e', 'crf=14'], { onProgress: x => rep(W.ai, x) }); } finally { clearInterval(t); }
+    if (r.code !== 0) throw new Error('Could not upscale this file (' + errLine(r, /error|invalid|fail|not supported|unknown|vulkan/i) + ')');
+    finish(W.ai); path = out; notes.push(`AI ${sc}× bigger`); R3.up.on = false;
+    cur = await loops.probe(engine, path);
+  }
+  return { path, info: cur, R: R3, notes, tmps, rest: W.fin / total, base: done / total };
+}
+
+export async function runRecipe(engine, loops, src, dst, info, R, baseProf, { ctl = { check() {} }, onProgress, onStage, tmp = 'hosp_tmp.mp4' } = {}) {
+  if (wantsAi(R)) {
+    if (!v2xReady(engine)) throw new Error('AI needs the Linux (local) version with Video2X installed. Choose another method.');
+    const tag = tmp.replace(/\.mp4$/, '') + '_ai', st = await aiStages(engine, loops, src, info, R, baseProf, ctl, onProgress, onStage, tag);
+    try {
+      const r = await runRecipe(engine, loops, st.path, dst, st.info, st.R, baseProf, { ctl, onProgress: onProgress && (x => onProgress(st.base + st.rest * x)), onStage, tmp });
+      return { ...r, note: [...st.notes, r.note].filter(Boolean).join(', ') };
+    } finally { for (const t of st.tmps) { try { await engine.remove(t); } catch (e) { /* ignore */ } } }
+  }
   const p = planRecipe(info, R, baseProf);
   const passes = R.loop.on ? 2 : 1, prog = (i, f) => f && (x => f((i + Math.min(1, x)) / passes));
   const args = encodeArgs(src, R.loop.on ? tmp : dst, R.loop.on ? { ...p.prof, crf: 14, preset: 'veryfast', minSeconds: 0 } : p.prof, p.cur, { pre: p.pre, extra: p.extra, seek: p.seek, limit: p.limit, repeat: R.loop.on ? 1 : repeatsNeeded(p.duration, p.prof.minSeconds) });   // with the loop step on, makeLoop does the repeating
