@@ -70,6 +70,8 @@ ul.find li.ok{border-color:var(--ok);color:var(--ok)}
   <h2>1. The patient</h2>
   <div class="drop" id="drop"><span>Drop a clip here</span> or <button class="sm" id="pick" type="button">choose a clip</button></div>
   <div id="patient" class="hide">
+    <div class="run hide" id="gifbar" style="margin-top:12px"><button class="sm" id="gif2mp4" type="button">🎞️ Convert GIF to MP4</button><span class="hint" style="margin:0">Makes a normal video of this GIF first, so you can fix it with the treatments below. The GIF itself is not changed.</span></div>
+    <div class="hide" id="gifdone" style="margin-top:12px"><span class="muted">Converted to MP4. You can treat it below.</span> <a id="gifdl" class="sm" href="#" download="">Download the MP4</a></div>
     <div class="pv"><figure><video id="vbefore" muted loop playsinline autoplay controls></video><figcaption>Before</figcaption></figure>
     <figure id="fafter" class="hide"><video id="vafter" muted loop playsinline autoplay controls></video><figcaption>After (preview)</figcaption></figure></div>
     <div class="facts" id="facts"></div>

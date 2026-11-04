@@ -146,8 +146,9 @@ async function ensureEngine() { if (engine.pick) { try { await engine.pick(); } 
 const openInput = async file => engine.mount(new File([file], 'src' + (extOf(file.name) || '.mp4'), { type: file.type }));
 const okFile = f => OK_EXT.has(extOf(f.name));
 
-async function choose(file) {
+async function choose(file, converted) {
   if (!file) return;
+  $('#gifbar').classList.add('hide'); if (!converted) $('#gifdone').classList.add('hide');
   if (!okFile(file)) { $('#msg').textContent = 'That is not a video type I know.'; return; }
   if (patient) URL.revokeObjectURL(patient.url);
   patient = { file, url: URL.createObjectURL(file), info: null, loop: null };
@@ -164,6 +165,19 @@ async function choose(file) {
   } catch (e) { $('#facts').innerHTML = ''; $('#msg').textContent = e.message; }
   finally { if (path) await engine.unmount(path); }
 }
+let gifUrl = null;
+$('#gif2mp4').onclick = () => run(async () => {   // GIF -> MP4 first, then the converted clip becomes the patient so every treatment works on it
+  if (!patient || !patient.info || !patient.info.isGif) throw new Error('Choose a GIF first.');
+  const src = patient.file, R0 = ST.defaultRecipe(); R0.out.crf = 16;
+  setCur('Converting the GIF…');
+  const r = await treat(src, 'hosp_conv.mp4', R0, 'convert', { ...baseProf(), preset: engine.kind === 'native' ? 'fast' : 'veryfast' });
+  const f = new File([r.data], stemOf(src.name) + '.mp4', { type: 'video/mp4' });
+  if (gifUrl) URL.revokeObjectURL(gifUrl); gifUrl = URL.createObjectURL(f);
+  await choose(f, true);
+  const a = $('#gifdl'); a.href = gifUrl; a.download = f.name; $('#gifdone').classList.remove('hide');
+  $('#msg').textContent = T('Done. This is now an MP4. Choose your treatments below.');
+});
+
 function examine() {
   const i = patient.info, lp = patient.loop;
   const verdict = lp ? (lp.verdict === 'seamless' ? '<span class="chip good">loops ✓</span>' : lp.verdict === 'almost' ? '<span class="chip bad">almost loops</span>' : '<span class="chip bad">jumps</span>') : '';
@@ -171,6 +185,7 @@ function examine() {
   const d = ST.diagnose(i, lp, { slowEngine: engine.kind !== 'native' });
   $('#findings').innerHTML = d.length ? d.map((x, n) => `<li><span>${esc(x.text)}</span>${Object.keys(x.fix).length ? `<button class="sm" data-fix="${n}" type="button">Add this treatment</button>` : ''}</li>`).join('')
     : '<li class="ok"><span>Nothing wrong found. This clip is ready for the mixers.</span></li>';
+  $('#gifbar').classList.toggle('hide', !i.isGif);
   patient.findings = d; $('#healall').classList.toggle('hide', !d.some(x => Object.keys(x.fix).length));
   info();
 }
