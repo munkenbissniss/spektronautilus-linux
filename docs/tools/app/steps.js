@@ -100,37 +100,64 @@ export const smoothChain = (plan, fps) => [
 //   breathe a slow zoom in and out        drift  a floating sideways/up-down movement      sway  a very small tilt
 //   glow    brightness and colour breathing                                              trails  soft ghosts of the last frames
 export const LIFE_STYLES = {
-  calm:   { ease: 60, breathe: 35, drift: 0,  sway: 0,  glow: 0,  trails: false },
-  float:  { ease: 40, breathe: 25, drift: 60, sway: 40, glow: 0,  trails: false },
-  dream:  { ease: 70, breathe: 40, drift: 40, sway: 25, glow: 35, trails: true },
-  pulse:  { ease: 30, breathe: 55, drift: 0,  sway: 0,  glow: 60, trails: false },
+  calm:   { ease: 40, breathe: 30, drift: 0,  sway: 0,  glow: 0,  trails: false },
+  float:  { ease: 30, breathe: 20, drift: 50, sway: 30, glow: 0,  trails: false },
+  dream:  { ease: 50, breathe: 35, drift: 35, sway: 20, glow: 30, trails: true },
+  pulse:  { ease: 20, breathe: 45, drift: 0,  sway: 0,  glow: 50, trails: false },
 };
-export function lifePeriod(D, minSeconds, repeatAfter) {      // one "breath" lasts a whole number of loop lengths that fits into the final length
+// One "breath" lasts a whole number of loop lengths that fits into the final length, and it can be long (up to 32 s), so the movement glides.
+export function lifePeriod(D, minSeconds, repeatAfter) {
   if (!(D > 0)) return { P: 8, n: 1, T: 0 };
   const n = repeatAfter ? 1 : repeatsNeeded(D, minSeconds || 0);
-  let m = 1; for (let k = n; k >= 1; k--) if (n % k === 0 && D * k <= 12) { m = k; break; }
+  let m = 1; for (let k = n; k >= 1; k--) if (n % k === 0 && D * k <= 32) { m = k; break; }
   return { P: D * m, n, T: D * n };
+}
+const fnum = v => String(Math.round(v * 10000) / 10000);
+// One `perspective` filter that scales (S), moves (cx, cy are the middle of the view in pixels) and tilts (t) the picture, every frame.
+function perspFilter(S, cx, cy, t) {
+  const hw = `(W/(2*${S}))`, hh = `(H/(2*${S}))`, q = e => `'${e}'`;
+  return `perspective=eval=frame:sense=source:interpolation=cubic:x0=${q(`${cx}-${hw}+${hh}*${t}`)}:y0=${q(`${cy}-${hw}*${t}-${hh}`)}:x1=${q(`${cx}+${hw}+${hh}*${t}`)}:y1=${q(`${cy}+${hw}*${t}-${hh}`)}:x2=${q(`${cx}-${hw}-${hh}*${t}`)}:y2=${q(`${cy}-${hw}*${t}+${hh}`)}:x3=${q(`${cx}+${hw}-${hh}*${t}`)}:y3=${q(`${cy}+${hw}*${t}+${hh}`)}`;
 }
 export function lifePlan(info, L, { minSeconds = 0, repeatAfter = false, outFps = 0 } = {}) {
   const D = info.duration || 0, F = info.fps || 25, OF = outFps || F, c = v => Math.max(0, Math.min(100, +v || 0)) / 100, { P, T } = lifePeriod(D, minSeconds, repeatAfter);
   const ease = c(L.ease), breathe = c(L.breathe), drift = c(L.drift), sway = c(L.sway), glow = c(L.glow), notes = [];
-  let pre = '', extra = []; const f = v => String(Math.round(v * 10000) / 10000);
-  if (ease > 0 && D > 0) {       // time stretches by (1 + a·cos) around the loop point: slow at the start and end, faster in the middle
-    const a = f(ease * 0.85), A = f(ease * 0.85 * D / (2 * Math.PI));
+  let pre = '', extra = []; const f = fnum;
+  if (ease > 0 && D > 0) {       // time stretches by 1 + a·cos around the loop point: it lingers at the start and end and glides through the middle, gently (a is at most 0.45; it used to be up to 0.85)
+    const a = ease * 0.45, A = f(a * D / (2 * Math.PI));
     pre = `${F <= 31 ? `framerate=fps=${f(F * 2)},` : ''}setpts='PTS+${A}*sin(2*PI*PTS*TB/${f(D)})/TB'`; notes.push('slow in and out');
   }
   if (breathe > 0 || drift > 0 || sway > 0) {
     const zA = breathe * 0.10, dA = drift * 0.03, th = sway * 0.015, marg = Math.min(0.35, 2 * dA + 3.6 * th + 0.006), s0 = 1 / (1 - marg);
     const p1 = `(2*PI*on/${f(P * OF)})`, S = `(${f(s0)}+${f(zA)}*(0.5-0.5*cos(${p1})))`;
     const cx = `(W/2+W*${f(dA)}*(sin(${p1}+0.7)+0.5*sin(2*${p1}+2.1))/1.5)`, cy = `(H/2+H*${f(dA * 0.7)}*(cos(${p1}+1.3)+0.5*sin(2*${p1}+0.4))/1.5)`;
-    const t = `(${f(th)}*sin(${p1}+2))`, hw = `(W/(2*${S}))`, hh = `(H/(2*${S}))`;
-    const q = e => `'${e}'`;
-    extra.push(`perspective=eval=frame:sense=source:interpolation=cubic:x0=${q(`${cx}-${hw}+${hh}*${t}`)}:y0=${q(`${cy}-${hw}*${t}-${hh}`)}:x1=${q(`${cx}+${hw}+${hh}*${t}`)}:y1=${q(`${cy}+${hw}*${t}-${hh}`)}:x2=${q(`${cx}-${hw}-${hh}*${t}`)}:y2=${q(`${cy}-${hw}*${t}+${hh}`)}:x3=${q(`${cx}+${hw}-${hh}*${t}`)}:y3=${q(`${cy}+${hw}*${t}+${hh}`)}`);
+    extra.push(perspFilter(S, cx, cy, `(${f(th)}*sin(${p1}+2))`));
     if (breathe > 0) notes.push('breathing zoom'); if (drift > 0) notes.push('floating'); if (sway > 0) notes.push('gentle tilt');
   }
   if (glow > 0) { extra.push(`eq=brightness='${f(0.05 * glow)}*sin(2*PI*t/${f(P)})':saturation='1+${f(0.25 * glow)}*sin(2*PI*t/${f(P)}+1.1)':eval=frame`); notes.push('light breathing'); }
   if (L.trails) { extra.push(`tmix=frames=4:weights='4 3 2 1'`); notes.push('soft trails'); }
   return { pre, extra: extra.join(','), notes, period: P, total: T };
+}
+
+// ---------------------------------------------------------------------------------------------- Ken Burns: a slow zoom or pan over the whole clip
+// The movement runs once over the whole result, eased at both ends. With `ret` it glides back to where it began, so the clip still loops without a jump.
+// A pan or zoom never shows an edge: the picture is enlarged just enough for the path it takes.
+export const KB_MODES = [['zoomin', 'Slow zoom in'], ['zoomout', 'Slow zoom out'], ['panlr', 'Pan left to right'], ['panrl', 'Pan right to left'], ['panup', 'Pan upwards'], ['pandown', 'Pan downwards'], ['drift', 'Drift in (zoom and sideways)']];
+export function kenPlan(info, K, { minSeconds = 0, repeatAfter = false, outFps = 0 } = {}) {
+  const D = info.duration || 0, OF = outFps || info.fps || 25, f = fnum, { T } = lifePeriod(D, minSeconds, repeatAfter);
+  const amt = Math.max(0, Math.min(100, +K.amount || 0)) / 100;
+  if (!(T > 0) || amt <= 0) return { extra: '', notes: [], total: T };
+  const N = Math.max(1, T * OF), u = `(on/${f(N)})`, p = K.ret === false ? `(${u}*${u}*(3-2*${u}))` : `(0.5-0.5*cos(2*PI*${u}))`;
+  const z = amt * 0.3, a = amt * 0.12, mode = K.mode;
+  let S = '1', cx = '(W/2)', cy = '(H/2)';
+  if (mode === 'zoomin') S = `(1+${f(z)}*${p})`;
+  else if (mode === 'zoomout') S = `(1+${f(z)}*(1-${p}))`;
+  else if (mode === 'panlr' || mode === 'panrl') { S = f(1 / (1 - 2 * a)); cx = `(W*(0.5${mode === 'panlr' ? '-' : '+'}${f(a)}*(1-2*${p})))`; }
+  else if (mode === 'panup' || mode === 'pandown') { S = f(1 / (1 - 2 * a)); cy = `(H*(0.5${mode === 'panup' ? '+' : '-'}${f(a)}*(1-2*${p})))`; }
+  else {   // drift: zoom in while the middle slides towards a corner; the slide stays inside what the zoom leaves free
+    const room = 0.5 - 1 / (2 * (1 + z)); S = `(1+${f(z)}*${p})`; cx = `(W*(0.5+${f(0.8 * room)}*${p}))`; cy = `(H*(0.5-${f(0.6 * room)}*${p}))`;
+  }
+  const label = (KB_MODES.find(m => m[0] === mode) || KB_MODES[0])[1].toLowerCase();
+  return { extra: perspFilter(S, cx, cy, '0'), notes: ['Ken Burns: ' + label], total: T };
 }
 
 // What is wrong with this clip, and what would help? info: probe result, loop: loop report (or null)
@@ -158,6 +185,7 @@ export const defaultRecipe = () => ({
   size: { on: false, box: '1920x1080', fit: 'keep', upscale: false },
   look: { on: false, id: 'sepia', ids: ['sepia'], keepOriginal: false, amount: 50 },
   life: { on: false, style: 'calm', ...LIFE_STYLES.calm, minSeconds: 16 },
+  kb: { on: false, mode: 'zoomin', amount: 50, ret: true, minSeconds: 24 },
   loop: { on: false, mode: 'auto', fade: 1.5, fallback: 'pingpong' },
   out: { fps: 0, crf: 18, minSeconds: 0, keepAudio: false },
 });
@@ -189,7 +217,7 @@ export function planRecipe(info, R, baseProf) {
     const up = upscalePlan({ width: w, height: h }, R.up.scale, R.up.sharp);
     pre.push(up.filter); w = up.width; h = up.height; notes.push(`${R.up.scale}× bigger`);
   }
-  const prof = { ...baseProf, fps: fps || +R.out.fps || 0, crf: R.out.crf, minSeconds: (R.life && R.life.on) ? Math.max(+R.out.minSeconds || 0, +R.life.minSeconds || 0) : R.out.minSeconds, keepAudio: !!R.out.keepAudio && !R.slow.on && !(R.smooth && R.smooth.on), maxFps: 60 };
+  const prof = { ...baseProf, fps: fps || +R.out.fps || 0, crf: R.out.crf, minSeconds: Math.max(+R.out.minSeconds || 0, (R.life && R.life.on) ? +R.life.minSeconds || 0 : 0, (R.kb && R.kb.on) ? +R.kb.minSeconds || 0 : 0), keepAudio: !!R.out.keepAudio && !R.slow.on && !(R.smooth && R.smooth.on), maxFps: 60 };
   let lifeP = null;
   if (R.life && R.life.on) {
     lifeP = lifePlan({ duration: dur, fps: info.fps || 25 }, R.life, { minSeconds: prof.minSeconds, repeatAfter: !!R.loop.on, outFps: chooseFps({ ...info, fps: info.fps || 25 }, prof) });
@@ -199,7 +227,12 @@ export function planRecipe(info, R, baseProf) {
   else { prof.size = `${w}x${h}`; prof.fit = 'keep'; prof.upscale = false; }
   const cur = { ...info, width: w, height: h, duration: dur };
   const [tw, th] = targetSize(cur, prof);
-  const extra = [lifeP && lifeP.extra, R.look.on ? filterChain(R.look.id, +R.look.amount, { w: tw, h: th, dur }) : ''].filter(Boolean).join(',');
+  let kbP = null;
+  if (R.kb && R.kb.on) {
+    kbP = kenPlan({ duration: dur, fps: info.fps || 25 }, R.kb, { minSeconds: prof.minSeconds, repeatAfter: !!R.loop.on, outFps: chooseFps({ ...info, fps: info.fps || 25 }, prof) });
+    notes.push(...kbP.notes);
+  }
+  const extra = [kbP && kbP.extra, lifeP && lifeP.extra, R.look.on ? filterChain(R.look.id, +R.look.amount, { w: tw, h: th, dur }) : ''].filter(Boolean).join(',');
   if (R.look.on) notes.push(`look ${R.look.id}`);
   return { pre: pre.join(','), seek, limit, prof, cur, extra, size: [tw, th], notes, duration: dur };
 }

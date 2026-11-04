@@ -17,6 +17,7 @@ let patient = null, busy = false, ctl = null, RESULTS = [], nextId = 1;
 // ---------------------------------------------------------------------------------------------- the treatment steps
 const num = (k, l, h) => ({ k, t: 'number', l, h });
 const sel = (k, l, o, n) => ({ k, t: 'select', l, o, n });
+const KB_MODES_UI = ST.KB_MODES;
 const seg = (k, l, o, n, h) => ({ k, t: 'seg', l, o, n, h });
 const fill = (s, a) => T(s).replace(/\{(\w)\}/g, (m, k) => a[k]);
 const STEPS = [
@@ -45,6 +46,11 @@ const STEPS = [
     { k: 'sway', t: 'range', l: 'Gentle tilt', min: 0, max: 100, step: 5, adv: 1 },
     { k: 'glow', t: 'range', l: 'Light and colour breathing', min: 0, max: 100, step: 5, adv: 1 },
     { k: 'trails', t: 'bool', l: 'Soft trails', adv: 1 }] },
+  { s: 'kb', ic: '🎥', title: 'Ken Burns', hint: 'A slow, gliding zoom or pan over the whole clip, like a camera that moves very gently. The clip is repeated to the length you choose, and the camera glides back to where it began, so it still loops without a jump.', f: [
+    seg('mode', 'Movement', KB_MODES_UI, 0),
+    { k: 'amount', t: 'range', l: 'How far', min: 5, max: 100, step: 5, h: 'A small number is a very subtle move. 100 moves the camera about a third of the way in.' },
+    { k: 'minSeconds', t: 'range', l: 'Make it at least (seconds)', min: 8, max: 120, step: 2, h: 'The whole movement takes this long. Longer is slower and smoother. 24 s and longer glides nicely.' },
+    { k: 'ret', t: 'bool', l: 'Glide back to the start (keeps it looping)', adv: 1 }] },
   { s: 'up', ic: '🔍', title: 'Upscale', hint: 'Make the picture larger and sharper.', f: [
     seg('engine', 'Method', [['sharp', 'Sharp (fast)'], ['ai', 'AI (best)']], 0, 'Sharp works everywhere. AI gives the best result, but needs the Linux version with Video2X and a graphics card. It can take a long time.'),
     seg('scale', 'Make it this much bigger', [['2', '2×'], ['3', '3×'], ['4', '4×']], 1),
