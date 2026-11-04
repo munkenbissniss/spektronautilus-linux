@@ -35,7 +35,7 @@ input[type=text],input[type=number],select{font:inherit;width:100%;min-height:44
 </style>
 <link rel="manifest" href="../manifest.webmanifest">
 <script src="../shared/sw-register.js" defer></script>
-<script src="../shared/i18n.js"></script><script src="../mixer/demofx.js"></script><script src="../shared/extras.js" data-guide="magic-mixer" defer></script>
+<script src="../shared/i18n.js"></script><script src="../shared/extras.js" data-guide="magic-mixer" defer></script>
 </head>
 <body><div class="wrap" role="main">
 <p style="margin:0 0 6px"><a href="../" style="color:inherit;font-size:.9rem;text-decoration:none">← Spektronautilus</a></p>
@@ -51,7 +51,7 @@ input[type=text],input[type=number],select{font:inherit;width:100%;min-height:44
 
 <div class="card"><h2>3. Style</h2>
  <div class="q">Mood</div><div class="seg" data-k="mood"><button data-v="Recommended">Recommended</button></div>
- <div class="seg" data-k="mood"><button data-v="Ambient">Ambient</button><button data-v="Chill">Chill</button><button data-v="Groove">Groove</button><button data-v="Demo">Demo</button></div>
+ <div class="seg" data-k="mood"><button data-v="Ambient">Ambient</button><button data-v="Chill">Chill</button><button data-v="Groove">Groove</button></div>
  <div class="h" id="moodH"></div>
  <div class="q">How long each clip stays</div><div class="seg" data-k="pace"><button data-v="Slow">Slow</button><button data-v="Normal">Normal</button><button data-v="Fast">Fast</button></div>
  <div class="h" id="paceH"></div>
@@ -384,8 +384,7 @@ const DEF={shotBars:8,follow:.5,minBars:4,maxBars:32,irregular:.25,accent:true,s
  layerDensity:0,lookVar:.4,layerOpacity:.5,layerBlend:'auto',layerLen:.6,tintAmount:.12,mirror:'off',trails:0,reactive:.5,slowmo:.3,fade:8,breathe:.03,breathBars:16,zoom:0,zoomOn:'bar',shake:0,shakeOn:'kick',pulse:0,pulseOn:'kick',pulseMode:'dark',res:'1280x720',bitrate:4,fps:30,sync:0};
 const PACE={Slow:{shotBars:16,minBars:8,maxBars:32},Normal:{shotBars:8,minBars:4,maxBars:32},Fast:{shotBars:4,minBars:2,maxBars:16}},FADE={Short:2,Medium:8,Long:16};
 const MOOD={Ambient:{pace:'Slow',fade:'Long',slowmo:.5,breathe:.04,lookVar:.3,zoom:0,pulse:0,h:'Very slow and dreamy. Long shots, long fades.'},Chill:{pace:'Normal',fade:'Medium',slowmo:.3,breathe:.03,lookVar:.4,zoom:0,pulse:0,h:'Relaxed and soft. A good default.'},
- Groove:{pace:'Fast',fade:'Short',slowmo:.1,breathe:.02,lookVar:.5,zoom:.02,pulse:0,h:'A little more movement, with a gentle zoom on the bar.'},
- Demo:{pace:'Fast',fade:'Short',slowmo:0,breathe:.01,lookVar:.7,zoom:.04,pulse:.05,demo:1,h:'Sharp cuts on the beat, shots that get faster before a drop, and a flash on every new part.'}};
+ Groove:{pace:'Fast',fade:'Short',slowmo:.1,breathe:.02,lookVar:.5,zoom:.02,pulse:0,h:'A little more movement, with a gentle zoom on the bar.'}};
 const RES={'480p':[854,480,2],'720p':[1280,720,3.5],'1080p':[1920,1080,7]},PH={Slow:'Each clip stays about 30 seconds at 120 BPM (16 bars).',Normal:'Each clip stays about 16 seconds at 120 BPM (8 bars).',Fast:'Each clip stays about 8 seconds at 120 BPM (4 bars).'};
 const ui={mood:'Chill',pace:'Normal',fade:'Medium',sets:'3',res:IOS?'480p':'720p',orient:'Landscape',slowmo:'1',breathe:'1',clip:'1',fps:'60',rec:null};
 function showUI(){document.querySelectorAll('.seg').forEach(s=>s.querySelectorAll('button').forEach(b=>b.classList.toggle('on',b.dataset.v==ui[s.dataset.k])));$('#moodH').innerHTML=MOOD[ui.mood].h;$('#paceH').textContent=PH[ui.pace]}
@@ -396,7 +395,6 @@ document.querySelectorAll('.seg').forEach(s=>s.onclick=e=>{const b=e.target.clos
 function opts(){const m=MOOD[ui.mood],o={...DEF,...PACE[ui.pace],fade:FADE[ui.fade],setSize:+ui.sets,slowmo:ui.slowmo=='1'?m.slowmo:0,breathe:ui.breathe=='1'?m.breathe:0,lookVar:m.lookVar,zoom:m.zoom,pulse:m.pulse},[w,h,b]=RES[ui.res];
  if(ui.mood=='Recommended'&&ui.rec)Object.assign(o,ui.rec);
  o.res=ui.orient=='Portrait'?`${h}x${w}`:`${w}x${h}`;o.fps=+ui.fps;o.bitrate=b*(o.fps>30?1.6:1);o.seed=$('#seed').value;o.clip=ui.clip=='1';o.theme=o.clip?$('#theme').value.trim():'';o.themeWeight=o.theme?.5:0;
- if(m.demo)Object.assign(o,{zoomOn:'kick',pulseOn:'kick',pulseMode:'light',hardCuts:.8,rush:1,dFlash:.35,dVar:0,dOn:'kick'})
  return o}
 
 /* ---------------- files ---------------- */
@@ -532,8 +530,8 @@ const ease=x=>x*x*(3-2*x),ease5=x=>x*x*x*(x*(x*6-15)+10);
 
 function renderJob(j,A,L,P){
  return new Promise(async (resolve,reject)=>{let _src=null,_rec=null;try{
-  const o=j.o,{slots,looks}=P,[W,H]=o.res.split('x').map(Number),cv=document.createElement('canvas');cv.width=W;cv.height=H;const g=cv.getContext('2d',{alpha:false});g.fillStyle='#000';g.fillRect(0,0,W,H);const dfx=o.dOn&&window.SPKDemo?SPKDemo.create(W,H,(+o.seed||0)%100000):null;
-  const ta=slots.map(s=>s.t0-s.xf/2),T={zoom:trig(A,o.zoomOn),pulse:trig(A,o.pulseOn),fx:trig(A,o.dOn||'kick')},beatS=60/A.tempo;
+  const o=j.o,{slots,looks}=P,[W,H]=o.res.split('x').map(Number),cv=document.createElement('canvas');cv.width=W;cv.height=H;const g=cv.getContext('2d',{alpha:false});g.fillStyle='#000';g.fillRect(0,0,W,H);
+  const ta=slots.map(s=>s.t0-s.xf/2),T={zoom:trig(A,o.zoomOn),pulse:trig(A,o.pulseOn)},beatS=60/A.tempo;
   mkPool();pool.forEach(p=>{p.loop=-1;p.el.pause()});
   const findK=m=>{let lo=0,hi=slots.length-1,r=0;while(lo<=hi){const k=(lo+hi)>>1;if(ta[k]<=m){r=k;lo=k+1}else hi=k-1}return r};
   const eAt=m=>{let lo=0,hi=A.nb-1;while(lo<hi){const k=(lo+hi+1)>>1;if(A.bt[k]<=m)lo=k;else hi=k-1}return A.energy[lo]};
@@ -576,7 +574,6 @@ function renderJob(j,A,L,P){
    if(k>0&&fx<1){dv(holder(slots[k-1].loop)?.el,1);dv(holder(s.loop)?.el,fx)}else dv(holder(s.loop)?.el,1);
    for(const[lk,w]of[[pl,1-fx],[look,fx]])if(lk.tint>0&&w>.01){g.globalCompositeOperation='soft-light';g.fillStyle=`hsla(${lk.hue},80%,55%,${Math.min(1,lk.tint*react*w)})`;g.fillRect(0,0,W,H);g.globalCompositeOperation='source-over'}
    const pu=o.pulse*bo*env(T.pulse,m,10);if(pu>.002){g.fillStyle=o.pulseMode=='dark'?`rgba(0,0,0,${Math.min(1,pu*2)})`:`rgba(255,255,255,${pu})`;g.fillRect(0,0,W,H)}
-   if(dfx)dfx.apply(g,cv,o,{m,kk:env(T.fx,m,9),hue:look.hue,ci:s.cluster,pci:k>0?slots[k-1].cluster:s.cluster,fx,cut:(k>0&&s.cluster!==slots[k-1].cluster?.9:s.kind=='drop'?1:.35)*Math.exp(-5*Math.max(0,m-s.t0))});
    j.prog=m/A.dur;const now=performance.now();if(now-lastUI>700){lastUI=now;try{localStorage.setItem('mm_beat',String(Date.now()));localStorage.setItem('mm_pos',m.toFixed(1)+'/'+A.dur.toFixed(0))}catch(e){}j.tctx&&j.tctx.drawImage(cv,0,0,j.tctx.canvas.width,j.tctx.canvas.height);upd(j)}};
   tickW.onmessage=()=>{try{tickBody()}catch(e){if(ended)return;j.note='The render hit a problem ('+(e&&e.message||e)+') and was stopped. What was made so far is kept.';finish('stopped').catch(()=>{})}};
   tickW.postMessage(o.fps);

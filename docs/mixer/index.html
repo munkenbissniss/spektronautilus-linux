@@ -39,7 +39,7 @@ details{border-top:1px solid var(--line);padding:8px 0}summary{cursor:pointer;fo
 </style>
 <link rel="manifest" href="../manifest.webmanifest">
 <script src="../shared/sw-register.js" defer></script>
-<script src="../shared/i18n.js"></script><script src="demofx.js"></script><script src="../shared/extras.js" data-dock="1" data-guide="magic-mixer" defer></script>
+<script src="../shared/i18n.js"></script><script src="../shared/extras.js" data-dock="1" data-guide="magic-mixer" defer></script>
 </head>
 <body><div class="wrap" role="main">
 <p style="margin:0 0 6px"><a href="../" style="color:inherit;font-size:.9rem;text-decoration:none">← Spektronautilus</a></p>
@@ -263,8 +263,7 @@ const DEFS=[
   R('rush','Build-up rush',0,1,.05,0,'Before a drop the shots get shorter and shorter, half as long each time, and the last one ends exactly on the drop. 0 = off, 0.5 = down to 2 beats, 1 = down to single beats.'),
   Chk('cutStart','Start each clip from its beginning on the cut',false,'A clip starts from its first frame when it comes in, so its movement begins on the beat instead of somewhere in the middle. Works best with sharp cuts.'),
   Chk('tempoLock','Move the loops in time with the tempo',false,'Each loop is sped up or slowed down a little, by up to about a third, so that one round of the loop lasts a whole number of beats. The movement then repeats in time with the music. This replaces slow motion in calm parts.'),
-  R('punch','Speed punch on the kick',0,1,.05,0,'Loops speed up for a moment on every kick and settle back down, like a pulse in the movement.'),
-  R('dFlash','Flash on new parts',0,1,.05,0,'A white flash when a new part of the song starts, strongest on drops. The hard cut of a demo.')]],
+  R('punch','Speed punch on the kick',0,1,.05,0,'Loops speed up for a moment on every kick and settle back down, like a pulse in the movement.')]],
  ['Motion & effects','Gentle by default. Set to 0 to switch off.',[
   R('breathe','Breathing zoom',0,.1,.005,.03,'A slow, constant zoom in and out, like the picture is breathing. 0.03 = 3 %.'),
   R('breathBars','Breathing cycle (bars)',4,64,4,16,'How long one in-and-out breath takes.',1),
@@ -275,33 +274,16 @@ const DEFS=[
   R('pulse','Brightness pulse',0,.3,.01,0,'Picture flashes lighter or darker on each trigger. 0.05 is subtle.',1),
   Sel('pulseOn','Pulse on',ON,'kick','',1),
   Sel('pulseMode','Pulse type',['light','dark'],'dark','Light = flash brighter, dark = dip darker.',1)]],
- ['Demoscene style','Inspired by the demo scene of the 1990s and 2000s: plasma, copper bars, tunnels and glitchy hits that lock to the beat. All are off until you turn them up.',[
-  R('dPlasma','Plasma',0,1,.05,0,'A slow, colourful plasma wash over the picture, like in the old demos. It swells with the music.'),
-  R('dBars','Copper bars',0,1,.05,0,'Glowing horizontal colour bars that glide up and down and light up on the beat.'),
-  R('dFeedback','Tunnel echo',0,1,.05,0,'The picture echoes into a slowly zooming and turning tunnel. It looks best with darker loops.'),
-  R('dWobble','Wavy picture',0,1,.05,0,'The picture ripples sideways in stripes, a classic demo effect. The waves kick on the beat.'),
-  R('dMosaic','Pixel crunch',0,1,.05,0,'The picture breaks into big blocks for a moment on each beat hit.'),
-  R('dChroma','Colour split',0,1,.05,0,'Red, green and blue slip apart on each beat hit, like a glitchy old screen.'),
-  R('dStars','Starfield',0,1,.05,0,'Stars fly towards you from the centre, faster on the beat.'),
-  R('dScan','Old screen',0,1,.05,0,'Scanlines and dark corners, like a CRT monitor.'),
-  R('dBloom','Glow',0,1,.05,0,'A soft glow around bright areas, the dreamy, filmic look of the best 64k intros. It swells on the beat.'),
-  R('dGrain','Film grain',0,1,.05,0,'Fine, moving grain over the picture.'),
-  R('dBox','Cinema bars',0,1,.05,0,'Black bars at the top and bottom for a widescreen, film-like picture.'),
-  Num('dText','Scroller text (optional)','A wavy, colourful text that scrolls along the bottom, like the greetings in old demos. Leave empty for none.'),
-  R('dTextSpeed','Scroller speed',2,20,1,8,'Letters per second.',1),
-  Sel('dOn','Lock effects to',ON,'kick','Beat = every beat, bar = the first beat of each bar, kick = detected bass drums.',1),
-  R('dVar','Change per section',0,1,.05,.5,'Each part of the song gets its own mix of these effects, like the parts of a demo. 0 = every effect all the time.',1)]],
  ['Output','',[
   Sel('res','Picture size',['1280x720','1920x1080','2560x1440','3840x2160','1080x1920'],'1920x1080','Larger is sharper but needs a stronger computer. If the export stutters, choose a smaller size.'),
   Sel('bitrate','Quality (Mbit/s)',[4,8,16,24],8,'Higher = better picture and a larger file. 8 Mbit/s is about 600 MB for 10 minutes. 24 Mbit/s (3 MB/s) is the highest, so the video still plays smoothly in VJ software.'),
   Sel('fps','Frame rate',[24,30,60],60,'',1),
   R('sync','Sync offset (ms)',-200,200,5,0,'If the picture feels slightly early or late compared with the music, shift it here.',1)]]];
-const DZ={hardCuts:0,rush:0,cutStart:false,tempoLock:false,punch:0,dBloom:0,dGrain:0,dFlash:0,dBox:0,dPlasma:0,dBars:0,dFeedback:0,dWobble:0,dMosaic:0,dChroma:0,dStars:0,dScan:0};
+const DZ={hardCuts:0,rush:0,cutStart:false,tempoLock:false,punch:0};
 const PRE={Drift:{shotBars:32,follow:.2,minBars:8,maxBars:32,setSize:3,fade:32,layerDensity:.3,lookVar:.2,trails:.3,slowmo:.6,breathe:.05,zoom:0,shake:0,pulse:0},
  Ambient:{shotBars:16,follow:.3,minBars:8,maxBars:32,setSize:3,fade:16,layerDensity:.4,lookVar:.3,trails:.3,slowmo:.5,breathe:.04,zoom:0,shake:0,pulse:0},
  Chill:{shotBars:8,follow:.5,minBars:4,maxBars:32,setSize:3,fade:8,layerDensity:.5,lookVar:.4,trails:0,slowmo:.3,breathe:.03,zoom:0,shake:0,pulse:0},
- Groove:{shotBars:4,follow:.8,minBars:2,maxBars:16,setSize:3,fade:4,layerDensity:.6,lookVar:.5,trails:0,slowmo:.1,breathe:.02,zoom:.02,zoomOn:'bar',shake:0,pulse:0,pulseOn:'kick'},
- Demo:{shotBars:2,follow:.9,minBars:1,maxBars:4,setSize:4,fade:2,layerDensity:.7,lookVar:.7,trails:0,slowmo:0,breathe:.01,zoom:.04,zoomOn:'kick',shake:.004,shakeOn:'kick',pulse:.05,pulseOn:'kick',pulseMode:'light',hardCuts:.8,rush:1,cutStart:true,tempoLock:true,punch:.4,dFlash:.35,dVar:0,dOn:'kick'}};
+ Groove:{shotBars:4,follow:.8,minBars:2,maxBars:16,setSize:3,fade:4,layerDensity:.6,lookVar:.5,trails:0,slowmo:.1,breathe:.02,zoom:.02,zoomOn:'bar',shake:0,pulse:0,pulseOn:'kick'}};
 Object.keys(PRE).forEach(k=>PRE[k]={...DZ,...PRE[k]});const fld=f=>{const id='o_'+f.k,h=f.h?`<div class="h">${f.h}</div>`:'';let c;
  if(f.t=='r')c=`<div class="c"><input id="${id}" type="range" min="${f.min}" max="${f.max}" step="${f.step}" value="${f.v}"><output>${f.v}</output></div>`;
  else if(f.t=='s')c=`<select id="${id}">${f.op.map(x=>`<option ${x==f.v?'selected':''}>${x}</option>`).join('')}</select>`;
@@ -633,8 +615,8 @@ const ease=x=>x*x*(3-2*x),ease5=x=>x*x*x*(x*(x*6-15)+10),CM={add:'lighter'};
 
 function renderJob(j,A,L,P){
  return new Promise(async (resolve,reject)=>{let _src=null,_rec=null;try{
-  CUTSTART=!!j.o.cutStart;const o=j.o,{slots,layers,looks}=P,[W,H]=o.res.split('x').map(Number),cv=document.createElement('canvas'),cued={},dfx=window.SPKDemo?SPKDemo.create(W,H,(+o.seed||0)%100000):null;cv.width=W;cv.height=H;const g=cv.getContext('2d',{alpha:false});g.fillStyle='#000';g.fillRect(0,0,W,H);
-  const ta=slots.map(s=>s.t0-s.xf/2),T={zoom:trig(A,o.zoomOn),shake:trig(A,o.shakeOn),pulse:trig(A,o.pulseOn),fx:trig(A,o.dOn),pn:trig(A,'kick')},beatS=60/A.tempo;
+  CUTSTART=!!j.o.cutStart;const o=j.o,{slots,layers,looks}=P,[W,H]=o.res.split('x').map(Number),cv=document.createElement('canvas'),cued={};cv.width=W;cv.height=H;const g=cv.getContext('2d',{alpha:false});g.fillStyle='#000';g.fillRect(0,0,W,H);
+  const ta=slots.map(s=>s.t0-s.xf/2),T={zoom:trig(A,o.zoomOn),shake:trig(A,o.shakeOn),pulse:trig(A,o.pulseOn),pn:trig(A,'kick')},beatS=60/A.tempo;
   mkPool();pool.forEach(p=>{p.loop=-1;p.el.pause()});
   const findK=m=>{let lo=0,hi=slots.length-1,r=0;while(lo<=hi){const k=(lo+hi)>>1;if(ta[k]<=m){r=k;lo=k+1}else hi=k-1}return r};
   const eAt=m=>{let lo=0,hi=A.nb-1;while(lo<hi){const k=(lo+hi+1)>>1;if(A.bt[k]<=m)lo=k;else hi=k-1}return A.energy[lo]};
@@ -678,7 +660,6 @@ function renderJob(j,A,L,P){
    if(look.mirror&&fx>.5){g.save();g.translate(W,0);g.scale(-1,1);g.drawImage(cv,0,0,W/2,H,0,0,W/2,H);g.restore()}
    for(const[lk,w]of[[pl,1-fx],[look,fx]])if(lk.tint>0&&w>.01){g.globalCompositeOperation='soft-light';g.fillStyle=`hsla(${lk.hue},80%,55%,${Math.min(1,lk.tint*react*w)})`;g.fillRect(0,0,W,H);g.globalCompositeOperation='source-over'}
    const pu=o.pulse*bo*env(T.pulse,m,10);if(pu>.002){g.fillStyle=o.pulseMode=='light'?`rgba(255,255,255,${pu})`:`rgba(0,0,0,${pu*2})`;g.fillRect(0,0,W,H)}
-   if(dfx)dfx.apply(g,cv,o,{m,kk:env(T.fx,m,9),hue:look.hue,ci:s.cluster,pci:k>0?slots[k-1].cluster:s.cluster,fx,cut:(k>0&&s.cluster!==slots[k-1].cluster?.9:s.kind=='drop'?1:.35)*Math.exp(-5*Math.max(0,m-s.t0))});
    j.prog=m/A.dur;const now=performance.now();if(now-lastUI>500){lastUI=now;try{localStorage.setItem('mm_beat',String(Date.now()))}catch(e){}j.tctx&&j.tctx.drawImage(cv,0,0,192,108);upd(j)}};
   tickW.onmessage=()=>{try{tickBody()}catch(e){if(ended)return;j.note='The render hit a problem ('+(e&&e.message||e)+') and was stopped. What was made so far is kept.';finish('stopped').catch(()=>{})}};
   tickW.postMessage(o.fps);
