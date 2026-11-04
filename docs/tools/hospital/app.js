@@ -27,6 +27,9 @@ const STEPS = [
   { s: 'crop', ic: '🔲', title: 'Crop to a shape', hint: 'Cut the picture to the shape you need.', f: [
     seg('shape', 'Shape', [['169', '16:9'], ['916', '9:16'], ['11', '1:1'], ['43', '4:3'], ['219', '21:9']]),
     seg('pos', 'Keep which part', [['c', 'The middle'], ['a', 'The start'], ['z', 'The end']])] },
+  { s: 'smooth', ic: '🧈', title: 'Smooth out', hint: 'Fix jerky movement. It finds the places where the picture lurches or crawls and evens out the speed. The clip can come out a little shorter or longer.', f: [
+    { k: 'strength', t: 'range', l: 'How much to even out', min: 0, max: 100, step: 5, h: 'Higher is smoother, but it changes the natural rhythm of the clip more.' },
+    { k: 'dropOdd', t: 'bool', l: 'Remove stray frames that jump out of place', adv: 1 }] },
   { s: 'slow', ic: '🐢', title: 'Slow motion', hint: 'Make the clip slower, or smoother.', f: [
     seg('factor', 'How much slower', [['2', '2×'], ['4', '4×'], ['8', '8×']], 1),
     seg('mode', 'Result', [['slow', 'Slow motion'], ['smooth', 'Same speed, smoother']], 0, 'Slow motion makes the clip longer. Smoother adds frames per second.'),
