@@ -31,6 +31,13 @@ const STEPS = [
   { s: 'smooth', ic: '🧈', title: 'Smooth out', hint: 'Fix jerky movement. It finds the places where the picture lurches or crawls and evens out the speed. The clip can come out a little shorter or longer.', f: [
     { k: 'strength', t: 'range', l: 'How much to even out', min: 0, max: 100, step: 5, h: 'Higher is smoother, but it changes the natural rhythm of the clip more.' },
     { k: 'dropOdd', t: 'bool', l: 'Remove stray frames that jump out of place', adv: 1 }] },
+  { s: 'fps', ic: '⚡', title: 'Frame rate', hint: 'Make the clip 60 frames per second without stutter. New frames are made between the old ones, so the movement stays smooth. A clip that loops keeps its seam and its length.', f: [
+    seg('target', 'Frames per second', [['60', '60'], ['50', '50'], ['30', '30']], 1),
+    seg('engine', 'Method', [['blend', 'Soft blend'], ['motion', 'Smooth motion'], ['ai', 'AI (best)']], 0, 'Soft blend is fast and works everywhere, also on a phone. Smooth motion follows the movement and is cleaner on fast action, but it is slow, so use a short clip on a phone. AI gives the best result, but needs the Linux version with Video2X and a graphics card.'),
+    sel('model', 'AI model', [['rife-v4.6', 'General video'], ['rife-v4.26', 'Newest model']]),
+    { k: 'loop', t: 'bool', l: 'This clip loops (keep the seam smooth)', adv: 1, h: 'The new frames across the loop point are made from the last and the first frame, so there is no jump or stutter there. Clips that do not loop are left alone.' },
+    { k: 'fix', t: 'bool', l: 'Fix stepping from repeated frames', adv: 1, h: 'Some clips repeat frames (animation on twos, or 12 fps in a 30 fps file). They are removed first, so the movement is spread out smoothly instead of moving in steps.' },
+    { k: 'gpu', t: 'number', l: 'Graphics card number for AI (0 = automatic)', h: 'Automatic picks a real graphics card and avoids the slow software driver. Change it only if the wrong card is used.', adv: 1 }] },
   { s: 'slow', ic: '🐢', title: 'Slow motion', hint: 'Make the clip slower, or smoother.', f: [
     seg('factor', 'How much slower', [['2', '2×'], ['4', '4×'], ['8', '8×']], 1),
     seg('mode', 'Result', [['slow', 'Slow motion'], ['smooth', 'Same speed, smoother']], 0, 'Slow motion makes the clip longer. Smoother adds frames per second.'),
@@ -113,7 +120,7 @@ function syncUI() {   // push the recipe into the inputs after a suggestion was 
   STEPS.forEach(st => setOn(st.s, !!R[st.s].on));
   lookCount(); info();
 }
-function aiBtn() { const b = $('#aiprev'); if (b) b.classList.toggle('hide', !(ST.v2xReady(engine) && ((R.slow.on && R.slow.engine === 'ai') || (R.up.on && R.up.engine === 'ai')))); }
+function aiBtn() { const b = $('#aiprev'); if (b) b.classList.toggle('hide', !(ST.v2xReady(engine) && ((R.slow.on && R.slow.engine === 'ai') || (R.fps.on && R.fps.engine === 'ai') || (R.up.on && R.up.engine === 'ai')))); }
 function info() {
   aiBtn();
   const on = STEPS.filter(s => R[s.s].on).map(s => T(s.title));
@@ -145,8 +152,8 @@ document.addEventListener('input', onField); document.addEventListener('change',
 const status = t => { $('#engine').textContent = t || ''; };
 function aiAvail() {   // the AI choices only work with the local Linux version and Video2X
   const ok = ST.v2xReady(engine), why = T('AI needs the Linux version with Video2X installed.');
-  document.querySelectorAll('[data-s=slow][data-k=engine][value=ai], [data-s=up][data-k=engine][value=ai]').forEach(r => { r.disabled = !ok; r.parentElement.title = ok ? '' : why; });
-  ['slow', 'up'].forEach(k => { if (!ok && R[k].engine === 'ai') { R[k].engine = k === 'up' ? 'sharp' : 'blend'; syncUI(); } });
+  document.querySelectorAll('[data-s=slow][data-k=engine][value=ai], [data-s=fps][data-k=engine][value=ai], [data-s=up][data-k=engine][value=ai]').forEach(r => { r.disabled = !ok; r.parentElement.title = ok ? '' : why; });
+  ['slow', 'fps', 'up'].forEach(k => { if (!ok && R[k].engine === 'ai') { R[k].engine = k === 'up' ? 'sharp' : 'blend'; syncUI(); } });
 }
 // On a phone the "After" video sits right above the preview button, so you do not have to scroll up to see the result.
 const narrow = window.matchMedia('(max-width: 640px)');
@@ -167,7 +174,7 @@ const openInput = async file => engine.mount(new File([file], 'src' + (extOf(fil
 const okFile = f => OK_EXT.has(extOf(f.name));
 
 async function choose(file, converted) {
-  if (!file) return;
+  if (!file) return; const g0 = gen;
   $('#gifbar').classList.add('hide'); if (!converted) $('#gifdone').classList.add('hide');
   if (!okFile(file)) { $('#msg').textContent = 'That is not a video type I know.'; return; }
   if (patient) URL.revokeObjectURL(patient.url);
@@ -179,7 +186,7 @@ async function choose(file, converted) {
   try {
     await ensureEngine(); path = await openInput(file);
     const inf = await L.probe(engine, path, file.name); if (!inf.width) throw new Error('No picture found in this file');
-    patient.info = inf;
+    if (g0 !== gen || !patient) return; patient.info = inf;
     if (inf.duration > 0 && inf.duration <= 60) { try { patient.loop = await L.analyze(engine, path, inf); } catch (e) { patient.loop = null; } }
     examine();
   } catch (e) { $('#facts').innerHTML = ''; $('#msg').textContent = e.message; }
@@ -226,9 +233,11 @@ const setBusy = b => {
   $('#stop').classList.toggle('hide', !b); $('#bar').classList.toggle('hide', !b); if (!b) { $('#pausebtn').classList.add('hide'); pauseReq = false; } else $('#pausebtn').classList.toggle('hide', units.total < 2);
 };
 // One bar for the whole run (all looks of all clips), never backwards; stripes while nothing is known yet.
-let units = { done: 0, total: 1 }, best = 0, pauseReq = false;
+let units = { done: 0, total: 1 }, best = 0, bestAt = 0, pauseReq = false, gen = 0, runTick = null;
+// Long names (a hash, say) would break the layout: show the start and the end of the name, with the whole name on hover.
+const short = (name, max = 34) => { name = String(name || ''); return name.length <= max ? name : name.slice(0, max - 12).trimEnd() + '…' + name.slice(-10); };
 const prog = x => {
-  best = Math.max(best, Math.min(1, (units.done + clamp01(x)) / units.total));
+  const nb = Math.max(best, Math.min(1, (units.done + clamp01(x)) / units.total)); if (nb > best + 1e-4) bestAt = Date.now(); best = nb;
   $('#bar i').style.width = Math.round(best * 1000) / 10 + '%'; $('#bar').classList.toggle('ind', best < 0.002 && !pauseReq);
 };
 async function waitPause() {   // pause takes effect between clips/looks: a pass that is running cannot be frozen
@@ -244,7 +253,7 @@ async function treat(file, out, rec, label, base) {
     path = await openInput(file);
     const inf = await L.probe(engine, path, file.name); if (!inf.width) throw new Error('No picture found in this file');
     const r = await ST.runRecipe(engine, L, path, out, inf, rec, base || baseProf(), { ctl, onProgress: prog, tmp: 'hosp_tmp_' + nextId + '.mp4',
-      onStage: (kind, sec, i) => setCur(T(kind === 'up' ? 'AI upscaling…' : 'AI slow motion…') + (i && i.gpu ? ' · ' + i.gpu : '') + (i && i.soft ? ' · ' + T('Only a software graphics driver was found. AI will be very slow. Install the Vulkan driver for your graphics card.') : '')) });
+      onStage: (kind, sec, i) => setCur(T(kind === 'up' ? 'AI upscaling…' : kind === 'fps' ? 'AI frame rate…' : 'AI slow motion…') + (i && i.gpu ? ' · ' + i.gpu : '') + (i && i.soft ? ' · ' + T('Only a software graphics driver was found. AI will be very slow. Install the Vulkan driver for your graphics card.') : '')) });
     const data = await engine.read(out); await engine.remove(out);
     return { data, note: r.note };
   } finally { if (path) await engine.unmount(path); }
@@ -252,15 +261,16 @@ async function treat(file, out, rec, label, base) {
 let curLabel = '';
 const setCur = s => { curLabel = s; $('#cur').textContent = s; };
 async function run(fn) {
-  if (busy) return; $('#msg').textContent = ''; best = 0; pausedMs = 0; pauseReq = false; setBusy(true); prog(0); ctl = { cancel: false, check() { if (this.cancel) throw new Error('cancelled'); } };
-  const c = ctl, t0 = Date.now(), started = t0;   // a clock, so you can see that it is working even when the browser reports no progress
-  const tick = setInterval(() => {
+  if (busy) return; $('#msg').textContent = ''; best = 0; bestAt = Date.now(); pausedMs = 0; pauseReq = false; setBusy(true); prog(0); ctl = { cancel: false, check() { if (this.cancel) throw new Error('cancelled'); } };
+  const c = ctl, g = gen, t0 = Date.now(), started = t0;   // a clock, so you can see that it is working even when the browser reports no progress
+  const tick = runTick = setInterval(() => {
     if (pauseReq && $('#bar').classList.contains('pz')) return;
-    const s = Math.round((Date.now() - t0 - pausedMs) / 1000), left = best >= 0.03 && s >= 8 && best < 1 ? ' · ' + T('about {a} left').replace('{a}', fmtDur(s * (1 - best) / best)) : '';
+    const s = Math.round((Date.now() - t0 - pausedMs) / 1000), left = best >= 0.03 && s >= 8 && best < 1 && Date.now() - bestAt < 20000 ? ' · ' + T('about {a} left').replace('{a}', fmtDur(s * (1 - best) / best)) : '';
     $('#cur').textContent = curLabel + (best > 0 ? ' · ' + Math.floor(best * 100) + '%' : '') + ' · ' + Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0') + left + (s >= 60 && best < 0.5 ? ' — ' + T('Still working. Slow motion and loop fixes are heavy for a browser, especially on a phone. Short clips finish sooner.') : '');
   }, 1000);
-  try { await ensureEngine(); await fn(); } catch (e) { $('#msg').textContent = (c.cancel || e.message === 'cancelled') ? T('Stopped.') : e.message; }
-  clearInterval(tick); setBusy(false); ctl = null; setCur('');
+  try { await ensureEngine(); await fn(); } catch (e) { if (g !== gen) return clearInterval(tick); $('#msg').textContent = (c.cancel || e.message === 'cancelled') ? T('Stopped.') : e.message; }
+  clearInterval(tick); if (g !== gen) return;   // "Start over" was pressed while this ran: it has already cleaned up
+  setBusy(false); ctl = null; setCur('');
 }
 $('#pausebtn').onclick = () => { pauseReq = !pauseReq; $('#pausebtn').textContent = pauseReq ? T('Resume') : T('Pause after this clip'); };
 $('#stop').onclick = () => { if (ctl) ctl.cancel = true; engine.terminate(); setCur(T('Stopping…')); };
@@ -271,7 +281,7 @@ $('#prev').onclick = () => run(async () => {
   // clip, then the normal loop / life / repeat steps, so the preview runs for 12 to 20 seconds and loops in the player.
   const rec = JSON.parse(JSON.stringify(ST.variants(R)[0].rec)), cap = rec.slow.on ? 4 : 8;
   rec.cut = { on: true, start: rec.cut.on ? rec.cut.start : 0, len: Math.min(rec.cut.on && rec.cut.len > 0 ? rec.cut.len : cap, cap) };
-  const aiSlow = rec.slow.on && rec.slow.engine === 'ai'; if (aiSlow) rec.slow.engine = 'blend';
+  const aiSlow = (rec.slow.on && rec.slow.engine === 'ai') || (rec.fps.on && rec.fps.engine === 'ai'); if (rec.slow.engine === 'ai') rec.slow.engine = 'blend'; if (rec.fps.engine === 'ai') rec.fps.engine = 'blend'; if (rec.fps.on && rec.fps.engine === 'motion') rec.fps.engine = 'blend';
   const notUp = rec.up.on; rec.up.on = false; rec.size = { on: true, box: '480x270', fit: 'keep', upscale: false };
   rec.out.minSeconds = Math.min(20, Math.max(12, rec.out.minSeconds || 0)); rec.out.crf = 28;
   setCur('Making a preview…');
@@ -295,25 +305,26 @@ $('#aiprev').onclick = () => run(async () => {   // the real AI on a couple of s
 function addResult(name, data, note) {
   const blob = new Blob([data], { type: 'video/mp4' });
   RESULTS.push({ id: nextId++, name, blob, size: data.length, note, url: URL.createObjectURL(blob) });
-  $('#res').innerHTML = RESULTS.map(r => `<div class="rr"><a href="${r.url}" download="${esc(r.name)}">${esc(r.name)} <small class="muted">${fmtSize(r.size)}${r.note ? ' · ' + esc(r.note) : ''}</small></a><button class="sm" data-up="${r.id}" type="button">Upload…</button></div>`).join('');
+  $('#res').innerHTML = RESULTS.map(r => `<div class="rr"><a href="${r.url}" download="${esc(r.name)}" title="${esc(r.name)}">${esc(short(r.name, 44))} <small class="muted">${fmtSize(r.size)}${r.note ? ' · ' + esc(r.note) : ''}</small></a><button class="sm" data-up="${r.id}" type="button">Upload…</button></div>`).join('');
   $('#more').classList.remove('hide'); $('#zipall').classList.toggle('hide', RESULTS.length < 2);
 }
 const outName = (f, suffix) => stemOf(f.name).replace(/\s+/g, '_') + (suffix ? '_' + suffix : '') + '_healed.mp4';
 const lookName = id => (FILTERS.find(x => x.id === id) || {}).name || id;
 // treat one clip once for every look picked (or just once), adding every finished file to the results
 async function treatClip(file, label) {
-  const vs = ST.variants(R); let n = 0;
+  const vs = ST.variants(R), g = gen; let n = 0;
   for (const v of vs) {
     ctl.check(); await waitPause(); ctl.check(); n++;
     setCur(label + (vs.length > 1 ? ` · ${v.suffix ? lookName(v.suffix) : T('No look')} (${n}/${vs.length})` : ''));
     const r = await treat(file, `hosp_${nextId}.mp4`, v.rec, 'clip');
+    if (g !== gen) throw new Error('cancelled');
     addResult(outName(file, v.suffix), r.data, r.note); units.done++; prog(0);
   }
 }
 $('#go').onclick = () => run(async () => {
   if (!patient || !patient.info) throw new Error('Choose a clip first.');
   units = { done: 0, total: ST.variants(R).length }; $('#pausebtn').classList.toggle('hide', units.total < 2);
-  await treatClip(patient.file, patient.file.name);
+  await treatClip(patient.file, short(patient.file.name));
   const v = $('#vafter'); if (v.src) URL.revokeObjectURL(v.src); v.src = URL.createObjectURL(RESULTS[RESULTS.length - 1].blob); $('#fafter').classList.remove('hide'); showAfter(); $('#fafter figcaption').textContent = 'After';
 });
 $('#res').onclick = e => { const b = e.target.closest('[data-up]'); const r = b && RESULTS.find(x => x.id === +b.dataset.up); if (r && window.SPK_UP) SPK_UP.open(new File([r.blob], r.name, { type: 'video/mp4' }), { title: stemOf(r.name).replace(/_healed$/, ''), name: r.name }); };
@@ -324,8 +335,8 @@ $('#pickermore').onchange = e => {
     let n = 0, bad = 0; const per = ST.variants(R).length; units = { done: 0, total: files.length * per }; $('#pausebtn').classList.toggle('hide', units.total < 2);
     for (const f of files) {
       ctl.check();
-      try { await treatClip(f, `${f.name} (${++n}/${files.length})`); }
-      catch (er) { if (er.message === 'cancelled') throw er; bad++; units.done = Math.min(units.total, n * per); prog(0); $('#msg').textContent = `${f.name}: ${er.message}`; }
+      try { await treatClip(f, `${short(f.name)} (${++n}/${files.length})`); }
+      catch (er) { if (er.message === 'cancelled') throw er; bad++; units.done = Math.min(units.total, n * per); prog(0); $('#msg').textContent = `${short(f.name, 40)}: ${er.message}`; }
     }
     if (!bad) $('#msg').textContent = '';
   });
@@ -334,6 +345,27 @@ $('#zipall').onclick = async () => {
   try { const z = await makeZip(RESULTS.map(r => ({ name: r.name, blob: r.blob }))), u = URL.createObjectURL(z), a = document.createElement('a'); a.href = u; a.download = 'healed-loops.zip'; a.click(); setTimeout(() => URL.revokeObjectURL(u), 60000); }
   catch (e) { $('#msg').textContent = e.message; }
 };
+
+// Start over: clears the clip, the settings and the results, and stops whatever is running (also a job that has got stuck).
+let resetTimer = null;
+function resetAll() {
+  gen++; if (ctl) ctl.cancel = true; try { engine.terminate(); } catch (e) { /* the engine starts again when it is needed */ }
+  clearInterval(runTick); ctl = null; pauseReq = false; setBusy(false); setCur(''); $('#msg').textContent = ''; units = { done: 0, total: 1 }; best = 0;
+  if (patient) URL.revokeObjectURL(patient.url); patient = null;
+  RESULTS.forEach(r => URL.revokeObjectURL(r.url)); RESULTS = []; $('#res').innerHTML = ''; $('#more').classList.add('hide'); $('#zipall').classList.add('hide');
+  if (gifUrl) URL.revokeObjectURL(gifUrl); gifUrl = null; $('#gifbar').classList.add('hide'); $('#gifdone').classList.add('hide');
+  for (const id of ['vbefore', 'vafter']) { const v = $('#' + id); try { v.pause(); } catch (e) { /* ignore */ } if (id === 'vafter' && v.src) URL.revokeObjectURL(v.src); v.removeAttribute('src'); try { v.load(); } catch (e) { /* ignore */ } }
+  $('#fafter').classList.add('hide'); placeAfter(); $('#fafter figcaption').textContent = 'After (preview)';
+  $('#patient').classList.add('hide'); ['c3', 'c4'].forEach(i => $('#' + i).classList.add('hide')); $('#facts').innerHTML = ''; $('#findings').innerHTML = ''; $('#healall').classList.add('hide');
+  for (const id of ['picker', 'pickermore']) { try { $('#' + id).value = ''; } catch (e) { /* ignore */ } }
+  for (const k of Object.keys(R)) delete R[k]; Object.assign(R, ST.defaultRecipe()); buildSteps(); syncUI(); aiAvail();
+}
+function resetLabels(armed) { document.querySelectorAll('[data-reset]').forEach(b => { b.textContent = armed ? T('Tap again to start over') : T('↺ Start over'); b.classList.toggle('main', armed); }); }
+document.querySelectorAll('[data-reset]').forEach(b => { b.onclick = () => {
+  const something = busy || patient || RESULTS.length;
+  if (something && !resetTimer) { resetLabels(true); resetTimer = setTimeout(() => { resetTimer = null; resetLabels(false); }, 4000); return; }   // two taps, so nothing is lost by accident
+  clearTimeout(resetTimer); resetTimer = null; resetLabels(false); resetAll();
+}; });
 
 buildSteps(); info();
 window.HOSP = { R, choose, ST };   // for tests and the console

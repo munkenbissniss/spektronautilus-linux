@@ -18,7 +18,7 @@ button.main{background:var(--ink);color:var(--bg)}button.sm{padding:2px 10px;fon
 button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--b);outline-offset:2px}
 .drop{border:2px dashed var(--line);border-radius:10px;padding:14px;text-align:center;color:var(--mute)}.drop.over{border-color:var(--b);color:var(--ink)}
 .pv{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:12px;margin-top:12px}
-figure{margin:0;min-width:0}figure video{width:100%;max-height:360px;background:#000;border-radius:8px;display:block}#c4 #fafter{margin-bottom:10px}figcaption{font-size:.85rem;color:var(--mute);margin-top:2px}
+figure{margin:0;min-width:0}figure video{width:100%;max-height:360px;background:#000;border-radius:8px;display:block}#c4 #fafter{margin-bottom:10px}#cur,#msg,#facts,.res a{overflow-wrap:break-word;word-break:break-word;min-width:0}.rr a{min-width:0;flex:1 1 180px}.card{min-width:0}figcaption{font-size:.85rem;color:var(--mute);margin-top:2px}
 .hide{display:none!important}
 ul.find{list-style:none;margin:0 0 10px;padding:0;display:flex;flex-direction:column;gap:6px}
 ul.find li{display:flex;gap:10px;align-items:center;flex-wrap:wrap;border:1px solid var(--line);border-radius:10px;padding:6px 10px}ul.find li span{flex:1 1 220px;min-width:0}
@@ -60,7 +60,7 @@ ul.find li.ok{border-color:var(--ok);color:var(--ok)}
 <script src="../../shared/i18n.js"></script><script src="../../shared/upload.js" defer></script><script src="../../shared/extras.js" data-dock="1" data-guide="tools" defer></script>
 </head>
 <body><div class="wrap" role="main">
-<p style="margin:0 0 6px"><a href="../app/" style="color:inherit;font-size:.9rem;text-decoration:none">← VJ Tools</a></p>
+<p style="margin:0 0 6px;display:flex;justify-content:space-between;align-items:center;gap:10px"><a href="../app/" style="color:inherit;font-size:.9rem;text-decoration:none">← VJ Tools</a><button class="sm" id="reset" data-reset type="button" title="Clears the clip, all your settings and the results, and stops anything that is running.">↺ Start over</button></p>
 <h1>🏥 Loop Hospital</h1>
 <p class="sub">Bring in a clip. Find out what is wrong, treat it step by step, and send it home ready for the mixers.</p>
 <p class="hint" style="margin:-8px 0 14px">Everything runs inside your browser. Your files never leave your computer.</p>
@@ -92,7 +92,7 @@ ul.find li.ok{border-color:var(--ok);color:var(--ok)}
 </div>
 
 <div class="card hide" id="c4">
-  <div class="run"><button id="prev" type="button">Preview the treatment</button><button id="aiprev" class="hide" type="button" title="Runs the AI on 2 seconds and tells you how long the whole clip will take.">Try the AI on 2 seconds</button><button class="main" id="go" type="button">Treat and save</button><button id="stop" type="button" class="hide">Stop</button><button id="pausebtn" type="button" class="hide">Pause after this clip</button><span class="muted" id="info"></span></div>
+  <div class="run"><button id="prev" type="button">Preview the treatment</button><button id="aiprev" class="hide" type="button" title="Runs the AI on 2 seconds and tells you how long the whole clip will take.">Try the AI on 2 seconds</button><button class="main" id="go" type="button">Treat and save</button><button id="stop" type="button" class="hide">Stop</button><button class="sm" id="reset2" data-reset type="button" title="Clears the clip, all your settings and the results, and stops anything that is running.">↺ Start over</button><button id="pausebtn" type="button" class="hide">Pause after this clip</button><span class="muted" id="info"></span></div>
   <div class="bar hide" id="bar"><i style="width:0"></i></div>
   <div class="muted" id="cur"></div>
   <div id="msg" class="warn" style="margin-top:6px"></div>

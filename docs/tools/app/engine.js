@@ -11,11 +11,25 @@
 
 const VENDOR = new URL('./vendor/', import.meta.url);
 
+export const STALLED = 'The video engine stopped responding. On a phone this usually means it ran out of memory. It has been restarted. Try again, with a shorter or smaller clip.';
 export class WasmEngine {
-  constructor() { this.ff = null; this.cur = null; this.mounts = 0; this.loading = null; }
+  constructor() { this.ff = null; this.cur = null; this.mounts = 0; this.loading = null; this.last = Date.now(); this.stallMs = 120000; this.pingMs = 6000; this.opMs = 90000; }
+
+  // A worker that has been killed (a phone that ran out of memory, a tab that was asleep) never answers again, and the page would wait for
+  // ever with its buttons locked. So: ask it a quick question before the first call after a pause, give up on a run that has been silent
+  // for stallMs, and put a time limit on file operations. Giving up restarts the engine; the next call loads a fresh one.
+  async alive() {
+    if (!this.ff) return false; if (Date.now() - this.last < 3000 || typeof this.ff.listDir !== 'function') return true;
+    let t; try { await Promise.race([this.ff.listDir('/'), new Promise((_, rej) => { t = setTimeout(() => rej(new Error('no answer')), this.pingMs); })]); this.last = Date.now(); return true; }
+    catch (e) { return false; } finally { clearTimeout(t); }
+  }
+  async limit(p, ms = this.opMs) {
+    p.catch && p.catch(() => {}); let t;
+    try { return await Promise.race([p, new Promise((_, rej) => { t = setTimeout(() => { this.terminate(); rej(new Error(STALLED)); }, ms); })]); } finally { clearTimeout(t); }
+  }
 
   async load(onStatus = () => {}) {
-    if (this.ff) return;
+    if (this.ff) { if (await this.alive()) return; this.terminate(); }
     if (this.loading) return this.loading;
     this.loading = (async () => {
       onStatus('Loading the video engine (about 30 MB, only the first time)…');
@@ -25,8 +39,8 @@ export class WasmEngine {
         throw new Error('The video engine files are missing. Run  python3 get-ffmpeg.py  in the repository once (it downloads ffmpeg.wasm into docs/tools/vendor), then reload this page. (Using the Linux version? Install ffmpeg instead, for example  sudo apt install ffmpeg , and start Spektronautilus again.)');
       }
       const ff = new mod.FFmpeg();
-      ff.on('log', ({ message }) => { if (this.cur) this.cur.log.push(message); });
-      ff.on('progress', ({ progress, time }) => { const c = this.cur; if (!c || !c.onProgress) return; if (c.expect > 0 && time >= 0) c.onProgress(Math.min(1, time / 1e6 / c.expect)); else if (progress >= 0 && progress <= 1) c.onProgress(progress); });
+      ff.on('log', ({ message }) => { this.last = Date.now(); if (this.cur) this.cur.log.push(message); });
+      ff.on('progress', ({ progress, time }) => { this.last = Date.now(); const c = this.cur; if (!c || !c.onProgress) return; if (c.expect > 0 && time >= 0) c.onProgress(Math.min(1, time / 1e6 / c.expect)); else if (progress >= 0 && progress <= 1) c.onProgress(progress); });
       await ff.load({ coreURL: new URL('core/ffmpeg-core.js', VENDOR).href, wasmURL: new URL('core/ffmpeg-core.wasm', VENDOR).href });
       this.ff = ff;
     })();
@@ -36,26 +50,27 @@ export class WasmEngine {
   async exec(args, { onProgress } = {}) {
     await this.load();
     const cur = this.cur = { log: [], onProgress, expect: args.expect || 0 };   // kept in a local: Stop (terminate) clears this.cur while ffmpeg is still running
-    let code;
-    try { code = await this.ff.exec(args); }
-    finally { if (this.cur === cur) this.cur = null; }
+    this.last = Date.now(); let code, timer;
+    const stalled = new Promise((_, rej) => { timer = setInterval(() => { if (Date.now() - this.last > this.stallMs) { clearInterval(timer); this.terminate(); rej(new Error(STALLED)); } }, Math.min(1000, Math.max(5, this.stallMs / 4))); });
+    try { const run = this.ff.exec(args); run.catch && run.catch(() => {}); code = await Promise.race([run, stalled]); }
+    finally { clearInterval(timer); if (this.cur === cur) this.cur = null; }
     return { code, log: cur.log };
   }
-  async write(path, data) { await this.load(); await this.ff.writeFile(path, data); }
-  async read(path) { await this.load(); return await this.ff.readFile(path); }
+  async write(path, data) { await this.load(); await this.limit(this.ff.writeFile(path, data)); }
+  async read(path) { await this.load(); return await this.limit(this.ff.readFile(path)); }
   async readBlob(path, type) { return new Blob([await this.read(path)], { type }); }
-  async remove(path) { try { await this.ff.deleteFile(path); } catch (e) { /* already gone */ } }
+  async remove(path) { try { await this.limit(this.ff.deleteFile(path)); } catch (e) { /* already gone */ } }
 
   async mount(file) {
     await this.load();
     const dir = `m${++this.mounts}`;
-    await this.ff.createDir('/' + dir);
-    await this.ff.mount('WORKERFS', { files: [file] }, '/' + dir);
+    await this.limit(this.ff.createDir('/' + dir));
+    await this.limit(this.ff.mount('WORKERFS', { files: [file] }, '/' + dir));
     return `${dir}/${file.name}`;
   }
   async unmount(path) {
     const dir = path.split('/')[0];
-    try { await this.ff.unmount('/' + dir); await this.ff.deleteDir('/' + dir); } catch (e) { /* ignore */ }
+    try { await this.limit(this.ff.unmount("/" + dir)); await this.limit(this.ff.deleteDir("/" + dir)); } catch (e) { /* ignore */ }
   }
   terminate() { try { this.ff && this.ff.terminate(); } catch (e) { /* ignore */ } this.ff = null; this.cur = null; }
 }

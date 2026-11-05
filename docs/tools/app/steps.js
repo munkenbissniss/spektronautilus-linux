@@ -94,6 +94,25 @@ export const smoothChain = (plan, fps) => [
   `framerate=fps=${fps}:interp_start=0:interp_end=255:scene=100`,
 ].filter(Boolean).join(',');
 
+
+// ---------------------------------------------------------------------------------------------- Frame rate: 60 fps without stutter
+// New frames are made between the old ones (a blend, or motion interpolation), by timestamp, so a 24 fps clip does not get frames repeated in an
+// uneven rhythm. Two things keep it smooth: (1) a clip that loops is treated as a circle, so the new frames across the seam are made from the last
+// and the first frame, and the result has exactly the same length; (2) frames that are only repeated copies (animation shot on twos, or a 12 fps
+// clip in a 30 fps file) are removed first, so the movement is spread over the time they were held and no longer moves in steps.
+export function fpsPlan(data, n, fps, { target = 60, engine = 'blend', loop = true, fix = true } = {}) {
+  const F = fps || 25, T = Math.max(1, +target || 60);
+  if (n < 4 || T <= F + 0.5) return { skip: true, note: `already ${Math.round(F)} fps`, frames: n };
+  const d = new Float64Array(n - 1); for (let i = 0; i < n - 1; i++) d[i] = mdiff(data, i, i + 1);
+  const moving = Array.from(d).filter(x => x > 0.002), med = median(moving) || 0.01, same = Array.from(d).filter(x => x < Math.max(0.0015, 0.08 * med)).length / d.length;
+  const ref = Math.max(Array.from(d).sort((a, b) => a - b)[Math.floor((d.length - 1) * 0.9)], 0.004), wrap = mdiff(data, n - 1, 0);
+  const isLoop = !!loop && (wrap / ref <= 3 || wrap < 0.01), dedupe = !!fix && same >= 0.15;
+  const interp = engine === 'motion' ? `minterpolate=fps=${T}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1` : `framerate=fps=${T}:interp_start=0:interp_end=255:scene=${dedupe ? 100 : 40}`;
+  const M = Math.round(n / F * T);
+  return { skip: false, chain: [dedupe ? 'mpdecimate' : '', interp].filter(Boolean).join(','), wrap: isLoop, dedupe, frames: n, outFrames: M, repeated: same, target: T,
+    note: `${Math.round(F * 100) / 100} → ${T} fps${engine === 'motion' ? ' (smooth motion)' : ''}${isLoop ? ', loop seam kept' : ''}${dedupe ? ', stepping removed' : ''}` };
+}
+
 // ---------------------------------------------------------------------------------------------- "Bring it to life": organic motion for still loops
 // Everything here is periodic over a whole number of loop lengths, so the result still loops without a seam.
 //   ease    slow in and out: the clip lingers around the loop point and glides through the middle (speed changes, length does not)
@@ -180,6 +199,7 @@ export const defaultRecipe = () => ({
   crop: { on: false, shape: '169', pos: 'c' },
   rotate: { on: false, turn: '90', flip: 'none' },
   smooth: { on: false, strength: 70, dropOdd: true },
+  fps: { on: false, target: 60, engine: 'blend', model: 'rife-v4.6', gpu: 0, loop: true, fix: true },
   slow: { on: false, factor: 2, mode: 'slow', engine: 'blend', model: 'rife-v4.6', gpu: 0 },
   up: { on: false, scale: 2, sharp: 50, engine: 'sharp', model: 'realesr-animevideov3', gpu: 0 },
   size: { on: false, box: '1920x1080', fit: 'keep', upscale: false },
@@ -240,26 +260,26 @@ export function planRecipe(info, R, baseProf) {
 // Run the plan: one ffmpeg pass, then loop smoothing when asked. loops = the loops.js module. Returns { note }.
 // ---------------------------------------------------------------------------------------------- AI steps (Video2X, Linux local version)
 export const v2xReady = engine => !!(engine && engine.kind === 'native' && engine.info && engine.info.v2x && engine.info.v2x.ok && engine.v2x);
-export const wantsAi = R => !!((R.slow.on && R.slow.engine === 'ai') || (R.up.on && R.up.engine === 'ai'));
+export const wantsAi = R => !!((R.slow.on && R.slow.engine === 'ai') || (R.up.on && R.up.engine === 'ai') || (R.fps && R.fps.on && R.fps.engine === 'ai'));
 const clone = o => JSON.parse(JSON.stringify(o));
 const errLine = (r, re) => (r.log.filter(l => re.test(l)).slice(-1)[0] || 'code ' + r.code).slice(0, 160);
 
 // AI stages run first, each as its own pass: [cut, rotate, crop, soft slow motion] -> AI slow motion -> AI upscale. What is left
 // (look, life, size, loop, repeat) goes through the normal pass afterwards. Returns { path, info, R, notes, tmps }.
 async function aiStages(engine, loops, src, info, R, baseProf, ctl, report, onStage, tag) {
-  const tmps = [], notes = [], v = engine.info.v2x, aiSlow = R.slow.on && R.slow.engine === 'ai', aiUp = R.up.on && R.up.engine === 'ai';
+  const tmps = [], notes = [], v = engine.info.v2x, aiSlow = R.slow.on && R.slow.engine === 'ai', aiUp = R.up.on && R.up.engine === 'ai', aiFps = !!(R.fps && R.fps.on && R.fps.engine === 'ai');
   const R3 = clone(R), pre = clone(R);
   let path = src, cur = info, done = 0;
   const W = { a: 1, ai: 6, fin: 2 }, usesA = R.cut.on || R.rotate.on || R.crop.on || (R.slow.on && !aiSlow);
-  const total = (usesA ? W.a : 0) + (aiSlow ? W.ai : 0) + (aiUp ? W.ai : 0) + W.fin;
+  const total = (usesA ? W.a : 0) + (aiSlow ? W.ai : 0) + (aiFps ? W.ai : 0) + (aiUp ? W.ai : 0) + W.fin;
   const rep = (w, x) => { lastP = Math.min(1, x); report && report((done + w * Math.min(1, x)) / total); };
   const finish = w => { done += w; };
   let dev = null, lastP = 0;
   const tick = kind => { const t0 = Date.now(); lastP = 0; const send = () => { const sec = Math.round((Date.now() - t0) / 1000); onStage && onStage(kind, sec, { p: lastP, eta: lastP > .03 ? sec * (1 - lastP) / lastP : null, gpu: dev && dev.name, soft: !!(dev && dev.soft) }); }; send(); return setInterval(send, 1000); };
-  const card = async () => dev || (dev = await aiDevice(engine, +R.up.gpu || +R.slow.gpu || 0));
+  const card = async () => dev || (dev = await aiDevice(engine, +R.up.gpu || +R.slow.gpu || +(R.fps && R.fps.gpu) || 0));
   // pass A: plain ffmpeg work that comes before the AI, kept near lossless
   if (usesA) {
-    pre.up.on = false; pre.life.on = false; pre.look.on = false; pre.loop.on = false; pre.size.on = false; pre.out = { ...pre.out, crf: 12, minSeconds: 0, fps: 0, keepAudio: false };
+    pre.up.on = false; pre.fps.on = false; pre.kb.on = false; pre.smooth.on = false; pre.life.on = false; pre.look.on = false; pre.loop.on = false; pre.size.on = false; pre.out = { ...pre.out, crf: 12, minSeconds: 0, fps: 0, keepAudio: false };
     if (aiSlow) pre.slow.on = false;
     const pa = planRecipe(info, pre, { ...baseProf, maxMBps: 0, preset: 'veryfast' }), out = `${tag}_a.mp4`; tmps.push(out);
     ctl.check();
@@ -284,6 +304,32 @@ async function aiStages(engine, loops, src, info, R, baseProf, ctl, report, onSt
     }
     cur = await loops.probe(engine, path); R3.slow.on = false; notes.push(smooth ? `AI smoother, ${m}× frames` : `AI slow motion ${m}× slower`);
   }
+  if (aiFps) {   // AI frame rate: RIFE makes whole-number multiples of the frames, then a blend lands exactly on the target
+    const F = cur.fps || 25, Tg = +R.fps.target || 60; R3.fps.on = false;
+    if (F >= Tg - 0.5) { notes.push(`already ${Math.round(F)} fps`); finish(W.ai); }
+    else {
+      const m = Math.min(8, Math.max(2, Math.ceil(Tg / F - 0.01))); ctl.check();
+      const g = await loops.grayFrames(engine, path, F), pl = fpsPlan(g.data, g.n, F, { target: Tg, engine: 'ai', loop: R.fps.loop !== false, fix: false }), N = g.n, M = Math.round(N / F * Tg);
+      let inp = path;
+      if (pl.wrap) {   // the first frame is added at the end, so the AI also makes the frames across the loop seam
+        const w = `${tag}_fw.mp4`; tmps.push(w);
+        const rw = await engine.exec(['-y', '-i', path, '-an', '-filter_complex', `[0:v]split[a][b];[b]trim=end_frame=1,setpts=PTS-STARTPTS[c];[a][c]concat=n=2:v=1:a=0[o]`, '-map', '[o]', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '12', '-pix_fmt', 'yuv420p', '-r', String(F), '-fps_mode', 'cfr', w]);
+        if (rw.code !== 0) throw new Error('Could not prepare this clip (' + errLine(rw, /error|invalid|not supported|unknown/i) + ')');
+        inp = w;
+      }
+      const out = `${tag}_f.mp4`; tmps.push(out); await card(); const t = tick('fps');
+      let r; try { r = await engine.v2x(['-i', inp, '-o', out, '-p', 'rife', '--rife-model', R.fps.model || 'rife-v4.6', v.mul || '-m', String(m), '-c', 'libx264', '-e', 'preset=veryfast', '-e', 'crf=14', ...dev.args], { onProgress: x => rep(W.ai, x) }); } finally { clearInterval(t); }
+      if (r.code !== 0) throw new Error('Could not change the frame rate of this file (' + errLine(r, /error|invalid|fail|not supported|unknown|vulkan|rife/i) + ')');
+      finish(W.ai); path = out;
+      if (pl.wrap || Math.abs(F * m - Tg) > 0.05) {   // land on the target and cut to exactly the length of the clip
+        const o2 = `${tag}_f2.mp4`; tmps.push(o2);
+        const r2 = await engine.exec(['-y', '-i', path, '-an', ...(Math.abs(F * m - Tg) > 0.05 ? ['-vf', `framerate=fps=${Tg}:interp_start=0:interp_end=255:scene=100`] : []), ...(pl.wrap ? ['-frames:v', String(M)] : []), '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '12', '-pix_fmt', 'yuv420p', '-r', String(Tg), '-fps_mode', 'cfr', o2]);
+        if (r2.code !== 0) throw new Error('Could not change the frame rate of this file (' + errLine(r2, /error|invalid|not supported|unknown/i) + ')');
+        path = o2;
+      }
+      cur = await loops.probe(engine, path); notes.push(`AI ${Math.round(F * 100) / 100} → ${Tg} fps${pl.wrap ? ', loop seam kept' : ''}`);
+    }
+  }
   if (aiUp) {
     const plus = R.up.model === 'realesrgan-plus', sc = plus ? 4 : Math.min(4, Math.max(2, Math.round(+R.up.scale) || 2)), a4k = R.up.model === 'anime4k';
     if (cur.width * sc > 7680 || cur.height * sc > 7680) throw new Error('The result would be larger than 8K. Choose a smaller scale or a smaller clip.');
@@ -298,34 +344,56 @@ async function aiStages(engine, loops, src, info, R, baseProf, ctl, report, onSt
   return { path, info: cur, R: R3, notes, tmps, rest: W.fin / total, base: done / total };
 }
 
-// Smooth out runs first, as its own pass: [cut] -> look at the movement -> retime. The rest of the recipe then works on the result.
-async function smoothStage(engine, loops, src, info, R, baseProf, ctl, report, tag) {
-  const tmps = [], W = { cut: 1, look: 1, enc: 6, fin: 3 }, usesCut = R.cut.on, total = (usesCut ? W.cut : 0) + W.look + W.enc + W.fin;
+// Smooth out and Frame rate run first, as their own passes: [cut] -> [look at the movement and retime] -> [make the new frames]. The rest of the
+// recipe then works on the result. (AI frame rate is done in aiStages, which also needs the Video2X engine.)
+async function timeStage(engine, loops, src, info, R, baseProf, ctl, report, tag) {
+  const doS = !!(R.smooth && R.smooth.on), doF = !!(R.fps && R.fps.on && R.fps.engine !== 'ai'), usesCut = !!R.cut.on;
+  const tmps = [], W = { cut: 1, look: 1, enc: 6, fin: 3 }, total = (usesCut ? W.cut : 0) + (doS ? W.look + W.enc : 0) + (doF ? W.look + W.enc : 0) + W.fin, notes = [];
   let done = 0, path = src, cur = info;
   const rep = (w, x) => report && report((done + w * Math.min(1, x)) / total);
-  const R3 = clone(R); R3.smooth.on = false;
+  const R3 = clone(R); R3.smooth.on = false; if (doF) R3.fps.on = false;
+  const enc = ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '12', '-pix_fmt', 'yuv420p', '-g', '30'];
+  const fail = (what, r) => new Error(`Could not ${what} (` + errLine(r, /error|invalid|not supported|unknown|no such/i) + ')');
   if (usesCut) {
-    const pre = clone(R); for (const k of ['crop', 'rotate', 'slow', 'up', 'size', 'look', 'life', 'loop', 'smooth']) pre[k].on = false;
+    const pre = clone(R); for (const k of ['crop', 'rotate', 'slow', 'up', 'size', 'look', 'life', 'kb', 'loop', 'smooth', 'fps']) if (pre[k]) pre[k].on = false;
     pre.out = { ...pre.out, crf: 12, minSeconds: 0, fps: 0, keepAudio: false };
     const pa = planRecipe(info, pre, { ...baseProf, maxMBps: 0, preset: 'veryfast' }), out = `${tag}_c.mp4`; tmps.push(out); ctl.check();
     const r = await engine.exec(encodeArgs(src, out, { ...pa.prof, crf: 12, minSeconds: 0, maxMBps: 0, preset: 'veryfast' }, pa.cur, { pre: pa.pre, seek: pa.seek, limit: pa.limit, repeat: 1 }), { onProgress: x => rep(W.cut, x) });
-    if (r.code !== 0) throw new Error('Could not prepare this clip (' + errLine(r, /error|invalid|not supported|unknown|no such/i) + ')');
+    if (r.code !== 0) throw fail('prepare this clip', r);
     done += W.cut; path = out; cur = await loops.probe(engine, out); R3.cut.on = false;
   }
-  const fps = chooseFps({ ...cur, fps: cur.fps || 25 }, { fps: 0, maxFps: 60 }); ctl.check();
-  const g = await loops.grayFrames(engine, path, fps); done += W.look; report && report(done / total); ctl.check();
-  const plan = smoothPlan(g.data, g.n, fps, { strength: Math.max(0, Math.min(100, +R.smooth.strength || 0)) / 100, dropOdd: R.smooth.dropOdd !== false });
-  if (!plan.changed) return { path, info: cur, R: R3, notes: ['already even'], tmps, base: done / total, rest: W.fin / total };
-  const out = `${tag}_sm.mp4`; tmps.push(out); ctl.check();
-  const r = await engine.exec(['-y', '-i', path, '-an', '-vf', smoothChain(plan, fps), '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '12', '-pix_fmt', 'yuv420p', '-g', '30', '-r', String(fps), '-fps_mode', 'cfr', '-movflags', '+faststart', out], { onProgress: x => rep(W.enc, x) });
-  if (r.code !== 0) throw new Error('Could not smooth this clip (' + errLine(r, /error|invalid|not supported|unknown|no such/i) + ')');
-  done += W.enc; cur = await loops.probe(engine, out);
-  return { path: out, info: cur, R: R3, notes: [plan.drop.length ? 'smoothed, stray frames removed' : 'smoothed'], tmps, base: done / total, rest: W.fin / total };
+  if (doS) {
+    const fps = chooseFps({ ...cur, fps: cur.fps || 25 }, { fps: 0, maxFps: 60 }); ctl.check();
+    const g = await loops.grayFrames(engine, path, fps); done += W.look; report && report(done / total); ctl.check();
+    const plan = smoothPlan(g.data, g.n, fps, { strength: Math.max(0, Math.min(100, +R.smooth.strength || 0)) / 100, dropOdd: R.smooth.dropOdd !== false });
+    if (!plan.changed) { done += W.enc; notes.push('already even'); }
+    else {
+      const out = `${tag}_sm.mp4`; tmps.push(out); ctl.check();
+      const r = await engine.exec(['-y', '-i', path, '-an', '-vf', smoothChain(plan, fps), ...enc, '-r', String(fps), '-fps_mode', 'cfr', '-movflags', '+faststart', out], { onProgress: x => rep(W.enc, x) });
+      if (r.code !== 0) throw fail('smooth this clip', r);
+      done += W.enc; path = out; cur = await loops.probe(engine, out); notes.push(plan.drop.length ? 'smoothed, stray frames removed' : 'smoothed');
+    }
+  }
+  if (doF) {
+    const F = cur.fps || 25; ctl.check();
+    const g = await loops.grayFrames(engine, path, F); done += W.look; report && report(done / total); ctl.check();
+    const pl = fpsPlan(g.data, g.n, F, { target: +R.fps.target || 60, engine: R.fps.engine, loop: R.fps.loop !== false, fix: R.fps.fix !== false });
+    if (pl.skip) { done += W.enc; notes.push(pl.note); }
+    else {
+      const out = `${tag}_fr.mp4`; tmps.push(out); ctl.check();
+      const args = ['-y', ...(pl.wrap ? ['-stream_loop', '1'] : []), '-i', path, '-an', '-vf', pl.chain, ...(pl.wrap ? ['-frames:v', String(pl.outFrames)] : []), ...enc, '-g', String(Math.round(pl.target)), '-r', String(pl.target), '-fps_mode', 'cfr', '-movflags', '+faststart', out];
+      Object.defineProperty(args, 'expect', { value: pl.outFrames / pl.target, enumerable: false });
+      const r = await engine.exec(args, { onProgress: x => rep(W.enc, x) });
+      if (r.code !== 0) throw fail('change the frame rate of this clip', r);
+      done += W.enc; path = out; cur = await loops.probe(engine, out); notes.push(pl.note);
+    }
+  }
+  return { path, info: cur, R: R3, notes, tmps, base: done / total, rest: W.fin / total };
 }
 
 export async function runRecipe(engine, loops, src, dst, info, R, baseProf, { ctl = { check() {} }, onProgress, onStage, tmp = 'hosp_tmp.mp4' } = {}) {
-  if (R.smooth && R.smooth.on) {
-    const st = await smoothStage(engine, loops, src, info, R, baseProf, ctl, onProgress, tmp.replace(/\.mp4$/, '') + '_sm');
+  if ((R.smooth && R.smooth.on) || (R.fps && R.fps.on && R.fps.engine !== 'ai')) {
+    const st = await timeStage(engine, loops, src, info, R, baseProf, ctl, onProgress, tmp.replace(/\.mp4$/, '') + '_sm');
     try {
       const r = await runRecipe(engine, loops, st.path, dst, st.info, st.R, baseProf, { ctl, onProgress: onProgress && (x => onProgress(st.base + st.rest * x)), onStage, tmp });
       return { ...r, note: [...st.notes, r.note].filter(Boolean).join(', ') };

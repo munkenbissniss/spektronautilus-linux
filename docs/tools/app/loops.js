@@ -9,9 +9,9 @@ export async function probe(engine, path, name = '') {
 }
 
 // grey 64x36 pictures at `fps`, as one Uint8Array (n * S)
-export async function grayFrames(engine, path, fps, maxFrames = 20000) {
+export async function grayFrames(engine, path, fps, maxFrames = 20000, onProgress) {
   const out = `g_${Math.random().toString(36).slice(2)}.raw`;
-  const r = await engine.exec(['-y', '-hide_banner', '-i', path, '-an', '-vf', `fps=${fps},scale=${W}:${H}:flags=area,format=gray`, '-frames:v', String(maxFrames), '-f', 'rawvideo', out]);
+  const r = await engine.exec(['-y', '-hide_banner', '-i', path, '-an', '-vf', `fps=${fps},scale=${W}:${H}:flags=area,format=gray`, '-frames:v', String(maxFrames), '-f', 'rawvideo', out], onProgress ? { onProgress } : undefined);
   if (r.code !== 0) throw new Error('Could not read this video');
   const data = await engine.read(out);
   await engine.remove(out);
@@ -51,10 +51,12 @@ export async function analyze(engine, path, info) {
 const normProfile = prof => ({ ...prof, crf: 12, preset: 'ultrafast', gop: 15, minSeconds: 0, keepAudio: false });
 const encOut = (fps) => ['-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '12', '-pix_fmt', 'yuv420p', '-g', '15', '-r', String(fps), '-fps_mode', 'cfr', '-an'];
 let uid = 0;
+// Maps a step's own 0..1 progress onto a part [a, b] of the whole, so a long job reports steadily instead of jumping or standing still.
+const part = (report, a, b) => report ? x => report(a + (b - a) * Math.max(0, Math.min(1, +x || 0))) : undefined;
 const tmpName = (tag, ext = 'mp4') => `t${Date.now().toString(36)}${++uid}_${tag}.${ext}`;
 
-async function makePingpong(engine, inter, out, fps, ctl, budget = 200e6) {
-  const { n: N } = await grayFrames(engine, inter, fps);
+async function makePingpong(engine, inter, out, fps, ctl, budget = 200e6, report) {
+  const { n: N } = await grayFrames(engine, inter, fps, 20000, part(report, 0, 0.08));
   if (N < 3) throw new Error('Clip is too short to make a loop of');
   const info = await probe(engine, inter);
   const per = Math.max(1, Math.floor(info.width * info.height * 3 / 2)), C = Math.max(24, Math.floor(budget / per));
@@ -64,7 +66,8 @@ async function makePingpong(engine, inter, out, fps, ctl, budget = 200e6) {
     ctl.check();
     const [a, b] = chunks[ci], p = tmpName(`rev${ci}`);
     const ss = a === 0 ? [] : ['-ss', ((a - 0.5) / fps).toFixed(6)];
-    const r = await engine.exec(['-y', ...ss, '-i', inter, '-vf', `trim=end_frame=${b - a},reverse,setpts=N/FRAME_RATE/TB`, '-frames:v', String(b - a), ...encOut(fps), p]);
+    const cr = part(report, 0.08 + 0.52 * (chunks.length - 1 - ci) / chunks.length, 0.08 + 0.52 * (chunks.length - ci) / chunks.length);
+    const r = await engine.exec(['-y', ...ss, '-i', inter, '-vf', `trim=end_frame=${b - a},reverse,setpts=N/FRAME_RATE/TB`, '-frames:v', String(b - a), ...encOut(fps), p], cr ? { onProgress: cr } : undefined);
     if (r.code !== 0) throw new Error('Reversing failed (not enough memory? try a smaller size)');
     parts.push(p);
   }
@@ -84,14 +87,14 @@ async function makePingpong(engine, inter, out, fps, ctl, budget = 200e6) {
     vf = ['-vf', `trim=end_frame=${2 * A + 1},setpts='(if(gte(N,${A}),${seg.toFixed(6)},0)+${t})/FRAME_RATE/TB',framerate=fps=${fps}:interp_start=0:interp_end=255:scene=100`];
     total = Math.round(2 * seg);
   }
-  const r = await engine.exec(['-y', '-f', 'concat', '-safe', '0', '-i', list, ...vf, ...(E >= 3 ? ['-frames:v', String(total)] : []), ...encOut(fps), out]);
+  const r = await engine.exec(['-y', '-f', 'concat', '-safe', '0', '-i', list, ...vf, ...(E >= 3 ? ['-frames:v', String(total)] : []), ...encOut(fps), out], report ? { onProgress: part(report, 0.6, 1) } : undefined);
   await engine.remove(list); for (const p of parts) await engine.remove(p);
   if (r.code !== 0) throw new Error('Joining the loop failed');
   return total;
 }
 
-async function makeCrossfade(engine, inter, out, fps, fadeS) {
-  const { n: N } = await grayFrames(engine, inter, fps);
+async function makeCrossfade(engine, inter, out, fps, fadeS, report) {
+  const { n: N } = await grayFrames(engine, inter, fps, 20000, part(report, 0, 0.15));
   const xf = Math.min(Math.round(fadeS * fps), Math.floor(N / 3));
   if (xf < 2) throw new Error('Clip is too short for a crossfaded loop');
   const w = `st(0,(N+1)/${xf + 1});st(1,ld(0)*ld(0)*ld(0)*(ld(0)*(ld(0)*6-15)+10))`;
@@ -100,15 +103,15 @@ async function makeCrossfade(engine, inter, out, fps, fadeS) {
     `[1:v]trim=end_frame=${xf},setpts=PTS-STARTPTS[tail];` +
     `[tail][head]blend=all_expr='${w};A*(1-ld(1))+B*ld(1)'[bl];[bl][rest]concat=n=2:v=1:a=0[v]`;
   const ss = Math.max(0, (N - xf - 0.5) / fps).toFixed(6);
-  const r = await engine.exec(['-y', '-i', inter, '-ss', ss, '-i', inter, '-filter_complex', fg, '-map', '[v]', ...encOut(fps), out]);
+  const r = await engine.exec(['-y', '-i', inter, '-ss', ss, '-i', inter, '-filter_complex', fg, '-map', '[v]', ...encOut(fps), out], report ? { onProgress: part(report, 0.15, 1) } : undefined);
   if (r.code !== 0) throw new Error('Crossfade failed');
   return N - xf;
 }
 
 // Make dstName a VJ-friendly clip that loops without a visible jump. Returns { note, method }.
 export async function makeLoop(engine, src, dst, prof, info, { mode = 'auto', fade = 1.5, fallback = 'pingpong', ctl = { check() {} }, onProgress } = {}) {
-  const fps = chooseFps(info, prof);
-  const g = await grayFrames(engine, src, fps);
+  const fps = chooseFps(info, prof), R = (a, b) => part(onProgress, a, b);
+  const g = await grayFrames(engine, src, fps, 20000, R(0, 0.06));
   const rep = analyzeFrames(g.data, g.n, fps);
   let method = mode;
   if (mode === 'auto') {
@@ -121,11 +124,11 @@ export async function makeLoop(engine, src, dst, prof, info, { mode = 'auto', fa
   const weak = method === 'trim' && rep.bestRatio > 1.25;
   const finish = async (from, finfo, frames) => {
     const dur = frames / fps;
-    const r = await engine.exec(encodeArgs(from, dst, prof, finfo, { repeat: repeatsNeeded(dur, prof.minSeconds) }), { onProgress });
+    const r = await engine.exec(encodeArgs(from, dst, prof, finfo, { repeat: repeatsNeeded(dur, prof.minSeconds) }), { onProgress: R(0.7, 1) });
     if (r.code !== 0) throw new Error('Encoding failed');
   };
   if (method === 'asis') {
-    const r = await engine.exec(encodeArgs(src, dst, prof, info, { repeat: repeatsNeeded(info.duration, prof.minSeconds) }), { onProgress });
+    const r = await engine.exec(encodeArgs(src, dst, prof, info, { repeat: repeatsNeeded(info.duration, prof.minSeconds) }), { onProgress: R(0.06, 1) });
     if (r.code !== 0) throw new Error('Encoding failed');
     return { note: rep.isLoop ? `already loops (${reportText(rep)})` : `kept as is (${reportText(rep)})`, method: 'asis' };
   }
@@ -133,13 +136,13 @@ export async function makeLoop(engine, src, dst, prof, info, { mode = 'auto', fa
   try {
     ctl.check();
     const inter = tmpName('norm'); tmps.push(inter);
-    const ir = await engine.exec(encodeArgs(src, inter, normProfile(prof), info, { trimFrames: method === 'trim' ? rep.bestCut + 1 : 0 }));
+    const ir = await engine.exec(encodeArgs(src, inter, normProfile(prof), info, { trimFrames: method === 'trim' ? rep.bestCut + 1 : 0 }), { onProgress: R(0.06, 0.3) });
     if (ir.code !== 0) throw new Error('Encoding failed');
     let frames, from;
     if (method === 'trim') { frames = rep.bestCut + 1; from = inter; }
     else {
       from = tmpName('loop'); tmps.push(from);
-      frames = method === 'pingpong' ? await makePingpong(engine, inter, from, fps, ctl) : method === 'crossfade' ? await makeCrossfade(engine, inter, from, fps, fade) : (() => { throw new Error('Unknown loop mode ' + mode); })();
+      frames = method === 'pingpong' ? await makePingpong(engine, inter, from, fps, ctl, undefined, R(0.3, 0.7)) : method === 'crossfade' ? await makeCrossfade(engine, inter, from, fps, fade, R(0.3, 0.7)) : (() => { throw new Error('Unknown loop mode ' + mode); })();
     }
     ctl.check();
     await finish(from, await probe(engine, from), frames);
