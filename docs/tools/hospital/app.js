@@ -148,6 +148,20 @@ function aiAvail() {   // the AI choices only work with the local Linux version 
   document.querySelectorAll('[data-s=slow][data-k=engine][value=ai], [data-s=up][data-k=engine][value=ai]').forEach(r => { r.disabled = !ok; r.parentElement.title = ok ? '' : why; });
   ['slow', 'up'].forEach(k => { if (!ok && R[k].engine === 'ai') { R[k].engine = k === 'up' ? 'sharp' : 'blend'; syncUI(); } });
 }
+// On a phone the "After" video sits right above the preview button, so you do not have to scroll up to see the result.
+const narrow = window.matchMedia('(max-width: 640px)');
+function placeAfter() {
+  const f = $('#fafter'), pv = document.querySelector('.pv'), c4 = $('#c4'); if (!f || !pv || !c4) return;
+  if (narrow.matches) { if (f.parentElement !== c4) c4.insertBefore(f, c4.firstElementChild); }
+  else if (f.parentElement !== pv) pv.appendChild(f);
+  const v = $('#vafter'); if (v && v.src && v.paused) v.play().catch(() => {});
+}
+function showAfter() {
+  placeAfter();
+  if (narrow.matches) { const f = $('#fafter'); try { f.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch (e) { /* ignore */ } }
+}
+narrow.addEventListener && narrow.addEventListener('change', placeAfter); placeAfter();
+
 async function ensureEngine() { if (engine.pick) { try { await engine.pick(); } catch (e) { /* the web engine loads below */ } } await engine.load(status); status(''); aiAvail(); }
 const openInput = async file => engine.mount(new File([file], 'src' + (extOf(file.name) || '.mp4'), { type: file.type }));
 const okFile = f => OK_EXT.has(extOf(f.name));
@@ -262,7 +276,7 @@ $('#prev').onclick = () => run(async () => {
   rec.out.minSeconds = Math.min(20, Math.max(12, rec.out.minSeconds || 0)); rec.out.crf = 28;
   setCur('Making a preview…');
   const r = await treat(patient.file, 'hosp_prev.mp4', rec, 'preview', { ...baseProf(), preset: 'ultrafast' });
-  const v = $('#vafter'); if (v.src) URL.revokeObjectURL(v.src); v.src = URL.createObjectURL(new Blob([r.data], { type: 'video/mp4' })); $('#fafter').classList.remove('hide');
+  const v = $('#vafter'); if (v.src) URL.revokeObjectURL(v.src); v.src = URL.createObjectURL(new Blob([r.data], { type: 'video/mp4' })); $('#fafter').classList.remove('hide'); showAfter();
   $('#msg').textContent = T(notUp ? 'Preview done. It is small and low quality, but shows the loop and life effects. It does not show the upscale.' : 'Preview done. It is small and low quality, but shows the loop and life effects. The saved file uses your chosen size.') + (aiSlow ? ' ' + T('The preview uses the fast slow-motion method, not AI.') : '');
 });
 
@@ -274,7 +288,7 @@ $('#aiprev').onclick = () => run(async () => {   // the real AI on a couple of s
   setCur(T('Making an AI sample…')); const t0 = Date.now();
   const r = await treat(patient.file, 'hosp_prev.mp4', rec, 'preview', { ...baseProf(), preset: 'ultrafast' });
   const took = (Date.now() - t0) / 1000, whole = Math.max(1, (patient.info.duration || cap) - st) / cap;
-  const v = $('#vafter'); if (v.src) URL.revokeObjectURL(v.src); v.src = URL.createObjectURL(new Blob([r.data], { type: 'video/mp4' })); $('#fafter').classList.remove('hide');
+  const v = $('#vafter'); if (v.src) URL.revokeObjectURL(v.src); v.src = URL.createObjectURL(new Blob([r.data], { type: 'video/mp4' })); $('#fafter').classList.remove('hide'); showAfter();
   $('#msg').textContent = T('AI sample done in {a}. The whole clip would take about {b}, plus the other steps.').replace('{a}', fmtDur(took)).replace('{b}', fmtDur(took * whole));
 });
 
@@ -300,7 +314,7 @@ $('#go').onclick = () => run(async () => {
   if (!patient || !patient.info) throw new Error('Choose a clip first.');
   units = { done: 0, total: ST.variants(R).length }; $('#pausebtn').classList.toggle('hide', units.total < 2);
   await treatClip(patient.file, patient.file.name);
-  const v = $('#vafter'); if (v.src) URL.revokeObjectURL(v.src); v.src = URL.createObjectURL(RESULTS[RESULTS.length - 1].blob); $('#fafter').classList.remove('hide'); $('#fafter figcaption').textContent = 'After';
+  const v = $('#vafter'); if (v.src) URL.revokeObjectURL(v.src); v.src = URL.createObjectURL(RESULTS[RESULTS.length - 1].blob); $('#fafter').classList.remove('hide'); showAfter(); $('#fafter figcaption').textContent = 'After';
 });
 $('#res').onclick = e => { const b = e.target.closest('[data-up]'); const r = b && RESULTS.find(x => x.id === +b.dataset.up); if (r && window.SPK_UP) SPK_UP.open(new File([r.blob], r.name, { type: 'video/mp4' }), { title: stemOf(r.name).replace(/_healed$/, ''), name: r.name }); };
 $('#pickmore').onclick = () => $('#pickermore').click();
