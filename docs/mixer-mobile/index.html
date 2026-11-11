@@ -703,8 +703,8 @@ import('../shared/queue.js').then(Q=>{
 </script>
 <script>
 (function(){const $=s=>document.querySelector(s);$('#add2').onclick=()=>$('#add').click();$('#live').onclick=()=>$('#queue').scrollIntoView({behavior:'smooth',block:'start'});
-setInterval(()=>{try{const m=$('#mini').getContext('2d'),c=window.__mmCur&&window.__mmCur();
- if(c&&c.tctx&&(c.status=='rendering'||c.status=='paused')){m.drawImage(c.tctx.canvas,0,0,128,72);$('#miniTxt').textContent=Math.round(100*c.prog)+'% · '+c.name}
- else{m.fillStyle='#000';m.fillRect(0,0,128,72);$('#miniTxt').textContent='Queue'}}catch(e){}},400)})();
+let idle=false;setInterval(()=>{try{if(document.visibilityState==='hidden')return;const m=$('#mini').getContext('2d'),c=window.__mmCur&&window.__mmCur();
+ if(c&&c.tctx&&(c.status=='rendering'||c.status=='paused')){idle=false;m.drawImage(c.tctx.canvas,0,0,128,72);$('#miniTxt').textContent=Math.round(100*c.prog)+'% · '+c.name}
+ else if(!idle){idle=true;m.fillStyle='#000';m.fillRect(0,0,128,72);$('#miniTxt').textContent='Queue'}}catch(e){}},400)})();
 </script>
 </body></html>

@@ -1,5 +1,6 @@
 import { clamp, audioGains, onAir, autoFadePos, posterFrame, POSTER_COLORS, parseTitle, fmtTime } from '../live-dj/core.js';
 import { makeOffer, accept } from './cast.js';
+import { makeSaver } from '../shared/saver.js';
 
 const $ = s => document.querySelector(s);
 const store = {
@@ -13,7 +14,7 @@ const S = {
   logo: { img: null, on: true, size: 12 }, fxT: [0, 0, 0, 0, 0], fxOn: [false, false, false, false, false],
   cast: null, stream: null,
 };
-window.SPK = { S, cfg };
+window.SPK = { S, cfg, get saver() { return SAVER; } };
 const toastEl = $('#toast'); let toastT;
 window.SPK_CHECK_EXTRA = () => [S.lib.length ? { name: 'Tracks', state: 'ok', msg: '{a} track(s) in the list.', a: S.lib.length } : { name: 'Tracks', state: 'warn', msg: 'No tracks yet. Add some videos first.' }];
 function toast(m, ms = 3500) { toastEl.textContent = m; toastEl.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => toastEl.classList.remove('show'), ms); S.log.push(m); }
@@ -140,25 +141,30 @@ function tick() {
   const now = performance.now(); S.lastTick = now;
   try {
     if (S.auto) { const a = S.auto; setF(autoFadePos(a.from, a.to, now - a.t0, a.dur)); if (now - a.t0 >= a.dur) finishFade(); }
-    const W = prog.width, H = prog.height;
-    gc.fillStyle = '#000'; gc.fillRect(0, 0, W, H);
-    if (S.f < .999) drawDeck(gc, S.decks.A, 1);
-    if (S.f > .001) drawDeck(gc, S.decks.B, S.f >= .999 ? 1 : S.f);
-    const on = S.fxOn; let sc = 1;
-    if (on[3]) sc = 1 + .15 * Math.min(1, (now - S.fxT[3]) / 200);
-    g.save(); g.fillStyle = '#000'; g.fillRect(0, 0, W, H); g.translate(W / 2, H / 2); g.scale(sc, sc); g.translate(-W / 2, -H / 2); g.drawImage(comp, 0, 0);
-    if (on[4]) { g.save(); g.translate(W, 0); g.scale(-1, 1); g.drawImage(comp, 0, 0, W / 2, H, 0, 0, W / 2, H); g.restore(); }
-    g.restore();
-    if (on[0]) { g.globalAlpha = Math.max(.25, 1 - (now - S.fxT[0]) / 500); g.fillStyle = '#fff'; g.fillRect(0, 0, W, H); g.globalAlpha = 1; }
-    if (on[1] && Math.floor((now - S.fxT[1]) / 80) % 2 === 1) { g.fillStyle = '#000'; g.fillRect(0, 0, W, H); }
-    if (on[2]) { g.globalCompositeOperation = 'difference'; g.fillStyle = '#fff'; g.fillRect(0, 0, W, H); g.globalCompositeOperation = 'source-over'; }
-    drawPoster(now);
-    const L = S.logo; if (L.img && L.on) { const m = H * .04; let h = H * L.size / 100, w = h * L.img.width / L.img.height; if (w > W * .3) { w = W * .3; h = w * L.img.height / L.img.width; } g.drawImage(L.img, W - m - w, m, w, h); }
+    if (SAVER.draw(now)) {
+      const W = prog.width, H = prog.height;
+      gc.fillStyle = '#000'; gc.fillRect(0, 0, W, H);
+      if (S.f < .999) drawDeck(gc, S.decks.A, 1);
+      if (S.f > .001) drawDeck(gc, S.decks.B, S.f >= .999 ? 1 : S.f);
+      const on = S.fxOn; let sc = 1;
+      if (on[3]) sc = 1 + .15 * Math.min(1, (now - S.fxT[3]) / 200);
+      g.save(); g.fillStyle = '#000'; g.fillRect(0, 0, W, H); g.translate(W / 2, H / 2); g.scale(sc, sc); g.translate(-W / 2, -H / 2); g.drawImage(comp, 0, 0);
+      if (on[4]) { g.save(); g.translate(W, 0); g.scale(-1, 1); g.drawImage(comp, 0, 0, W / 2, H, 0, 0, W / 2, H); g.restore(); }
+      g.restore();
+      if (on[0]) { g.globalAlpha = Math.max(.25, 1 - (now - S.fxT[0]) / 500); g.fillStyle = '#fff'; g.fillRect(0, 0, W, H); g.globalAlpha = 1; }
+      if (on[1] && Math.floor((now - S.fxT[1]) / 80) % 2 === 1) { g.fillStyle = '#000'; g.fillRect(0, 0, W, H); }
+      if (on[2]) { g.globalCompositeOperation = 'difference'; g.fillStyle = '#fff'; g.fillRect(0, 0, W, H); g.globalCompositeOperation = 'source-over'; }
+      drawPoster(now);
+      const L = S.logo; if (L.img && L.on) { const m = H * .04; let h = H * L.size / 100, w = h * L.img.width / L.img.height; if (w > W * .3) { w = W * .3; h = w * L.img.height / L.img.width; } g.drawImage(L.img, W - m - w, m, w, h); }
+    }
   } catch (e) { S.log.push('draw: ' + e.message); }
   if (now - (tick.u || 0) > 300) { tick.u = now; safe(() => { for (const id of ['A', 'B']) { const d = S.decks[id], el = d.el; if (!d.item) continue; $('#cu' + id).textContent = fmtTime(el.currentTime); $('#du' + id).textContent = fmtTime(el.duration); if (document.activeElement !== $('#sk' + id) && isFinite(el.duration)) $('#sk' + id).value = Math.round(el.currentTime / el.duration * 1000); updateDeck(id); } }, 'ui')(); }
 }
+// Battery: draw only when something moves; in the background (and not sending to another screen) only the timing and the sound run.
+const SAVER = makeSaver({ moving: () => S.auto || S.shown || S.fxOn.some(Boolean) || ['A', 'B'].some(id => { const d = S.decks[id]; return d && d.item && !d.el.paused && !d.el.ended; }), sending: () => !!S.cast });
+document.addEventListener('visibilitychange', () => startTicker());
 let worker = null, fb = null;
-function startTicker() { stopTicker(); const ms = Math.round(1000 / (+cfg.fps || 30)); try { worker = new Worker(URL.createObjectURL(new Blob([`let t;onmessage=e=>{clearInterval(t);if(e.data>0)t=setInterval(()=>postMessage(0),e.data)}`], { type: 'text/javascript' }))); worker.onmessage = tick; worker.postMessage(ms); } catch { fb = setInterval(tick, ms); } }
+function startTicker() { stopTicker(); const ms = SAVER.away() ? 100 : Math.round(1000 / (+cfg.fps || 30)); try { worker = new Worker(URL.createObjectURL(new Blob([`let t;onmessage=e=>{clearInterval(t);if(e.data>0)t=setInterval(()=>postMessage(0),e.data)}`], { type: 'text/javascript' }))); worker.onmessage = tick; worker.postMessage(ms); } catch { fb = setInterval(tick, ms); } }
 function stopTicker() { if (worker) { worker.postMessage(0); worker.terminate(); worker = null; } if (fb) { clearInterval(fb); fb = null; } }
 setInterval(() => { if (performance.now() - S.lastTick > 3000) { S.log.push('ticker restarted'); startTicker(); } }, 2500);
 

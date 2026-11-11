@@ -1,6 +1,7 @@
 import { clamp, autoFadePos, posterFrame, POSTER_COLORS, parseTitle } from '../live-dj/core.js';
 import { FX, tapBpm, beatPos, pulse } from '../vj-pad/core.js';
 import { makeOffer, accept } from '../live-mobile/cast.js';
+import { makeSaver } from '../shared/saver.js';
 
 const $ = s => document.querySelector(s);
 const store = {
@@ -16,7 +17,7 @@ const S = {
   poster: Object.assign({ l1: '', l2: '', color: 'neon' }, store.get('poster', {})), shown: null,
   logo: { img: null, on: true, size: 12 }, cast: null, stream: null, lastTick: performance.now(), log: [], addTo: null,
 };
-window.SPK = { S, cfg };
+window.SPK = { S, cfg, get saver() { return SAVER; } };
 const toastEl = $('#toast'); let toastT;
 window.SPK_CHECK_EXTRA = () => { const n = S.pads.filter(Boolean).length; return [n ? { name: 'Loops', state: 'ok', msg: '{a} loop(s) loaded.', a: n } : { name: 'Loops', state: 'warn', msg: 'No loops yet. Add some to the pads first.' }]; };
 function toast(msg, ms = 3500) { toastEl.textContent = msg; toastEl.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => toastEl.classList.remove('show'), ms); S.log.push(msg); }
@@ -155,17 +156,23 @@ function tick() {
   const now = performance.now(); S.lastTick = now;
   try {
     if (S.auto) { const a = S.auto, p = autoFadePos(a.from, a.to, now - a.t0, a.dur); setF(p); if (now - a.t0 >= a.dur) { S.auto = null; setF(a.to); } }
-    drawChannel(gA, 'A'); drawChannel(gB, 'B');
-    gc.globalAlpha = 1; gc.fillStyle = '#000'; gc.fillRect(0, 0, comp.width, comp.height);
-    if (S.f < 0.999) gc.drawImage(cA, 0, 0);
-    if (S.f > 0.001) { gc.globalAlpha = S.f >= 0.999 ? 1 : S.f; gc.drawImage(cB, 0, 0); gc.globalAlpha = 1; }
-    applyFx(now); drawPoster(now); drawLogo();
+    if (SAVER.draw(now)) {
+      drawChannel(gA, 'A'); drawChannel(gB, 'B');
+      gc.globalAlpha = 1; gc.fillStyle = '#000'; gc.fillRect(0, 0, comp.width, comp.height);
+      if (S.f < 0.999) gc.drawImage(cA, 0, 0);
+      if (S.f > 0.001) { gc.globalAlpha = S.f >= 0.999 ? 1 : S.f; gc.drawImage(cB, 0, 0); gc.globalAlpha = 1; }
+      applyFx(now); drawPoster(now); drawLogo();
+    }
   } catch (e) { S.log.push('draw: ' + e.message); }
   if (now - dotsT > 80) { dotsT = now; const d = $('#dots').children, P = period(), b = Math.floor((now - S.t0) / P), within = ((now - S.t0) % P) / P < 0.25, idx = ((b % 4) + 4) % 4; for (let i = 0; i < 4; i++) d[i].classList.toggle('on', within && i === idx); }
 }
+// Battery: draw only when something moves; in the background (and not sending to another screen) only the timing runs, slowly.
+const playing = () => S.layers.some(L => { const p = L.on && L.pad >= 0 && L.op > 0 && S.pads[L.pad]; return p && p.ready && !p.v.paused && !p.v.ended; });
+const SAVER = makeSaver({ moving: () => S.auto || S.shown || playing(), sending: () => !!S.cast });
+document.addEventListener('visibilitychange', () => startTicker());
 let worker = null, fallback = null;
 function startTicker() {
-  stopTicker(); const ms = Math.round(1000 / (+cfg.fps || 30));
+  stopTicker(); const ms = SAVER.away() ? 250 : Math.round(1000 / (+cfg.fps || 30));
   try { worker = new Worker(URL.createObjectURL(new Blob([`let t;onmessage=e=>{clearInterval(t);if(e.data>0)t=setInterval(()=>postMessage(0),e.data)}`], { type: 'text/javascript' }))); worker.onmessage = tick; worker.postMessage(ms); }
   catch { fallback = setInterval(tick, ms); }
 }

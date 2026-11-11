@@ -365,6 +365,8 @@ document.querySelectorAll('[data-reset]').forEach(b => { b.onclick = () => {
   const something = busy || patient || RESULTS.length;
   if (something && !resetTimer) { resetLabels(true); resetTimer = setTimeout(() => { resetTimer = null; resetLabels(false); }, 4000); return; }   // two taps, so nothing is lost by accident
   clearTimeout(resetTimer); resetTimer = null; resetLabels(false); resetAll();
+  // Then a clean page, exactly as after a reload: the leftovers of a stuck engine or a half-finished job cannot follow along.
+  setTimeout(() => { try { location.reload(); } catch (e) { /* the cleared page works as it is */ } }, 60);
 }; });
 
 buildSteps(); info();

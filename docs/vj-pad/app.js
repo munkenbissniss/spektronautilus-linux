@@ -1,4 +1,5 @@
 import { clamp, autoFadePos, posterFrame, POSTER_COLORS, parseTitle, parseMidi, midiKey, routeMidi, PADS, BANKS, MAXPADS, PAD_CODES, PAD_LABELS, LAYER_CODES, FX_CODES, BLENDS, FX, tapBpm, beatPos, pulse, KickDetector, bpmFromKicks, VJ_MIDI_ACTIONS } from './core.js';
+import { attachMpd, MPD_LAYOUTS } from '../shared/mpd218.js';
 
 const $ = s => document.querySelector(s);
 const store = {
@@ -540,6 +541,7 @@ function midiAction({ action: a, value: v }) {
 }
 function onMidi(data) {
   const m = parseMidi(data); if (!m) return; if (m.type !== 'noteoff') $('#midiLast').textContent = `${m.type} ch${m.ch + 1} #${m.num} = ${Math.round(m.val * 127)}`;
+  if (MPD.feed(m)) return;
   if (S.midi.learn) { if (m.type === 'noteoff') return; const key = midiKey(m), id = S.midi.learn; for (const k of Object.keys(S.midi.map)) if (S.midi.map[k] === id || k === key) delete S.midi.map[k]; S.midi.map[key] = id; S.midi.learn = null; store.set('midi', S.midi.map); renderMidi(); return; }
   const r = routeMidi(m, S.midi.map, VJ_MIDI_ACTIONS); if (r) safe(midiAction, 'midi')(r);
 }
@@ -557,6 +559,7 @@ async function enableMidi() {
   } catch (e) { $('#midiStatus').textContent = 'MIDI was not allowed: ' + e.message; }
 }
 $('#midiOn').onclick = enableMidi;
+const MPD = attachMpd({ $, S, store, layout: MPD_LAYOUTS.vj, actions: VJ_MIDI_ACTIONS, renderMidi, enableMidi });
 
 // ------------------------------------------------------------------ keys, settings, startup
 addEventListener('keydown', e => {

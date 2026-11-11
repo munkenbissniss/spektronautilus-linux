@@ -1,4 +1,5 @@
 import { clamp, audioGains, onAir, autoFadePos, posterFrame, POSTER_COLORS, parseTitle, fmtTime, parseMidi, midiKey, routeMidi, MIDI_ACTIONS } from './core.js';
+import { attachMpd, MPD_LAYOUTS } from '../shared/mpd218.js';
 
 const $ = s => document.querySelector(s);
 const PRELOAD_MAX = Math.min(1.5e9, Math.max(3e8, (navigator.deviceMemory || 4) * 2.5e8));   // a file is copied into memory so playback never waits for the disk: less on computers with little memory
@@ -409,6 +410,7 @@ function midiAction(r) {
 function onMidi(data) {
   const m = parseMidi(data); if (!m) return;
   if (m.type !== 'noteoff') $('#midiLast').textContent = `${m.type} ch${m.ch + 1} #${m.num} = ${Math.round(m.val * 127)}`;
+  if (MPD.feed(m)) return;
   if (S.midi.learn) {
     if (m.type === 'noteoff') return;
     const key = midiKey(m), id = S.midi.learn;
@@ -438,6 +440,7 @@ async function enableMidi() {
   } catch (e) { $('#midiStatus').textContent = 'MIDI was not allowed: ' + e.message; }
 }
 $('#midiOn').onclick = enableMidi;
+const MPD = attachMpd({ $, S, store, layout: MPD_LAYOUTS.dj, actions: MIDI_ACTIONS, renderMidi, enableMidi });
 
 // ------------------------------------------------------------------ keys, settings, startup
 addEventListener('keydown', e => {

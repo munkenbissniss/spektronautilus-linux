@@ -121,6 +121,7 @@ kbd{border:1px solid var(--line);border-radius:5px;padding:0 5px;font:inherit;fo
 <details class="card"><summary>MIDI control</summary>
   <p class="hint" style="margin-top:0">Works in Chrome and Edge on a computer. Plug in your controller, press <b>Enable MIDI</b>, then <b>Learn</b> next to a function and move or press the control you want.</p>
   <div class="drow" style="margin:0 0 8px"><button id="midiOn">Enable MIDI</button><span id="midiStatus" class="hint">Off</span><span class="hint" style="margin-left:auto" id="midiLast"></span></div>
+  <div class="drow" style="margin:0 0 8px;flex-wrap:wrap;gap:6px"><button id="mpdSetup" class="sm" type="button" title="Sets up the pads of an Akai MPD218 at once. Then you turn each knob once, so it learns them.">Set up Akai MPD218</button><span id="mpdMsg" class="hint"></span><button id="mpdSkip" class="sm" type="button" hidden>Skip this knob</button><button id="mpdDone" class="sm" type="button" hidden>Done</button></div>
   <table class="mtbl" id="mtbl"></table>
 </details>
 
