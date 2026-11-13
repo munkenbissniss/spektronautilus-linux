@@ -1070,6 +1070,7 @@ window.SPK_DICT=window.SPK_DICT||{};SPK_DICT.no={
 "The picture echoes into a slowly zooming and turning tunnel. It looks best with darker loops.": "Bildet ekkoer ut i en tunnel som sakte zoomer og roterer. Det ser best ut med mørkere looper.",
 "The picture is cut, not squeezed. The size box above sets the largest size.": "Bildet beskjæres, ikke presses sammen. Størrelsesboksen over setter den største størrelsen.",
 "The picture ripples sideways in stripes, a classic demo effect. The waves kick on the beat.": "Bildet bølger sidelengs i striper, en klassisk demo-effekt. Bølgene slår ut på beaten.",
+"The preview makes new frames the fast way, so movement can look a little softer. The saved clip uses the method you chose.": "Forhåndsvisningen lager nye bilder på den raske måten, så bevegelsen kan se litt mykere ut. Den lagrede filen bruker metoden du valgte.",
 "The preview uses Smooth motion, not AI.": "Forhåndsvisningen bruker Smooth motion, ikke AI.",
 "The preview uses the fast slow-motion method, not AI.": "Forhåndsvisningen bruker den raske sakte film-metoden, ikke AI.",
 "The previous recording was not saved. It will be replaced when this one ends.": "Forrige opptak ble ikke lagret. Det erstattes når dette er ferdig.",

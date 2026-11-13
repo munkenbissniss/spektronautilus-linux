@@ -1063,6 +1063,7 @@ window.SPK_DICT=window.SPK_DICT||{};SPK_DICT.de={
 "The picture echoes into a slowly zooming and turning tunnel. It looks best with darker loops.": "Das Bild hallt in einen Tunnel nach, der langsam zoomt und sich dreht. Mit dunkleren Loops sieht es am besten aus.",
 "The picture is cut, not squeezed. The size box above sets the largest size.": "Das Bild wird zugeschnitten, nicht gestaucht. Die Größen-Box oben legt die größte Größe fest.",
 "The picture ripples sideways in stripes, a classic demo effect. The waves kick on the beat.": "Das Bild wellt sich streifenweise zur Seite, ein klassischer Demo-Effekt. Die Wellen schlagen im Beat aus.",
+"The preview makes new frames the fast way, so movement can look a little softer. The saved clip uses the method you chose.": "Die Vorschau erzeugt neue Bilder auf die schnelle Art, daher kann die Bewegung etwas weicher wirken. Der gespeicherte Clip nutzt die gewählte Methode.",
 "The preview uses Smooth motion, not AI.": "Die Vorschau nutzt Smooth motion, nicht KI.",
 "The preview uses the fast slow-motion method, not AI.": "Die Vorschau nutzt die schnelle Zeitlupen-Methode, nicht die KI.",
 "The previous recording was not saved. It will be replaced when this one ends.": "Die vorige Aufnahme wurde nicht gesichert. Sie wird ersetzt, wenn diese endet.",

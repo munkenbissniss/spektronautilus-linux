@@ -293,13 +293,14 @@ $('#prev').onclick = () => run(async () => {
   // clip, then the normal loop / life / repeat steps, so the preview runs for 12 to 20 seconds and loops in the player.
   const rec = JSON.parse(JSON.stringify(ST.variants(R)[0].rec)), cap = rec.slow.on ? 4 : 8;
   rec.cut = { on: true, start: rec.cut.on ? rec.cut.start : 0, len: Math.min(rec.cut.on && rec.cut.len > 0 ? rec.cut.len : cap, cap) };
-  const aiSlow = (rec.slow.on && rec.slow.engine === 'ai') || (rec.fps.on && rec.fps.engine === 'ai'); if (rec.slow.engine === 'ai') rec.slow.engine = 'motion'; if (rec.fps.engine === 'ai') rec.fps.engine = 'motion';
+  // The preview is about the loop and the effects, so new frames are made the fast way (Soft blend); the saved clip uses the method you chose.
+  const aiSlow = (rec.slow.on && rec.slow.engine !== 'blend') || (rec.fps.on && rec.fps.engine !== 'blend'); rec.slow.engine = 'blend'; rec.fps.engine = 'blend';
   const notUp = rec.up.on; rec.up.on = false; rec.size = { on: true, box: '480x270', fit: 'keep', upscale: false };
   rec.out.minSeconds = Math.min(20, Math.max(12, rec.out.minSeconds || 0)); rec.out.crf = 28;
   setCur('Making a preview…');
   const r = await treat(patient.file, 'hosp_prev.mp4', rec, 'preview', { ...baseProf(), preset: 'ultrafast' });
   const v = $('#vafter'); if (v.src) URL.revokeObjectURL(v.src); v.src = URL.createObjectURL(new Blob([r.data], { type: 'video/mp4' })); $('#fafter').classList.remove('hide'); showAfter();
-  $('#msg').textContent = T(notUp ? 'Preview done. It is small and low quality, but shows the loop and life effects. It does not show the upscale.' : 'Preview done. It is small and low quality, but shows the loop and life effects. The saved file uses your chosen size.') + (aiSlow ? ' ' + T('The preview uses Smooth motion, not AI.') : '');
+  $('#msg').textContent = T(notUp ? 'Preview done. It is small and low quality, but shows the loop and life effects. It does not show the upscale.' : 'Preview done. It is small and low quality, but shows the loop and life effects. The saved file uses your chosen size.') + (aiSlow ? ' ' + T('The preview makes new frames the fast way, so movement can look a little softer. The saved clip uses the method you chose.') : '');
 });
 
 $('#aiprev').onclick = () => run(async () => {   // the real AI on a couple of seconds: shows the quality and how long the whole clip will take
@@ -344,19 +345,26 @@ async function measure(file, rec0) {
     const D = Math.max(0, Math.min(inf.duration - start, rec0.cut.on && +rec0.cut.len > 0 ? +rec0.cut.len : Infinity));
     const M = Math.max(+rec0.out.minSeconds || 0, rec0.life.on ? +rec0.life.minSeconds || 0 : 0, rec0.kb.on ? +rec0.kb.minSeconds || 0 : 0);
     if (!(D > 0.8) || Math.max(D, M) < 5) return null;   // short jobs: the bar itself is good enough
-    const pts = [];
-    for (const d of [Math.min(0.3, D * 0.25), Math.min(0.9, D * 0.75)]) {
-      const rec = JSON.parse(JSON.stringify(rec0)); rec.cut = { on: true, start, len: d }; rec.out.minSeconds = 0; rec.life.minSeconds = 0; rec.kb.minSeconds = 0;
+    // Two trials without repeating give time = a + b × seconds of real content. A third one repeated a little further gives c, the cost
+    // of a repeated second: that is only the light final step, while frame rate, slow motion and the loop are done once.
+    const trial = async (d, minS) => {
+      const rec = JSON.parse(JSON.stringify(rec0)); rec.cut = { on: true, start, len: d }; rec.out.minSeconds = minS; rec.life.minSeconds = minS; rec.kb.minSeconds = minS;
       const t = performance.now();
       await ST.runRecipe(engine, L, path, 'hosp_est.mp4', inf, rec, baseProf(), { ctl, tmp: 'hosp_est_tmp.mp4' });
       const sec = (performance.now() - t) / 1000, oi = await L.probe(engine, 'hosp_est.mp4'); await engine.remove('hosp_est.mp4');
       if (g !== gen) throw new Error('cancelled');
-      pts.push({ t: sec, o: oi.duration || d, d });
-      if (sec > 20) break;   // very heavy (AI on a big clip): one trial is enough (it then counts the start-up cost as work, so the estimate errs on the high side)
+      return { t: sec, o: oi.duration || d, d };
+    };
+    const d1 = Math.min(0.3, D * 0.25), p1 = await trial(d1, 0);
+    const p2 = p1.t > 60 ? null : await trial(p1.t > 20 ? Math.min(d1 * 2, D * 0.75) : Math.min(0.9, D * 0.75), 0);   // only skipped when even the first trial was very heavy (AI on a big clip)
+    const { a, b } = fitCost(p1, p2), last = p2 || p1, core = D * last.o / last.d;
+    let c = b;
+    if (M > core + 0.5) {   // the result is repeated: measure what that costs
+      const p3 = await trial(d1, Math.min(M, p1.o + 3));
+      c = p3.o > p1.o + 0.3 ? Math.max(0, Math.min(b, (p3.t - p1.t) / (p3.o - p1.o))) : b;
     }
-    const { a, b } = fitCost(pts[0], pts[1]), last = pts[pts.length - 1];
-    const O = Math.max(D * last.o / last.d, M);
-    return { one: a + b * O, took: (performance.now() - t00) / 1000 };
+    const O = M > core ? Math.max(core, M * 1.08) : core;   // a repeated result ends on a whole loop, so it is usually a little longer than asked
+    return { one: a + b * core + c * (O - core), took: (performance.now() - t00) / 1000 };
   } catch (e) { if (ctl && ctl.cancel || e.message === 'cancelled' || g !== gen) throw e; return null; }   // no estimate is better than a failed job
   finally { if (path) { try { await engine.unmount(path); } catch (e) { /* ignore */ } } }
 }
