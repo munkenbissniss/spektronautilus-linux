@@ -65,7 +65,7 @@ const GROUPS = [
     { k: 'upSharp', t: 'range', x: 1, min: 0, max: 100, step: 5, l: 'Sharpness', w: 'upEngine=sharp' },
     { k: 'aiModel', t: 'select', x: 1, l: 'Kind of picture', w: 'upEngine=ai', o: [['realesr-animevideov3', 'Cartoons and animation'], ['realesrgan-plus', 'Photos and real film (always 4×)'], ['anime4k', 'Fast, for animation (Anime4K)']] }] },
   { g: 'Slow motion', open: true, tools: 'slowmo', f: [
-    { k: 'slowEngine', t: 'select', x: 1, l: 'Method', o: [['blend', 'Soft blend (fast, works everywhere)'], ['motion', 'Smooth motion (slower, cleaner on fast movement)'], ['ai', 'AI (best result, local version only)']], h: 'Blend mixes neighbouring frames. Smooth motion calculates the movement between frames, which takes longer. AI needs the local version and Video2X.' },
+    { k: 'slowEngine', t: 'select', x: 1, l: 'Method', o: [['motion', 'Smooth motion (slower, cleaner on fast movement)'], ['blend', 'Soft blend (fast, works everywhere)'], ['ai', 'AI (best result, local version only)']], h: 'Blend mixes neighbouring frames. Smooth motion calculates the movement between frames, which takes longer. AI needs the local version and Video2X.' },
     { k: 'slowFactor', t: 'select', x: 1, num: 1, l: 'How much slower', o: [['2', '2× slower'], ['4', '4× slower'], ['8', '8× slower']] },
     { k: 'slowMode', t: 'select', x: 1, l: 'Result', o: [['slow', 'Slow motion (the clip gets longer)'], ['smooth', 'Same speed, but smoother (more frames per second)']] },
     { k: 'slowModel', t: 'select', x: 1, l: 'Model', w: 'slowEngine=ai', o: [['rife-v4.6', 'General video'], ['rife-v4.26', 'Newest model']] }] },
@@ -111,7 +111,7 @@ function fld(f) {
 }
 function buildSettings() {
   $('#groups').innerHTML = GROUPS.map(g => `<details data-g="${g.g}" data-tools="${g.tools || ''}"${g.aiOnly ? ' data-aionly="1"' : ''} ${g.open ? 'open' : ''} class="${g.loop ? 'loopg' : ''}"><summary>${g.g}</summary><div class="fields">${g.f.map(fld).join('')}${g.naming ? '<div class="f" style="grid-column:1/-1"><label>Preview</label><div class="prev" id="nprev">Add files to see the new names.</div></div>' : ''}</div></details>`).join('');
-  const P = { ...defaultProfile(), preset: 'veryfast' }, N = defaultNaming(), X = { saveDirect: false, loopify: 'none', mode: 'auto', fallback: 'pingpong', fade: 1.5, cropShape: '169', cropPos: 'c', trimStart: 0, trimLen: 0, proFormat: 'hap', aiModel: 'realesr-animevideov3', aiScale: 2, aiCrf: 17, aiGpu: 0, aiPause: 0, upEngine: 'sharp', upSharp: 50, slowEngine: 'blend', slowFactor: 2, slowMode: 'slow', slowModel: 'rife-v4.6', catTitle: 'My loop catalogue', checkLoop: true, packName: 'My loop pack', packAuthor: '', packLicence: 'ccby', packNotes: '', packLoop: true };
+  const P = { ...defaultProfile(), preset: 'veryfast' }, N = defaultNaming(), X = { saveDirect: false, loopify: 'none', mode: 'auto', fallback: 'pingpong', fade: 1.5, cropShape: '169', cropPos: 'c', trimStart: 0, trimLen: 0, proFormat: 'hap', aiModel: 'realesr-animevideov3', aiScale: 2, aiCrf: 17, aiGpu: 0, aiPause: 0, upEngine: 'sharp', upSharp: 50, slowEngine: 'motion', slowFactor: 2, slowMode: 'slow', slowModel: 'rife-v4.6', catTitle: 'My loop catalogue', checkLoop: true, packName: 'My loop pack', packAuthor: '', packLicence: 'ccby', packNotes: '', packLoop: true };
   GROUPS.forEach(g => g.f.forEach(f => {
     const e = $('#o_' + f.k); if (!e) return;
     const v = f.n ? N[f.k] : (f.x || f.lp) ? X[f.k] : P[f.k];

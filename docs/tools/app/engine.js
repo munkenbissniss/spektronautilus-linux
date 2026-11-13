@@ -11,21 +11,34 @@
 
 const VENDOR = new URL('./vendor/', import.meta.url);
 
+// A clock that stands still while the page is in the background. A phone freezes a page (and its engine) when you switch to
+// another app; the time limits below must not count that, or the work would be given up as soon as you come back.
+// Without a page (tests in node) it is the normal clock.
+let hidMs = 0, hidSince = null, watching = false;
+function watchVisibility() {
+  if (watching || typeof document === 'undefined' || !document.addEventListener) return; watching = true;
+  const upd = () => { const h = document.visibilityState === 'hidden'; if (h && hidSince == null) hidSince = Date.now(); else if (!h && hidSince != null) { hidMs += Date.now() - hidSince; hidSince = null; } };
+  document.addEventListener('visibilitychange', upd); upd();
+}
+export function activeNow() { watchVisibility(); return Date.now() - hidMs - (hidSince != null ? Date.now() - hidSince : 0); }
+// like setTimeout, but only counts time the page is seen; returns a function that cancels it
+function activeTimeout(fn, ms) { const t0 = activeNow(), t = setInterval(() => { if (activeNow() - t0 >= ms) { clearInterval(t); fn(); } }, Math.min(1000, Math.max(5, ms / 4))); return () => clearInterval(t); }
+
 export const STALLED = 'The video engine stopped responding. On a phone this usually means it ran out of memory. It has been restarted. Try again, with a shorter or smaller clip.';
 export class WasmEngine {
-  constructor() { this.ff = null; this.cur = null; this.mounts = 0; this.loading = null; this.last = Date.now(); this.stallMs = 120000; this.pingMs = 6000; this.opMs = 90000; }
+  constructor() { this.ff = null; this.cur = null; this.mounts = 0; this.loading = null; this.last = activeNow(); this.stallMs = 120000; this.pingMs = 6000; this.opMs = 90000; }
 
   // A worker that has been killed (a phone that ran out of memory, a tab that was asleep) never answers again, and the page would wait for
   // ever with its buttons locked. So: ask it a quick question before the first call after a pause, give up on a run that has been silent
   // for stallMs, and put a time limit on file operations. Giving up restarts the engine; the next call loads a fresh one.
   async alive() {
-    if (!this.ff) return false; if (Date.now() - this.last < 3000 || typeof this.ff.listDir !== 'function') return true;
-    let t; try { await Promise.race([this.ff.listDir('/'), new Promise((_, rej) => { t = setTimeout(() => rej(new Error('no answer')), this.pingMs); })]); this.last = Date.now(); return true; }
-    catch (e) { return false; } finally { clearTimeout(t); }
+    if (!this.ff) return false; if (activeNow() - this.last < 3000 || typeof this.ff.listDir !== 'function') return true;
+    let stop = () => {}; try { await Promise.race([this.ff.listDir('/'), new Promise((_, rej) => { stop = activeTimeout(() => rej(new Error('no answer')), this.pingMs); })]); this.last = activeNow(); return true; }
+    catch (e) { return false; } finally { stop(); }
   }
   async limit(p, ms = this.opMs) {
-    p.catch && p.catch(() => {}); let t;
-    try { return await Promise.race([p, new Promise((_, rej) => { t = setTimeout(() => { this.terminate(); rej(new Error(STALLED)); }, ms); })]); } finally { clearTimeout(t); }
+    p.catch && p.catch(() => {}); let stop = () => {};
+    try { return await Promise.race([p, new Promise((_, rej) => { stop = activeTimeout(() => { this.terminate(); rej(new Error(STALLED)); }, ms); })]); } finally { stop(); }
   }
 
   async load(onStatus = () => {}) {
@@ -39,8 +52,8 @@ export class WasmEngine {
         throw new Error('The video engine files are missing. Run  python3 get-ffmpeg.py  in the repository once (it downloads ffmpeg.wasm into docs/tools/vendor), then reload this page. (Using the Linux version? Install ffmpeg instead, for example  sudo apt install ffmpeg , and start Spektronautilus again.)');
       }
       const ff = new mod.FFmpeg();
-      ff.on('log', ({ message }) => { this.last = Date.now(); if (this.cur) this.cur.log.push(message); });
-      ff.on('progress', ({ progress, time }) => { this.last = Date.now(); const c = this.cur; if (!c || !c.onProgress) return; if (c.expect > 0 && time >= 0) c.onProgress(Math.min(1, time / 1e6 / c.expect)); else if (progress >= 0 && progress <= 1) c.onProgress(progress); });
+      ff.on('log', ({ message }) => { this.last = activeNow(); if (this.cur) this.cur.log.push(message); });
+      ff.on('progress', ({ progress, time }) => { this.last = activeNow(); const c = this.cur; if (!c || !c.onProgress) return; if (c.expect > 0 && time >= 0) c.onProgress(Math.min(1, time / 1e6 / c.expect)); else if (progress >= 0 && progress <= 1) c.onProgress(progress); });
       await ff.load({ coreURL: new URL('core/ffmpeg-core.js', VENDOR).href, wasmURL: new URL('core/ffmpeg-core.wasm', VENDOR).href });
       this.ff = ff;
     })();
@@ -50,8 +63,8 @@ export class WasmEngine {
   async exec(args, { onProgress } = {}) {
     await this.load();
     const cur = this.cur = { log: [], onProgress, expect: args.expect || 0 };   // kept in a local: Stop (terminate) clears this.cur while ffmpeg is still running
-    this.last = Date.now(); let code, timer;
-    const stalled = new Promise((_, rej) => { timer = setInterval(() => { if (Date.now() - this.last > this.stallMs) { clearInterval(timer); this.terminate(); rej(new Error(STALLED)); } }, Math.min(1000, Math.max(5, this.stallMs / 4))); });
+    this.last = activeNow(); let code, timer;
+    const stalled = new Promise((_, rej) => { timer = setInterval(() => { if (activeNow() - this.last > this.stallMs) { clearInterval(timer); this.terminate(); rej(new Error(STALLED)); } }, Math.min(1000, Math.max(5, this.stallMs / 4))); });
     try { const run = this.ff.exec(args); run.catch && run.catch(() => {}); code = await Promise.race([run, stalled]); }
     finally { clearInterval(timer); if (this.cur === cur) this.cur = null; }
     return { code, log: cur.log };

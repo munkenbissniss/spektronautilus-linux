@@ -182,11 +182,15 @@ export function kenPlan(info, K, { minSeconds = 0, repeatAfter = false, outFps =
 // What is wrong with this clip, and what would help? info: probe result, loop: loop report (or null)
 export function diagnose(info, loop, { slowEngine = false } = {}) {
   const out = [];
+  // The goal is a widescreen (16:9) loop at 60 fps, so those come first.
+  const W = info.width, H = info.height, ar = W && H ? W / H : 0, wide = Math.abs(ar - 16 / 9) < 0.03;
+  if (W && H > W * 1.05) out.push({ id: 'portrait', text: `Portrait (${W}×${H}). Turn it a quarter turn so it is wide, then crop it to 16:9.`, fix: { rotate: { turn: '90', flip: 'none' }, crop: { shape: '169', pos: 'c' } } });
+  else if (W && !wide) out.push({ id: 'shape', text: `Not widescreen (${W}×${H}). Crop it to 16:9 so it fills the screen.`, fix: { crop: { shape: '169', pos: 'c' } } });
+  if (info.fps && info.fps < 59) out.push({ id: 'fps', text: `${Math.round(info.fps * 100) / 100} fps. Frame rate makes it 60 fps with smooth movement.`, fix: { fps: { target: 60, engine: 'motion' } } });
   if (slowEngine && info.duration > 10) out.push({ id: 'long', text: `This clip is ${Math.round(info.duration)} s long. Slow motion, upscale and loop fixes can take a very long time in a browser, especially on a phone. Cut it short first, or use the local version.`, fix: { cut: { on: true, start: 0, len: 8 } } });
   const short = Math.min(info.width, info.height);
   if (info.width && short < 720) out.push({ id: 'small', text: `Small picture (${info.width}×${info.height}). It will look soft on a big screen.`, fix: { up: { on: true, scale: short < 400 ? 4 : 2 } } });
-  if (info.duration && info.duration < 4) out.push({ id: 'short', text: `Very short (${Math.round(info.duration * 10) / 10} s). Slow motion makes it longer and calmer.`, fix: { slow: { on: true, factor: 2 } } });
-  else if (info.fps && info.fps < 20) out.push({ id: 'lowfps', text: `Low frame rate (${Math.round(info.fps)} fps). Smooth mode adds frames.`, fix: { slow: { on: true, factor: 2, mode: 'smooth' } } });
+  if (info.duration && info.duration < 4) out.push({ id: 'short', text: `Very short (${Math.round(info.duration * 10) / 10} s). Slow motion makes it longer and calmer.`, fix: { slow: { on: true, factor: 2, engine: 'motion' } } });
   if (info.duration && info.duration < 16) out.push({ id: 'still', text: `Only ${Math.round(info.duration * 10) / 10} s long. Short or still loops get much more interesting with slow-in-and-out motion and a gentle breathing zoom, repeated to 16 s.`, fix: { life: { ...LIFE_STYLES.calm, style: 'calm', minSeconds: 16 } } });
   if (loop && loop.verdict && loop.verdict !== 'seamless') out.push({ id: 'jump', text: loop.verdict === 'almost' ? 'The loop point is almost clean. A small fix will hide the jump.' : 'You can see a jump where the clip starts over.', fix: { loop: { mode: 'auto' } } });
   if (info.hasAudio) out.push({ id: 'audio', text: 'This clip has sound. The treated clip will be silent, which suits loops for mixing.', fix: {} });
@@ -199,8 +203,8 @@ export const defaultRecipe = () => ({
   crop: { on: false, shape: '169', pos: 'c' },
   rotate: { on: false, turn: '90', flip: 'none' },
   smooth: { on: false, strength: 70, dropOdd: true },
-  fps: { on: false, target: 60, engine: 'blend', model: 'rife-v4.6', gpu: 0, loop: true, fix: true },
-  slow: { on: false, factor: 2, mode: 'slow', engine: 'blend', model: 'rife-v4.6', gpu: 0 },
+  fps: { on: false, target: 60, engine: 'motion', model: 'rife-v4.6', gpu: 0, loop: true, fix: true },
+  slow: { on: false, factor: 2, mode: 'slow', engine: 'motion', model: 'rife-v4.6', gpu: 0 },
   up: { on: false, scale: 2, sharp: 50, engine: 'sharp', model: 'realesr-animevideov3', gpu: 0 },
   size: { on: false, box: '1920x1080', fit: 'keep', upscale: false },
   look: { on: false, id: 'sepia', ids: ['sepia'], keepOriginal: false, amount: 50 },

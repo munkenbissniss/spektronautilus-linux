@@ -4,7 +4,7 @@ import { getEngine } from '../app/engine.js';
 import * as L from '../app/loops.js';
 import * as ST from '../app/steps.js';
 import { makeZip } from '../app/zip.js';
-import { injectCSS, clamp01, fmtDur } from '../../shared/progress.js';
+import { injectCSS, clamp01, fmtDur, fitCost, leftFrom } from '../../shared/progress.js';
 injectCSS();
 
 const $ = s => document.querySelector(s);
@@ -33,7 +33,7 @@ const STEPS = [
     { k: 'dropOdd', t: 'bool', l: 'Remove stray frames that jump out of place', adv: 1 }] },
   { s: 'fps', ic: '⚡', title: 'Frame rate', hint: 'Make the clip 60 frames per second without stutter. New frames are made between the old ones, so the movement stays smooth. A clip that loops keeps its seam and its length.', f: [
     seg('target', 'Frames per second', [['60', '60'], ['50', '50'], ['30', '30']], 1),
-    seg('engine', 'Method', [['blend', 'Soft blend'], ['motion', 'Smooth motion'], ['ai', 'AI (best)']], 0, 'Soft blend is fast and works everywhere, also on a phone. Smooth motion follows the movement and is cleaner on fast action, but it is slow, so use a short clip on a phone. AI gives the best result, but needs the Linux version with Video2X and a graphics card.'),
+    seg('engine', 'Method', [['motion', 'Smooth motion'], ['blend', 'Soft blend'], ['ai', 'AI (best)']], 0, 'Soft blend is fast and works everywhere, also on a phone. Smooth motion follows the movement and is cleaner on fast action, but it is slow, so use a short clip on a phone. AI gives the best result, but needs the Linux version with Video2X and a graphics card.'),
     sel('model', 'AI model', [['rife-v4.6', 'General video'], ['rife-v4.26', 'Newest model']]),
     { k: 'loop', t: 'bool', l: 'This clip loops (keep the seam smooth)', adv: 1, h: 'The new frames across the loop point are made from the last and the first frame, so there is no jump or stutter there. Clips that do not loop are left alone.' },
     { k: 'fix', t: 'bool', l: 'Fix stepping from repeated frames', adv: 1, h: 'Some clips repeat frames (animation on twos, or 12 fps in a 30 fps file). They are removed first, so the movement is spread out smoothly instead of moving in steps.' },
@@ -41,7 +41,7 @@ const STEPS = [
   { s: 'slow', ic: '🐢', title: 'Slow motion', hint: 'Make the clip slower, or smoother.', f: [
     seg('factor', 'How much slower', [['2', '2×'], ['4', '4×'], ['8', '8×']], 1),
     seg('mode', 'Result', [['slow', 'Slow motion'], ['smooth', 'Same speed, smoother']], 0, 'Slow motion makes the clip longer. Smoother adds frames per second.'),
-    seg('engine', 'Method', [['blend', 'Soft blend'], ['motion', 'Smooth motion'], ['ai', 'AI (best)']], 0, 'Soft blend is fast. Smooth motion is slower, but cleaner on fast movement. AI gives the best result, but needs the Linux version with Video2X and a graphics card. It can take a long time.'),
+    seg('engine', 'Method', [['motion', 'Smooth motion'], ['blend', 'Soft blend'], ['ai', 'AI (best)']], 0, 'Soft blend is fast. Smooth motion is slower, but cleaner on fast movement. AI gives the best result, but needs the Linux version with Video2X and a graphics card. It can take a long time.'),
     sel('model', 'AI model', [['rife-v4.6', 'General video'], ['rife-v4.26', 'Newest model']]),
     { k: 'gpu', t: 'number', l: 'Graphics card number for AI (0 = automatic)', h: 'Automatic picks a real graphics card and avoids the slow software driver. Change it only if the wrong card is used.', adv: 1 }] },
   { s: 'life', ic: '🌿', title: 'Bring it to life', hint: 'Make still or short loops more alive: slow in and out, a gentle breathing, a floating camera. The clip is repeated to the length you choose, and the movement fits exactly, so it still loops without a jump.', f: [
@@ -153,7 +153,7 @@ const status = t => { $('#engine').textContent = t || ''; };
 function aiAvail() {   // the AI choices only work with the local Linux version and Video2X
   const ok = ST.v2xReady(engine), why = T('AI needs the Linux version with Video2X installed.');
   document.querySelectorAll('[data-s=slow][data-k=engine][value=ai], [data-s=fps][data-k=engine][value=ai], [data-s=up][data-k=engine][value=ai]').forEach(r => { r.disabled = !ok; r.parentElement.title = ok ? '' : why; });
-  ['slow', 'fps', 'up'].forEach(k => { if (!ok && R[k].engine === 'ai') { R[k].engine = k === 'up' ? 'sharp' : 'blend'; syncUI(); } });
+  ['slow', 'fps', 'up'].forEach(k => { if (!ok && R[k].engine === 'ai') { R[k].engine = k === 'up' ? 'sharp' : 'motion'; syncUI(); } });
 }
 // On a phone the "After" video sits right above the preview button, so you do not have to scroll up to see the result.
 const narrow = window.matchMedia('(max-width: 640px)');
@@ -233,7 +233,7 @@ const setBusy = b => {
   $('#stop').classList.toggle('hide', !b); $('#bar').classList.toggle('hide', !b); if (!b) { $('#pausebtn').classList.add('hide'); pauseReq = false; } else $('#pausebtn').classList.toggle('hide', units.total < 2);
 };
 // One bar for the whole run (all looks of all clips), never backwards; stripes while nothing is known yet.
-let units = { done: 0, total: 1 }, best = 0, bestAt = 0, pauseReq = false, gen = 0, runTick = null;
+let units = { done: 0, total: 1 }, best = 0, bestAt = 0, pauseReq = false, gen = 0, runTick = null, plan = null;   // plan: { total, at } from the trial runs
 // Long names (a hash, say) would break the layout: show the start and the end of the name, with the whole name on hover.
 const short = (name, max = 34) => { name = String(name || ''); return name.length <= max ? name : name.slice(0, max - 12).trimEnd() + '…' + name.slice(-10); };
 const prog = x => {
@@ -261,17 +261,29 @@ async function treat(file, out, rec, label, base) {
 let curLabel = '';
 const setCur = s => { curLabel = s; $('#cur').textContent = s; };
 async function run(fn) {
-  if (busy) return; $('#msg').textContent = ''; best = 0; bestAt = Date.now(); pausedMs = 0; pauseReq = false; setBusy(true); prog(0); ctl = { cancel: false, check() { if (this.cancel) throw new Error('cancelled'); } };
+  if (busy) return; $('#msg').textContent = ''; plan = null; best = 0; bestAt = Date.now(); pausedMs = 0; pauseReq = false; setBusy(true); prog(0); ctl = { cancel: false, check() { if (this.cancel) throw new Error('cancelled'); } };
   const c = ctl, g = gen, t0 = Date.now(), started = t0;   // a clock, so you can see that it is working even when the browser reports no progress
   const tick = runTick = setInterval(() => {
     if (pauseReq && $('#bar').classList.contains('pz')) return;
-    const s = Math.round((Date.now() - t0 - pausedMs) / 1000), left = best >= 0.03 && s >= 8 && best < 1 && Date.now() - bestAt < 20000 ? ' · ' + T('about {a} left').replace('{a}', fmtDur(s * (1 - best) / best)) : '';
+    const s = Math.round((Date.now() - t0 - pausedMs) / 1000), el = plan ? (Date.now() - plan.at - pausedMs) / 1000 : s;
+    const lf = plan ? leftFrom(plan.total, el, best) : (best >= 0.03 && s >= 8 && Date.now() - bestAt < 20000 ? leftFrom(0, s, best) : null);
+    const left = best >= 1 ? '' : lf != null ? ' · ' + T('about {a} left').replace('{a}', fmtDur(lf)) : plan ? ' · ' + T('a little longer than estimated') : '';
     $('#cur').textContent = curLabel + (best > 0 ? ' · ' + Math.floor(best * 100) + '%' : '') + ' · ' + Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0') + left + (s >= 60 && best < 0.5 ? ' — ' + T('Still working. Slow motion and loop fixes are heavy for a browser, especially on a phone. Short clips finish sooner.') : '');
   }, 1000);
   try { await ensureEngine(); await fn(); } catch (e) { if (g !== gen) return clearInterval(tick); $('#msg').textContent = (c.cancel || e.message === 'cancelled') ? T('Stopped.') : e.message; }
   clearInterval(tick); if (g !== gen) return;   // "Start over" was pressed while this ran: it has already cleaned up
   setBusy(false); ctl = null; setCur('');
 }
+// A phone freezes the page (and the engine) when you switch to another app. The work then simply waits and goes on when you come
+// back. If nothing moved while away, that time does not count as working time (so the clock and the estimate stay right).
+let hidAt = 0, hidBest = 0;
+document.addEventListener('visibilitychange', () => {
+  if (!busy) { hidAt = 0; return; }
+  if (document.visibilityState === 'hidden') { hidAt = Date.now(); hidBest = best; return; }
+  if (!hidAt) return;
+  const away = Date.now() - hidAt; hidAt = 0;
+  if (best <= hidBest + 1e-4 && away > 3000) { pausedMs += away; $('#msg').textContent = T('Welcome back. The work waited while the app was in the background, and goes on from where it was.'); setTimeout(() => { if ($('#msg').textContent.startsWith(T('Welcome back.'))) $('#msg').textContent = ''; }, 8000); }
+});
 $('#pausebtn').onclick = () => { pauseReq = !pauseReq; $('#pausebtn').textContent = pauseReq ? T('Resume') : T('Pause after this clip'); };
 $('#stop').onclick = () => { if (ctl) ctl.cancel = true; engine.terminate(); setCur(T('Stopping…')); };
 
@@ -281,13 +293,13 @@ $('#prev').onclick = () => run(async () => {
   // clip, then the normal loop / life / repeat steps, so the preview runs for 12 to 20 seconds and loops in the player.
   const rec = JSON.parse(JSON.stringify(ST.variants(R)[0].rec)), cap = rec.slow.on ? 4 : 8;
   rec.cut = { on: true, start: rec.cut.on ? rec.cut.start : 0, len: Math.min(rec.cut.on && rec.cut.len > 0 ? rec.cut.len : cap, cap) };
-  const aiSlow = (rec.slow.on && rec.slow.engine === 'ai') || (rec.fps.on && rec.fps.engine === 'ai'); if (rec.slow.engine === 'ai') rec.slow.engine = 'blend'; if (rec.fps.engine === 'ai') rec.fps.engine = 'blend'; if (rec.fps.on && rec.fps.engine === 'motion') rec.fps.engine = 'blend';
+  const aiSlow = (rec.slow.on && rec.slow.engine === 'ai') || (rec.fps.on && rec.fps.engine === 'ai'); if (rec.slow.engine === 'ai') rec.slow.engine = 'motion'; if (rec.fps.engine === 'ai') rec.fps.engine = 'motion';
   const notUp = rec.up.on; rec.up.on = false; rec.size = { on: true, box: '480x270', fit: 'keep', upscale: false };
   rec.out.minSeconds = Math.min(20, Math.max(12, rec.out.minSeconds || 0)); rec.out.crf = 28;
   setCur('Making a preview…');
   const r = await treat(patient.file, 'hosp_prev.mp4', rec, 'preview', { ...baseProf(), preset: 'ultrafast' });
   const v = $('#vafter'); if (v.src) URL.revokeObjectURL(v.src); v.src = URL.createObjectURL(new Blob([r.data], { type: 'video/mp4' })); $('#fafter').classList.remove('hide'); showAfter();
-  $('#msg').textContent = T(notUp ? 'Preview done. It is small and low quality, but shows the loop and life effects. It does not show the upscale.' : 'Preview done. It is small and low quality, but shows the loop and life effects. The saved file uses your chosen size.') + (aiSlow ? ' ' + T('The preview uses the fast slow-motion method, not AI.') : '');
+  $('#msg').textContent = T(notUp ? 'Preview done. It is small and low quality, but shows the loop and life effects. It does not show the upscale.' : 'Preview done. It is small and low quality, but shows the loop and life effects. The saved file uses your chosen size.') + (aiSlow ? ' ' + T('The preview uses Smooth motion, not AI.') : '');
 });
 
 $('#aiprev').onclick = () => run(async () => {   // the real AI on a couple of seconds: shows the quality and how long the whole clip will take
@@ -321,10 +333,41 @@ async function treatClip(file, label) {
     addResult(outName(file, v.suffix), r.data, r.note); units.done++; prog(0);
   }
 }
+// How long will it take? The live guess from the bar is too low when the heavy steps come last (frame rate, AI, the loop), so the
+// whole recipe is first run on two short pieces of the clip, on this computer, with the same settings. Their times give
+// time = a + b × seconds of result, which is then worked out for the whole clip. Costs a few seconds, and is skipped for short jobs.
+async function measure(file, rec0) {
+  let path; const g = gen, t00 = performance.now();
+  try {
+    path = await openInput(file);
+    const inf = await L.probe(engine, path, file.name), start = rec0.cut.on ? Math.max(0, +rec0.cut.start || 0) : 0;
+    const D = Math.max(0, Math.min(inf.duration - start, rec0.cut.on && +rec0.cut.len > 0 ? +rec0.cut.len : Infinity));
+    const M = Math.max(+rec0.out.minSeconds || 0, rec0.life.on ? +rec0.life.minSeconds || 0 : 0, rec0.kb.on ? +rec0.kb.minSeconds || 0 : 0);
+    if (!(D > 0.8) || Math.max(D, M) < 5) return null;   // short jobs: the bar itself is good enough
+    const pts = [];
+    for (const d of [Math.min(0.3, D * 0.25), Math.min(0.9, D * 0.75)]) {
+      const rec = JSON.parse(JSON.stringify(rec0)); rec.cut = { on: true, start, len: d }; rec.out.minSeconds = 0; rec.life.minSeconds = 0; rec.kb.minSeconds = 0;
+      const t = performance.now();
+      await ST.runRecipe(engine, L, path, 'hosp_est.mp4', inf, rec, baseProf(), { ctl, tmp: 'hosp_est_tmp.mp4' });
+      const sec = (performance.now() - t) / 1000, oi = await L.probe(engine, 'hosp_est.mp4'); await engine.remove('hosp_est.mp4');
+      if (g !== gen) throw new Error('cancelled');
+      pts.push({ t: sec, o: oi.duration || d, d });
+      if (sec > 20) break;   // very heavy (AI on a big clip): one trial is enough (it then counts the start-up cost as work, so the estimate errs on the high side)
+    }
+    const { a, b } = fitCost(pts[0], pts[1]), last = pts[pts.length - 1];
+    const O = Math.max(D * last.o / last.d, M);
+    return { one: a + b * O, took: (performance.now() - t00) / 1000 };
+  } catch (e) { if (ctl && ctl.cancel || e.message === 'cancelled' || g !== gen) throw e; return null; }   // no estimate is better than a failed job
+  finally { if (path) { try { await engine.unmount(path); } catch (e) { /* ignore */ } } }
+}
 $('#go').onclick = () => run(async () => {
   if (!patient || !patient.info) throw new Error('Choose a clip first.');
-  units = { done: 0, total: ST.variants(R).length }; $('#pausebtn').classList.toggle('hide', units.total < 2);
+  const vs = ST.variants(R); units = { done: 0, total: vs.length }; $('#pausebtn').classList.toggle('hide', units.total < 2);
+  setCur(T('Measuring how long it will take…'));
+  const m = await measure(patient.file, vs[0].rec), t1 = Date.now();
+  if (m) plan = { total: m.one * vs.length, at: t1 - pausedMs };
   await treatClip(patient.file, short(patient.file.name));
+  if (plan) $('#msg').textContent = T('Done in {a} (estimated {b}).').replace('{a}', fmtDur((Date.now() - t1) / 1000)).replace('{b}', fmtDur(plan.total));
   const v = $('#vafter'); if (v.src) URL.revokeObjectURL(v.src); v.src = URL.createObjectURL(RESULTS[RESULTS.length - 1].blob); $('#fafter').classList.remove('hide'); showAfter(); $('#fafter figcaption').textContent = 'After';
 });
 $('#res').onclick = e => { const b = e.target.closest('[data-up]'); const r = b && RESULTS.find(x => x.id === +b.dataset.up); if (r && window.SPK_UP) SPK_UP.open(new File([r.blob], r.name, { type: 'video/mp4' }), { title: stemOf(r.name).replace(/_healed$/, ''), name: r.name }); };

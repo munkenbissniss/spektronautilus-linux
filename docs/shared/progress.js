@@ -29,3 +29,21 @@ export function timeLine(j, T = TT) {
 }
 // "nothing has changed for a while" -> a calm sentence, so nobody thinks it froze
 export function quietNote(lastChange, T = TT, after = 20000) { return lastChange && Date.now() - lastChange > after ? T('Still working. Big files can take a while without moving the bar.') : ''; }
+
+// A planned estimate from two short trial runs of the real work: time = a + b × seconds of video made.
+// a is what every run costs anyway (starting the engine, loading an AI model), b the cost per second of result.
+export function fitCost(p1, p2) {
+  if (!p2) { const b = p1.t / Math.max(p1.o, 0.05); return { a: 0, b }; }
+  const dO = p2.o - p1.o, b = dO > 0.05 ? Math.max(0, (p2.t - p1.t) / dO) : p2.t / Math.max(p2.o, 0.05);
+  return { a: Math.max(0, Math.min(p1.t, p1.t - b * p1.o)), b: b || p2.t / Math.max(p2.o, 0.05) };
+}
+// Seconds left, from the planned total. The bar is only a light correction late in the run (its steps are not equally heavy, so it is
+// exactly what cannot be trusted). Past the plan it returns null: the caller then says "a little longer than estimated".
+export function leftFrom(plan, el, f) {
+  const lin = f >= 0.03 && f < 1 ? el * (1 - f) / f : null;
+  if (!(plan > 0)) return lin;
+  const rp = plan - el;
+  if (rp <= plan * 0.03) return null;
+  if (lin != null && f >= 0.6 && lin > rp) return (rp + lin) / 2;   // late, and clearly slower than planned
+  return rp;
+}
