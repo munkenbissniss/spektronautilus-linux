@@ -18,6 +18,22 @@
   var t = W[lang] || W.en;
   var addr = ['oyvind.dahl', 'tutamail.com'].join('@');       // kept in two pieces so simple address collectors do not find it
   var GP = { en: '', no: 'no/', es: 'es/', de: 'de/', pt: 'pt/' };
+  // Tap feedback: a press shows at once, also on phones (they show little by themselves, and iOS only shows :active with a touch
+  // listener on the page). 'scale' is used, not 'transform', so buttons that are already moved or turned keep their place.
+  var press = document.createElement('style');
+  press.textContent = 'button,a.btn,.tile,[role=button],summary,.seg label,.chips label{-webkit-tap-highlight-color:transparent;touch-action:manipulation}' +
+    'button,a.btn,.tile,[role=button],.seg label{transition:scale .09s ease,filter .09s ease}' +
+    '.spk-press:not(:disabled),button:active:not(:disabled),a.btn:active,.tile:active{scale:.94;filter:brightness(1.3) saturate(1.1)}' +
+    '@media (prefers-reduced-motion:reduce){.spk-press:not(:disabled),button:active:not(:disabled),a.btn:active,.tile:active{scale:none;filter:brightness(1.35)}}';
+  (document.head || document.documentElement).appendChild(press);
+  document.addEventListener('touchstart', function () {}, { passive: true });
+  document.addEventListener('pointerdown', function (e) {
+    var b = e.target && e.target.closest && e.target.closest('button,a.btn,.tile,[role=button],.seg label,summary');
+    if (!b || b.disabled) return;
+    b.classList.add('spk-press'); clearTimeout(b._spkp);
+    var off = function () { window.removeEventListener('pointerup', off, true); window.removeEventListener('pointercancel', off, true); b._spkp = setTimeout(function () { b.classList.remove('spk-press'); }, 140); };
+    window.addEventListener('pointerup', off, true); window.addEventListener('pointercancel', off, true);
+  }, { passive: true, capture: true });
   var css = document.createElement('style');
   css.textContent = '.spkx a,.spkx button{font:inherit}.spkx{display:inline-flex;gap:10px;align-items:center;font-size:.8rem;opacity:.75}.spkx:hover,.spkx:focus-within{opacity:1}' +
     '.spkx a,.spkx button{color:inherit;background:none;border:0;padding:2px 4px;cursor:pointer;text-decoration:underline;text-underline-offset:3px;border-radius:6px}' +

@@ -1,4 +1,4 @@
-import { VIDEO_EXT, GIF_EXT, extOf, stemOf, defaultProfile, fmtSize } from '../app/core.js';
+import { VIDEO_EXT, GIF_EXT, extOf, stemOf, defaultProfile, fmtSize, repeatsNeeded } from '../app/core.js';
 import { FILTERS } from '../app/filters.js';
 import { getEngine } from '../app/engine.js';
 import * as L from '../app/loops.js';
@@ -59,10 +59,12 @@ const STEPS = [
     { k: 'minSeconds', t: 'range', l: 'Make it at least (seconds)', min: 8, max: 120, step: 2, h: 'The whole movement takes this long. Longer is slower and smoother. 24 s and longer glides nicely.' },
     { k: 'ret', t: 'bool', l: 'Glide back to the start (keeps it looping)', adv: 1 }] },
   { s: 'up', ic: '🔍', title: 'Upscale', hint: 'Make the picture larger and sharper.', f: [
-    seg('engine', 'Method', [['sharp', 'Sharp (fast)'], ['ai', 'AI (best)']], 0, 'Sharp works everywhere. AI gives the best result, but needs the Linux version with Video2X and a graphics card. It can take a long time.'),
+    seg('engine', 'Method', [['sharp', 'Sharp (fast)'], ['ai', 'AI (best)'], ['recavsr', 'AI video (ReCaVSR)']], 0, 'Sharp works everywhere. AI gives the best result, but needs the Linux version with Video2X and a graphics card. It can take a long time.'),
     seg('scale', 'Make it this much bigger', [['2', '2×'], ['3', '3×'], ['4', '4×']], 1),
     { k: 'sharp', t: 'range', l: 'Sharpness (Sharp method)', min: 0, max: 100, step: 5 },
-    sel('model', 'Kind of picture (AI)', [['realesr-animevideov3', 'Cartoons and animation'], ['realesrgan-plus', 'Photos and real film (always 4×)'], ['anime4k', 'Fast, for animation (Anime4K)']])] },
+    sel('model', 'Kind of picture (AI)', [['realesr-animevideov3', 'Cartoons and animation'], ['realesrgan-plus', 'Photos and real film (always 4×)'], ['anime4k', 'Fast, for animation (Anime4K)']]),
+    { k: 'seam', t: 'bool', l: 'Keep the loop seamless (ReCaVSR, takes twice as long)', adv: 1, h: 'ReCaVSR works forward in time and remembers what came before. The clip is run twice in a row and the second round is kept, so the end flows into the start.' },
+    sel('colorFix', 'Colour match (ReCaVSR)', [['none', 'None'], ['wavelet', 'Keep the colours of the original'], ['adain', 'Match brightness and contrast']])] },
   { s: 'size', ic: '📐', title: 'Resize', hint: 'Fit the clip to a size box. Portrait clips are turned automatically.', f: [
     sel('box', 'Size', ['1280x720', '1920x1080', '2560x1440', '3840x2160']),
     seg('fit', 'Fit', [['keep', 'Only shrink'], ['fit', 'Letterbox'], ['fill', 'Crop to fill']]),
@@ -154,22 +156,24 @@ function aiAvail() {   // the AI choices only work with the local Linux version 
   const ok = ST.v2xReady(engine), why = T('AI needs the Linux version with Video2X installed.');
   document.querySelectorAll('[data-s=slow][data-k=engine][value=ai], [data-s=fps][data-k=engine][value=ai], [data-s=up][data-k=engine][value=ai]').forEach(r => { r.disabled = !ok; r.parentElement.title = ok ? '' : why; });
   ['slow', 'fps', 'up'].forEach(k => { if (!ok && R[k].engine === 'ai') { R[k].engine = k === 'up' ? 'sharp' : 'motion'; syncUI(); } });
+  const re = ST.comfyReady(engine);   // only the NVIDIA version has ComfyUI with ReCaVSR; elsewhere the choice is not shown at all
+  document.querySelectorAll('[data-s=up][data-k=engine][value=recavsr]').forEach(r => { r.parentElement.classList.toggle('hide', !re); });
+  document.querySelectorAll('[data-s=up][data-k=seam], [data-s=up][data-k=colorFix]').forEach(e => { const f = e.closest('.f'); if (f) f.classList.toggle('hide', !re); });
+  if (!re && R.up.engine === 'recavsr') { R.up.engine = 'sharp'; syncUI(); }
 }
-// On a phone the "After" video sits right above the preview button, so you do not have to scroll up to see the result.
-const narrow = window.matchMedia('(max-width: 640px)');
+// The "After" video sits in the bottom card, right above the preview button, on every screen: you see the result where you pressed.
 function placeAfter() {
-  const f = $('#fafter'), pv = document.querySelector('.pv'), c4 = $('#c4'); if (!f || !pv || !c4) return;
-  if (narrow.matches) { if (f.parentElement !== c4) c4.insertBefore(f, c4.firstElementChild); }
-  else if (f.parentElement !== pv) pv.appendChild(f);
+  const f = $('#fafter'), c4 = $('#c4'); if (!f || !c4) return;
+  if (f.parentElement !== c4) c4.insertBefore(f, c4.firstElementChild);
   const v = $('#vafter'); if (v && v.src && v.paused) v.play().catch(() => {});
 }
 function showAfter() {
   placeAfter();
-  if (narrow.matches) { const f = $('#fafter'); try { f.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch (e) { /* ignore */ } }
+  const f = $('#fafter'); try { f.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch (e) { /* ignore */ }
 }
-narrow.addEventListener && narrow.addEventListener('change', placeAfter); placeAfter();
+placeAfter();
 
-async function ensureEngine() { if (engine.pick) { try { await engine.pick(); } catch (e) { /* the web engine loads below */ } } await engine.load(status); status(''); aiAvail(); }
+async function ensureEngine() { if (engine.pick) { try { await engine.pick(); } catch (e) { /* the web engine loads below */ } } await engine.load(status); status(''); if (engine.kind === 'native' && engine.comfyInfo && !engine.comfy) await engine.comfyInfo(); aiAvail(); }
 const openInput = async file => engine.mount(new File([file], 'src' + (extOf(file.name) || '.mp4'), { type: file.type }));
 const okFile = f => OK_EXT.has(extOf(f.name));
 
@@ -253,7 +257,7 @@ async function treat(file, out, rec, label, base) {
     path = await openInput(file);
     const inf = await L.probe(engine, path, file.name); if (!inf.width) throw new Error('No picture found in this file');
     const r = await ST.runRecipe(engine, L, path, out, inf, rec, base || baseProf(), { ctl, onProgress: prog, tmp: 'hosp_tmp_' + nextId + '.mp4',
-      onStage: (kind, sec, i) => setCur(T(kind === 'up' ? 'AI upscaling…' : kind === 'fps' ? 'AI frame rate…' : 'AI slow motion…') + (i && i.gpu ? ' · ' + i.gpu : '') + (i && i.soft ? ' · ' + T('Only a software graphics driver was found. AI will be very slow. Install the Vulkan driver for your graphics card.') : '')) });
+      onStage: (kind, sec, i) => setCur(T(kind === 'recavsr' ? 'AI video upscaling (ReCaVSR)…' : kind === 'up' ? 'AI upscaling…' : kind === 'fps' ? 'AI frame rate…' : 'AI slow motion…') + (i && i.gpu ? ' · ' + i.gpu : '') + (i && i.soft ? ' · ' + T('Only a software graphics driver was found. AI will be very slow. Install the Vulkan driver for your graphics card.') : '')) });
     const data = await engine.read(out); await engine.remove(out);
     return { data, note: r.note };
   } finally { if (path) await engine.unmount(path); }
@@ -337,21 +341,27 @@ async function treatClip(file, label) {
 // How long will it take? The live guess from the bar is too low when the heavy steps come last (frame rate, AI, the loop), so the
 // whole recipe is first run on two short pieces of the clip, on this computer, with the same settings. Their times give
 // time = a + b × seconds of result, which is then worked out for the whole clip. Costs a few seconds, and is skipped for short jobs.
-async function measure(file, rec0) {
+async function measure(file, rec0, loopRep) {
   let path; const g = gen, t00 = performance.now();
   try {
     path = await openInput(file);
     const inf = await L.probe(engine, path, file.name), start = rec0.cut.on ? Math.max(0, +rec0.cut.start || 0) : 0;
     const D = Math.max(0, Math.min(inf.duration - start, rec0.cut.on && +rec0.cut.len > 0 ? +rec0.cut.len : Infinity));
     const M = Math.max(+rec0.out.minSeconds || 0, rec0.life.on ? +rec0.life.minSeconds || 0 : 0, rec0.kb.on ? +rec0.kb.minSeconds || 0 : 0);
-    if (!(D > 0.8) || Math.max(D, M) < 5) return null;   // short jobs: the bar itself is good enough
-    // Two trials without repeating give time = a + b × seconds of real content. A third one repeated a little further gives c, the cost
-    // of a repeated second: that is only the light final step, while frame rate, slow motion and the loop are done once.
-    const trial = async (d, minS) => {
-      const rec = JSON.parse(JSON.stringify(rec0)); rec.cut = { on: true, start, len: d }; rec.out.minSeconds = minS; rec.life.minSeconds = minS; rec.kb.minSeconds = minS;
+    if (!(D > 0.8) || (Math.max(D, M) < 5 && !rec0.loop.on)) return null;   // short jobs: the bar itself is good enough
+    // Two trials without repeating give time = a + b × seconds of real content. A third one, repeated a little, gives c, the cost of a
+    // repeated second: often only the light final step, while frame rate, slow motion and the loop are done once. Each trial works on
+    // its own short piece of the clip (cut out first, not timed), so the repeat inside the recipe is not cut short.
+    const trial = async (d, minS, keep) => {
+      const cut = await engine.exec(['-y', '-ss', String(start), '-i', path, '-t', String(d), '-an', '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '10', '-pix_fmt', 'yuv420p', 'hosp_est_src.mp4'], {});
+      if (cut.code !== 0) throw new Error('trial');
+      const si = await L.probe(engine, 'hosp_est_src.mp4');
+      const rec = JSON.parse(JSON.stringify(rec0)); rec.cut = { on: false, start: 0, len: 0 }; rec.out.minSeconds = minS; rec.life.minSeconds = minS; rec.kb.minSeconds = minS;
+      rec.loop.on = false;   // the loop step is worked out below: on a tiny piece it would not do what it does with the whole clip
       const t = performance.now();
-      await ST.runRecipe(engine, L, path, 'hosp_est.mp4', inf, rec, baseProf(), { ctl, tmp: 'hosp_est_tmp.mp4' });
-      const sec = (performance.now() - t) / 1000, oi = await L.probe(engine, 'hosp_est.mp4'); await engine.remove('hosp_est.mp4');
+      await ST.runRecipe(engine, L, 'hosp_est_src.mp4', 'hosp_est.mp4', si, rec, baseProf(), { ctl, tmp: 'hosp_est_tmp.mp4' });
+      const sec = (performance.now() - t) / 1000, oi = await L.probe(engine, 'hosp_est.mp4');
+      if (!keep) await engine.remove('hosp_est.mp4'); await engine.remove('hosp_est_src.mp4');
       if (g !== gen) throw new Error('cancelled');
       return { t: sec, o: oi.duration || d, d };
     };
@@ -360,19 +370,30 @@ async function measure(file, rec0) {
     const { a, b } = fitCost(p1, p2), last = p2 || p1, core = D * last.o / last.d;
     let c = b;
     if (M > core + 0.5) {   // the result is repeated: measure what that costs
-      const p3 = await trial(d1, Math.min(M, p1.o + 3));
+      const p3 = await trial(d1, p1.o + 3);
       c = p3.o > p1.o + 0.3 ? Math.max(0, Math.min(b, (p3.t - p1.t) / (p3.o - p1.o))) : b;
     }
-    const O = M > core ? Math.max(core, M * 1.08) : core;   // a repeated result ends on a whole loop, so it is usually a little longer than asked
-    return { one: a + b * core + c * (O - core), took: (performance.now() - t00) / 1000 };
+    if (!rec0.loop.on) {
+      const O = M > core ? core * repeatsNeeded(core, M) : core;   // whole repeats, as the job itself makes them
+      return { one: a + b * core + c * (O - core), took: (performance.now() - t00) / 1000 };
+    }
+    // Make it loop: what it will do follows from the clip's own loop report; then it is repeated to the length asked for. Those passes
+    // only encode (the effects are already in the picture), so their cost per second is measured on a plain encode of a trial result.
+    const pe = await trial(Math.min(0.9, D * 0.75), 0, true), te = performance.now(), bp = baseProf();
+    await engine.exec(['-y', '-i', 'hosp_est.mp4', '-an', '-c:v', 'libx264', '-preset', bp.preset || 'veryfast', '-crf', String(rec0.out.crf || 18), '-pix_fmt', 'yuv420p', 'hosp_est2.mp4'], {});
+    const cEnc = Math.min(c, (performance.now() - te) / 1000 / Math.max(0.1, pe.o)); await engine.remove('hosp_est.mp4'); await engine.remove('hosp_est2.mp4');
+    const lf = L.loopForecast(loopRep, rec0.loop, core), O = lf.len * repeatsNeeded(lf.len, M);
+    // the final encode of the (repeated) result; without repeats the loop's own passes count too, with repeats they hardly matter
+    const extra = lf.method === 'asis' || repeatsNeeded(lf.len, M) > 1 ? 0 : 0.8 * lf.len;
+    return { one: a + b * core + cEnc * (O + extra), took: (performance.now() - t00) / 1000 };
   } catch (e) { if (ctl && ctl.cancel || e.message === 'cancelled' || g !== gen) throw e; return null; }   // no estimate is better than a failed job
   finally { if (path) { try { await engine.unmount(path); } catch (e) { /* ignore */ } } }
 }
 $('#go').onclick = () => run(async () => {
   if (!patient || !patient.info) throw new Error('Choose a clip first.');
   const vs = ST.variants(R); units = { done: 0, total: vs.length }; $('#pausebtn').classList.toggle('hide', units.total < 2);
-  setCur(T('Measuring how long it will take…'));
-  const m = await measure(patient.file, vs[0].rec), t1 = Date.now();
+  setCur(T('Estimating how long it will take…'));
+  const m = await measure(patient.file, vs[0].rec, patient.loop), t1 = Date.now();
   if (m) plan = { total: m.one * vs.length, at: t1 - pausedMs };
   await treatClip(patient.file, short(patient.file.name));
   if (plan) $('#msg').textContent = T('Done in {a} (estimated {b}).').replace('{a}', fmtDur((Date.now() - t1) / 1000)).replace('{b}', fmtDur(plan.total));
@@ -397,28 +418,16 @@ $('#zipall').onclick = async () => {
   catch (e) { $('#msg').textContent = e.message; }
 };
 
-// Start over: clears the clip, the settings and the results, and stops whatever is running (also a job that has got stuck).
-let resetTimer = null;
-function resetAll() {
-  gen++; if (ctl) ctl.cancel = true; try { engine.terminate(); } catch (e) { /* the engine starts again when it is needed */ }
-  clearInterval(runTick); ctl = null; pauseReq = false; setBusy(false); setCur(''); $('#msg').textContent = ''; units = { done: 0, total: 1 }; best = 0;
-  if (patient) URL.revokeObjectURL(patient.url); patient = null;
-  RESULTS.forEach(r => URL.revokeObjectURL(r.url)); RESULTS = []; $('#res').innerHTML = ''; $('#more').classList.add('hide'); $('#zipall').classList.add('hide');
-  if (gifUrl) URL.revokeObjectURL(gifUrl); gifUrl = null; $('#gifbar').classList.add('hide'); $('#gifdone').classList.add('hide');
-  for (const id of ['vbefore', 'vafter']) { const v = $('#' + id); try { v.pause(); } catch (e) { /* ignore */ } if (id === 'vafter' && v.src) URL.revokeObjectURL(v.src); v.removeAttribute('src'); try { v.load(); } catch (e) { /* ignore */ } }
-  $('#fafter').classList.add('hide'); placeAfter(); $('#fafter figcaption').textContent = 'After (preview)';
-  $('#patient').classList.add('hide'); ['c3', 'c4'].forEach(i => $('#' + i).classList.add('hide')); $('#facts').innerHTML = ''; $('#findings').innerHTML = ''; $('#healall').classList.add('hide');
-  for (const id of ['picker', 'pickermore']) { try { $('#' + id).value = ''; } catch (e) { /* ignore */ } }
-  for (const k of Object.keys(R)) delete R[k]; Object.assign(R, ST.defaultRecipe()); buildSteps(); syncUI(); aiAvail();
-}
-function resetLabels(armed) { document.querySelectorAll('[data-reset]').forEach(b => { b.textContent = armed ? T('Tap again to start over') : T('↺ Start over'); b.classList.toggle('main', armed); }); }
+// Start over = a fresh page. Asks first when there is something to lose; stops the work, then reloads. Kept this simple on purpose:
+// a reload always works, also when a stuck engine or a half-finished job would get in the way of clearing things one by one.
 document.querySelectorAll('[data-reset]').forEach(b => { b.onclick = () => {
-  const something = busy || patient || RESULTS.length;
-  if (something && !resetTimer) { resetLabels(true); resetTimer = setTimeout(() => { resetTimer = null; resetLabels(false); }, 4000); return; }   // two taps, so nothing is lost by accident
-  clearTimeout(resetTimer); resetTimer = null; resetLabels(false); resetAll();
-  // Then a clean page, exactly as after a reload: the leftovers of a stuck engine or a half-finished job cannot follow along.
-  setTimeout(() => { try { location.reload(); } catch (e) { /* the cleared page works as it is */ } }, 60);
+  if ((busy || patient || RESULTS.length) && !window.confirm(T('Start over? The clip, your settings and the results are cleared, and anything running stops.'))) return;
+  b.disabled = true; b.textContent = T('Starting over…');
+  try { if (ctl) ctl.cancel = true; engine.terminate(); } catch (e) { /* the reload clears it anyway */ }
+  try { location.reload(); } catch (e) { location.href = location.pathname; }
 }; });
 
-buildSteps(); info();
-window.HOSP = { R, choose, ST };   // for tests and the console
+buildSteps(); info(); aiAvail();
+// the local versions are recognised at once; the NVIDIA version also tells whether ComfyUI with ReCaVSR is ready
+if (engine.pick) engine.pick().then(async () => { if (engine.kind === 'native' && engine.comfyInfo) { await engine.comfyInfo(); aiAvail(); } }).catch(() => {});
+window.HOSP = { R, choose, ST, engine };   // for tests and the console

@@ -118,6 +118,20 @@ export class NativeEngine {
     return { code: out.code, log: out.log };
   }
   async v2xGpus() { const r = await fetch('/api/v2x-gpus', { headers: { 'X-Spk': '1' } }); return r.ok ? r.json() : { ok: false }; }
+  // AI video upscaling with ReCaVSR: ComfyUI (a separate program, maybe on another computer) does the work; the local server talks to it
+  async comfyInfo() { try { const r = await fetch('/api/comfy', { headers: { 'X-Spk': '1' } }); this.comfy = r.ok ? await r.json() : { ok: false }; } catch (e) { this.comfy = { ok: false }; } return this.comfy; }
+  async comfySet(url) { try { const r = await fetch('/api/comfy', { method: 'POST', headers: { 'X-Spk': '1', 'Content-Type': 'application/json' }, body: JSON.stringify({ url }) }); this.comfy = r.ok ? await r.json() : { ok: false }; } catch (e) { this.comfy = { ok: false }; } return this.comfy; }
+  async comfyRun(opts, { onProgress } = {}) {
+    const r = await fetch('/api/comfy-exec', { method: 'POST', headers: { 'X-Spk': '1', 'Content-Type': 'application/json' }, body: JSON.stringify(opts) });
+    if (!r.ok || !r.body) throw new Error('The local engine could not reach ComfyUI (' + r.status + ').');
+    const rd = r.body.getReader(), dec = new TextDecoder(); let buf = '', out = null;
+    for (;;) {
+      const { value, done } = await rd.read(); if (done) break; buf += dec.decode(value, { stream: true });
+      let i; while ((i = buf.indexOf('\n')) >= 0) { const line = buf.slice(0, i); buf = buf.slice(i + 1); if (!line) continue; const m = JSON.parse(line); if (m.p != null) onProgress && onProgress(m.p); else out = m; }
+    }
+    if (!out) throw new Error('The local engine stopped. If you pressed Stop this is normal.');
+    return { code: out.code, log: out.log };
+  }
   async write(path, data) { await this._put(path, data); }
   async read(path) { const r = await fetch('/api/fs/' + encodeURI(path), { headers: { 'X-Spk': '1' } }); if (!r.ok) throw new Error('Could not read ' + path + ' from the local engine.'); return new Uint8Array(await r.arrayBuffer()); }
   async readBlob(path, type) { const r = await fetch('/api/fs/' + encodeURI(path), { headers: { 'X-Spk': '1' } }); if (!r.ok) throw new Error('Could not read ' + path + ' from the local engine.'); return new Blob([await r.blob()], { type }); }      // the browser keeps it on disk, not in script memory
@@ -145,6 +159,10 @@ class AutoEngine {
   async exec(a, o) { return (await this.pick()).exec(a, o); }
   async v2x(a, o) { const e = await this.pick(); if (!e.v2x) throw new Error('AI upscaling needs the Linux (local) version.'); return e.v2x(a, o); }
   async v2xGpus() { const e = await this.pick(); return e.v2xGpus ? e.v2xGpus() : { ok: false }; }
+  get comfy() { return this.impl && this.impl.comfy; }
+  async comfyInfo() { const e = await this.pick(); return e.comfyInfo ? e.comfyInfo() : { ok: false }; }
+  async comfySet(u) { const e = await this.pick(); return e.comfySet ? e.comfySet(u) : { ok: false }; }
+  async comfyRun(o, x) { const e = await this.pick(); if (!e.comfyRun) throw new Error('AI video upscaling needs the Linux (local) version.'); return e.comfyRun(o, x); }
   async write(p, d) { return (await this.pick()).write(p, d); }
   async read(p) { return (await this.pick()).read(p); }
   async readBlob(p, t) { return (await this.pick()).readBlob(p, t); }

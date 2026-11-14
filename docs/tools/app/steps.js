@@ -205,7 +205,7 @@ export const defaultRecipe = () => ({
   smooth: { on: false, strength: 70, dropOdd: true },
   fps: { on: false, target: 60, engine: 'motion', model: 'rife-v4.6', gpu: 0, loop: true, fix: true },
   slow: { on: false, factor: 2, mode: 'slow', engine: 'motion', model: 'rife-v4.6', gpu: 0 },
-  up: { on: false, scale: 2, sharp: 50, engine: 'sharp', model: 'realesr-animevideov3', gpu: 0 },
+  up: { on: false, scale: 2, sharp: 50, engine: 'sharp', model: 'realesr-animevideov3', gpu: 0, seam: true, colorFix: 'none' },
   size: { on: false, box: '1920x1080', fit: 'keep', upscale: false },
   look: { on: false, id: 'sepia', ids: ['sepia'], keepOriginal: false, amount: 50 },
   life: { on: false, style: 'calm', ...LIFE_STYLES.calm, minSeconds: 16 },
@@ -263,19 +263,21 @@ export function planRecipe(info, R, baseProf) {
 
 // Run the plan: one ffmpeg pass, then loop smoothing when asked. loops = the loops.js module. Returns { note }.
 // ---------------------------------------------------------------------------------------------- AI steps (Video2X, Linux local version)
+export const comfyReady = engine => !!(engine && engine.kind === 'native' && engine.comfy && engine.comfy.ok && engine.comfyRun);
 export const v2xReady = engine => !!(engine && engine.kind === 'native' && engine.info && engine.info.v2x && engine.info.v2x.ok && engine.v2x);
-export const wantsAi = R => !!((R.slow.on && R.slow.engine === 'ai') || (R.up.on && R.up.engine === 'ai') || (R.fps && R.fps.on && R.fps.engine === 'ai'));
+export const wantsV2x = R => !!((R.slow.on && R.slow.engine === 'ai') || (R.up.on && R.up.engine === 'ai') || (R.fps && R.fps.on && R.fps.engine === 'ai'));
+export const wantsAi = R => wantsV2x(R) || !!(R.up.on && R.up.engine === 'recavsr');
 const clone = o => JSON.parse(JSON.stringify(o));
 const errLine = (r, re) => (r.log.filter(l => re.test(l)).slice(-1)[0] || 'code ' + r.code).slice(0, 160);
 
 // AI stages run first, each as its own pass: [cut, rotate, crop, soft slow motion] -> AI slow motion -> AI upscale. What is left
 // (look, life, size, loop, repeat) goes through the normal pass afterwards. Returns { path, info, R, notes, tmps }.
 async function aiStages(engine, loops, src, info, R, baseProf, ctl, report, onStage, tag) {
-  const tmps = [], notes = [], v = engine.info.v2x, aiSlow = R.slow.on && R.slow.engine === 'ai', aiUp = R.up.on && R.up.engine === 'ai', aiFps = !!(R.fps && R.fps.on && R.fps.engine === 'ai');
+  const tmps = [], notes = [], v = (engine.info && engine.info.v2x) || {}, aiSlow = R.slow.on && R.slow.engine === 'ai', aiUp = R.up.on && R.up.engine === 'ai', reUp = R.up.on && R.up.engine === 'recavsr', aiFps = !!(R.fps && R.fps.on && R.fps.engine === 'ai');
   const R3 = clone(R), pre = clone(R);
   let path = src, cur = info, done = 0;
   const W = { a: 1, ai: 6, fin: 2 }, usesA = R.cut.on || R.rotate.on || R.crop.on || (R.slow.on && !aiSlow);
-  const total = (usesA ? W.a : 0) + (aiSlow ? W.ai : 0) + (aiFps ? W.ai : 0) + (aiUp ? W.ai : 0) + W.fin;
+  const total = (usesA ? W.a : 0) + (aiSlow ? W.ai : 0) + (aiFps ? W.ai : 0) + (aiUp || reUp ? W.ai : 0) + W.fin;
   const rep = (w, x) => { lastP = Math.min(1, x); report && report((done + w * Math.min(1, x)) / total); };
   const finish = w => { done += w; };
   let dev = null, lastP = 0;
@@ -345,6 +347,32 @@ async function aiStages(engine, loops, src, info, R, baseProf, ctl, report, onSt
     finish(W.ai); path = out; notes.push(`AI ${sc}× bigger`); R3.up.on = false;
     cur = await loops.probe(engine, path);
   }
+  if (reUp) {   // ReCaVSR (a diffusion model for video) in ComfyUI. It works forward in time with a memory of what came before, so for a
+    // loop it gets the clip twice in a row and the second round is kept: its start then follows on from the end, and the seam stays clean.
+    const sc = Math.min(4, Math.max(1.5, +R.up.scale || 2)), W2 = even(cur.width * sc), H2 = even(cur.height * sc);
+    if (W2 * H2 > 3840 * 2160) throw new Error('The result would be larger than 4K. Choose a smaller scale or crop and resize first.');
+    const seam = R.up.seam !== false && (cur.duration || 0) > 0.3;
+    let inp = path, N = 0;
+    if (seam) {
+      const g = await loops.probe(engine, path); N = Math.round((g.duration || cur.duration) * (g.fps || cur.fps || 25));
+      const d2 = `${tag}_r2.mp4`; tmps.push(d2); ctl.check();
+      const r0 = await engine.exec(['-y', '-stream_loop', '1', '-i', path, '-an', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '12', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', d2], {});
+      if (r0.code !== 0) throw new Error('Could not prepare this clip (' + errLine(r0, /error|invalid|not supported|unknown/i) + ')');
+      inp = d2;
+    }
+    const out = `${tag}_re.mp4`; tmps.push(out); ctl.check(); const t = tick('recavsr');
+    let r; try { r = await engine.comfyRun({ input: inp, output: out, scale: sc, colorFix: R.up.colorFix || 'none', kvOffload: W2 * H2 > 2560 * 1440 }, { onProgress: x => rep(W.ai, x) }); } finally { clearInterval(t); }
+    if (r.code !== 0) throw new Error('Could not upscale this file with ReCaVSR (' + (r.log.slice(-1)[0] || 'code ' + r.code).slice(0, 220) + ')');
+    path = out;
+    if (seam) {   // keep the second round
+      const o2 = `${tag}_re2.mp4`; tmps.push(o2);
+      const r2 = await engine.exec(['-y', '-i', path, '-an', '-vf', `trim=start_frame=${N}:end_frame=${2 * N},setpts=PTS-STARTPTS`, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '12', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', o2], {});
+      if (r2.code !== 0) throw new Error('Could not upscale this file with ReCaVSR (' + errLine(r2, /error|invalid|not supported|unknown/i) + ')');
+      path = o2;
+    }
+    finish(W.ai); notes.push(`AI video ${sc}× bigger (ReCaVSR)${seam ? ', loop seam kept' : ''}`); R3.up.on = false;
+    cur = await loops.probe(engine, path);
+  }
   return { path, info: cur, R: R3, notes, tmps, rest: W.fin / total, base: done / total };
 }
 
@@ -404,7 +432,8 @@ export async function runRecipe(engine, loops, src, dst, info, R, baseProf, { ct
     } finally { for (const t of st.tmps) { try { await engine.remove(t); } catch (e) { /* ignore */ } } }
   }
   if (wantsAi(R)) {
-    if (!v2xReady(engine)) throw new Error('AI needs the Linux (local) version with Video2X installed. Choose another method.');
+    if (wantsV2x(R) && !v2xReady(engine)) throw new Error('AI needs the Linux (local) version with Video2X installed. Choose another method.');
+    if (R.up.on && R.up.engine === 'recavsr' && !comfyReady(engine)) throw new Error('AI video upscaling (ReCaVSR) needs the Linux version and ComfyUI with ReCaVSR on a computer with an NVIDIA card. Choose another method, or check the ComfyUI address under Upscale.');
     const tag = tmp.replace(/\.mp4$/, '') + '_ai', st = await aiStages(engine, loops, src, info, R, baseProf, ctl, onProgress, onStage, tag);
     try {
       const r = await runRecipe(engine, loops, st.path, dst, st.info, st.R, baseProf, { ctl, onProgress: onProgress && (x => onProgress(st.base + st.rest * x)), onStage, tmp });
@@ -421,7 +450,7 @@ export async function runRecipe(engine, loops, src, dst, info, R, baseProf, { ct
   if (R.loop.on) {
     try {
       const li = await loops.probe(engine, tmp);
-      const lp = { ...p.prof, size: `${p.size[0]}x${p.size[1]}`, fit: 'keep', upscale: false, fps: 0, crf: R.out.crf, minSeconds: R.out.minSeconds };
+      const lp = { ...p.prof, size: `${p.size[0]}x${p.size[1]}`, fit: 'keep', upscale: false, fps: 0, crf: R.out.crf, minSeconds: p.prof.minSeconds };   // includes the length Life and Ken Burns ask for
       const lr = await loops.makeLoop(engine, tmp, dst, lp, li, { mode: R.loop.mode, fade: R.loop.fade, fallback: R.loop.fallback || 'pingpong', ctl, onProgress: prog(1, onProgress) });
       note += (note ? '; ' : '') + lr.note;
     } finally { await engine.remove(tmp); }

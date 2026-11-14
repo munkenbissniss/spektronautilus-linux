@@ -109,6 +109,16 @@ async function makeCrossfade(engine, inter, out, fps, fadeS, report) {
 }
 
 // Make dstName a VJ-friendly clip that loops without a visible jump. Returns { note, method }.
+// What makeLoop will most likely do with a clip whose loop report is rep, and how long the result gets (len = seconds going in).
+// Used for the time estimate, before the work is done.
+export function loopForecast(rep, { mode = 'auto', fade = 1.5, fallback = 'pingpong' } = {}, len = 0) {
+  let m = mode;
+  if (m === 'auto') m = rep && rep.isLoop ? 'asis' : rep && rep.bestCut >= 0 && rep.bestRatio <= 1.25 && rep.bestKeeps >= 0.6 ? 'trim' : fallback;
+  if (m === 'none') m = 'asis';
+  if (m === 'trim' && !(rep && rep.bestCut >= 0)) m = fallback;
+  const out = m === 'pingpong' ? 2 * len : m === 'crossfade' ? Math.max(len * 0.5, len - (+fade || 0)) : m === 'trim' ? len * Math.max(0.3, (rep && rep.bestKeeps) || 1) : len;
+  return { method: m, len: out };
+}
 export async function makeLoop(engine, src, dst, prof, info, { mode = 'auto', fade = 1.5, fallback = 'pingpong', ctl = { check() {} }, onProgress } = {}) {
   const fps = chooseFps(info, prof), R = (a, b) => part(onProgress, a, b);
   const g = await grayFrames(engine, src, fps, 20000, R(0, 0.06));
