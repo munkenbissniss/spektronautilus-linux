@@ -180,17 +180,18 @@ export function kenPlan(info, K, { minSeconds = 0, repeatAfter = false, outFps =
 }
 
 // What is wrong with this clip, and what would help? info: probe result, loop: loop report (or null)
-export function diagnose(info, loop, { slowEngine = false } = {}) {
+export function diagnose(info, loop, { slowEngine = false, ai = false } = {}) {
+  const frames = ai ? 'ai' : 'motion';   // the method for new frames: AI (RIFE) where Video2X is there, otherwise Smooth motion
   const out = [];
   // The goal is a widescreen (16:9) loop at 60 fps, so those come first.
   const W = info.width, H = info.height, ar = W && H ? W / H : 0, wide = Math.abs(ar - 16 / 9) < 0.03;
   if (W && H > W * 1.05) out.push({ id: 'portrait', text: `Portrait (${W}×${H}). Turn it a quarter turn so it is wide, then crop it to 16:9.`, fix: { rotate: { turn: '90', flip: 'none' }, crop: { shape: '169', pos: 'c' } } });
   else if (W && !wide) out.push({ id: 'shape', text: `Not widescreen (${W}×${H}). Crop it to 16:9 so it fills the screen.`, fix: { crop: { shape: '169', pos: 'c' } } });
-  if (info.fps && info.fps < 59) out.push({ id: 'fps', text: `${Math.round(info.fps * 100) / 100} fps. Frame rate makes it 60 fps with smooth movement.`, fix: { fps: { target: 60, engine: 'motion' } } });
+  if (info.fps && info.fps < 59) out.push({ id: 'fps', text: `${Math.round(info.fps * 100) / 100} fps. Frame rate makes it 60 fps with smooth movement.`, fix: { fps: { target: 60, engine: frames } } });
   if (slowEngine && info.duration > 10) out.push({ id: 'long', text: `This clip is ${Math.round(info.duration)} s long. Slow motion, upscale and loop fixes can take a very long time in a browser, especially on a phone. Cut it short first, or use the local version.`, fix: { cut: { on: true, start: 0, len: 8 } } });
   const short = Math.min(info.width, info.height);
   if (info.width && short < 720) out.push({ id: 'small', text: `Small picture (${info.width}×${info.height}). It will look soft on a big screen.`, fix: { up: { on: true, scale: short < 400 ? 4 : 2 } } });
-  if (info.duration && info.duration < 4) out.push({ id: 'short', text: `Very short (${Math.round(info.duration * 10) / 10} s). Slow motion makes it longer and calmer.`, fix: { slow: { on: true, factor: 2, engine: 'motion' } } });
+  if (info.duration && info.duration < 4) out.push({ id: 'short', text: `Very short (${Math.round(info.duration * 10) / 10} s). Slow motion makes it longer and calmer.`, fix: { slow: { on: true, factor: 2, engine: frames } } });
   if (info.duration && info.duration < 16) out.push({ id: 'still', text: `Only ${Math.round(info.duration * 10) / 10} s long. Short or still loops get much more interesting with slow-in-and-out motion and a gentle breathing zoom, repeated to 16 s.`, fix: { life: { ...LIFE_STYLES.calm, style: 'calm', minSeconds: 16 } } });
   if (loop && loop.verdict && loop.verdict !== 'seamless') out.push({ id: 'jump', text: loop.verdict === 'almost' ? 'The loop point is almost clean. A small fix will hide the jump.' : 'You can see a jump where the clip starts over.', fix: { loop: { mode: 'auto' } } });
   if (info.hasAudio) out.push({ id: 'audio', text: 'This clip has sound. The treated clip will be silent, which suits loops for mixing.', fix: {} });
@@ -378,21 +379,87 @@ async function aiStages(engine, loops, src, info, R, baseProf, ctl, report, onSt
 
 // Smooth out and Frame rate run first, as their own passes: [cut] -> [look at the movement and retime] -> [make the new frames]. The rest of the
 // recipe then works on the result. (AI frame rate is done in aiStages, which also needs the Video2X engine.)
+// Smooth motion (minterpolate) keeps about 290 bytes of motion data for every pixel: some 600 MB for one 1080p picture, more than a phone
+// gives a browser tab (the page reloads). In the browser it therefore works on horizontal bands, one after the other, each with a margin
+// above and below so the movement near the edges is still found; the margins are cut off and the bands stacked again. Same frames,
+// same method, a fraction of the memory. Elsewhere (and for small pictures) it runs in one go.
+export const BAND_PX = 520000;
+export function bandPlan(w, h, max = BAND_PX, margin = 48, count = 0) {
+  if (!(w > 0 && h > 0) || (!count && w * h <= max)) return [];
+  let n = count > 1 ? Math.min(count, Math.floor(h / 160)) : Math.ceil(w * h / max);
+  if (n < 2 && count) return [];
+  if (!count) while (w * (Math.ceil(h / n) + 2 * margin) > max && h / (n + 1) >= 32) n++;   // the margins count too (wide pictures need thinner bands)
+  const step = Math.ceil(h / n / 2) * 2, out = [];
+  for (let i = 0; i < n; i++) {
+    const top = i * step; if (top >= h) break;
+    const keep = Math.min(step, h - top), y0 = Math.max(0, top - margin), y1 = Math.min(h, top + keep + margin), ch = Math.min(h - y0, Math.ceil((y1 - y0) / 2) * 2);
+    out.push({ y0, ch, top: top - y0, keep });
+  }
+  return out;
+}
+// One pass: ffmpeg [head] -i input -vf vf [tail] out. vf may start with frame dropping (mpdecimate); when bands are used that is done once
+// on the whole picture first (keeping the time gaps), so all bands keep exactly the same frames.
+// The local version (Linux): Smooth motion uses only one processor core, so the bands run side by side there, one per core: several
+// times faster, the same picture. In the browser they run one after the other (for memory, see above).
+export const coresFor = engine => engine && engine.kind === 'native' ? Math.max(1, Math.min(8, Math.round(+(engine.info && engine.info.cores) || 1))) : 1;
+export const parallelBands = (engine, w, h) => { const n = coresFor(engine); return n > 1 && w * h >= 300000 ? bandPlan(w, h, BAND_PX, 48, n) : []; };
+async function motionPass(engine, { input, out, head = [], vf, tail = [], w, h, lowMem, enc, tag, onProgress, expect, tmps }) {
+  const go = (a, p, x) => { if (x) Object.defineProperty(a, 'expect', { value: x, enumerable: false }); return engine.exec(a, { onProgress: p }); };
+  const side = !lowMem && engine.kind === 'native';
+  const bands = !/minterpolate/.test(vf) ? [] : lowMem ? bandPlan(w, h) : side ? parallelBands(engine, w, h) : [];
+  if (!bands.length) return go(['-y', ...head, '-i', input, '-an', '-vf', vf, ...tail, '-movflags', '+faststart', out], onProgress, expect);
+  const P = x => onProgress && onProgress(Math.min(1, x));
+  let src = input, hd = head, interp = vf, pre = null, base = 0;
+  const m = /^(mpdecimate[^,]*),(.*)$/.exec(vf);
+  if (m) {
+    pre = `${tag}_dd.mp4`; tmps.push(pre); base = 0.08;
+    const r = await go(['-y', ...head, '-i', input, '-an', '-vf', m[1], ...enc, '-fps_mode', 'passthrough', pre], x => P(base * x)); if (r.code !== 0) return r;
+    src = pre; hd = []; interp = m[2];
+  }
+  const parts = [], N = bands.length, got = new Array(N).fill(0);
+  const one = (b, i) => { const o = `${tag}_band${i}.mp4`; tmps.push(o); parts.push(o);
+    return go(['-y', ...hd, '-i', src, '-an', '-vf', `crop=${w}:${b.ch}:0:${b.y0},${interp}`, ...tail, o], x => { got[i] = Math.max(got[i], Math.min(1, x)); P(base + (0.92 - base) * got.reduce((a, c) => a + c, 0) / N); }, expect); };
+  if (side) {   // all at once, one per core
+    const rs = await Promise.all(bands.map(one)); const bad = rs.find(r => r.code !== 0); if (bad) return bad;
+  } else {
+    for (let i = 0; i < N; i++) { const r = await one(bands[i], i); if (r.code !== 0) return r; }
+  }
+  const rm = async f => { try { await engine.remove(f); } catch (e) { /* ignore */ } const k = tmps.indexOf(f); if (k >= 0) tmps.splice(k, 1); };
+  if (pre) await rm(pre);
+  const fc = bands.map((b, i) => `[${i}:v]crop=${w}:${b.keep}:0:${b.top}[b${i}]`).join(';') + ';' + bands.map((_, i) => `[b${i}]`).join('') + `vstack=inputs=${N}[v]`;
+  const r = await go(['-y', ...parts.flatMap(f => ['-i', f]), '-filter_complex', fc, '-map', '[v]', ...enc, '-movflags', '+faststart', out], x => P(0.92 + 0.08 * x), expect);
+  for (const f of parts) await rm(f);
+  return r;
+}
+
+const needsBandedSlow = (engine, info, R) => !!(engine && R.slow && R.slow.on && R.slow.engine === 'motion' &&
+  (engine.kind !== 'native' ? bandPlan(info.width, info.height).length : parallelBands(engine, info.width, info.height).length));
 async function timeStage(engine, loops, src, info, R, baseProf, ctl, report, tag) {
-  const doS = !!(R.smooth && R.smooth.on), doF = !!(R.fps && R.fps.on && R.fps.engine !== 'ai'), usesCut = !!R.cut.on;
-  const tmps = [], W = { cut: 1, look: 1, enc: 6, fin: 3 }, total = (usesCut ? W.cut : 0) + (doS ? W.look + W.enc : 0) + (doF ? W.look + W.enc : 0) + W.fin, notes = [];
+  const doS = !!(R.smooth && R.smooth.on), doF = !!(R.fps && R.fps.on && R.fps.engine !== 'ai');
+  // In the browser (and on a phone) every file the engine makes is held in memory. So there: the in-between files are smaller (still
+  // near lossless), each one is deleted as soon as the next step has read it, and a clip bigger than the result is made smaller (and
+  // turned and cropped) first, so the heavy frame making works on fewer pixels.
+  const lowMem = engine.kind !== 'native', ICRF = lowMem ? 17 : 12;
+  let shrink = false;
+  if (lowMem && (doS || doF) && info.width && info.height) { try { const [tw, th] = planRecipe(info, R, baseProf).size; shrink = tw * th < info.width * info.height * 0.8; } catch (e) { shrink = false; } }
+  const doSlowM = needsBandedSlow(engine, info, R);
+  if (lowMem && doSlowM && !shrink && info.width && info.height) { try { const [tw, th] = planRecipe(info, R, baseProf).size; shrink = tw * th < info.width * info.height * 0.8; } catch (e) { /* keep */ } }
+  const usesCut = !!R.cut.on || shrink;
+  const tmps = [], W = { cut: 1, look: 1, enc: 6, fin: 3 }, total = (usesCut ? W.cut : 0) + (doS ? W.look + W.enc : 0) + (doF ? W.look + W.enc : 0) + (doSlowM ? W.enc : 0) + W.fin, notes = [];
+  const drop = async old => { if (lowMem && old !== src && tmps.includes(old)) { try { await engine.remove(old); } catch (e) { /* ignore */ } tmps.splice(tmps.indexOf(old), 1); } };
   let done = 0, path = src, cur = info;
   const rep = (w, x) => report && report((done + w * Math.min(1, x)) / total);
   const R3 = clone(R); R3.smooth.on = false; if (doF) R3.fps.on = false;
-  const enc = ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '12', '-pix_fmt', 'yuv420p', '-g', '30'];
+  const enc = ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', String(ICRF), '-pix_fmt', 'yuv420p', '-g', '30'];
   const fail = (what, r) => new Error(`Could not ${what} (` + errLine(r, /error|invalid|not supported|unknown|no such/i) + ')');
   if (usesCut) {
-    const pre = clone(R); for (const k of ['crop', 'rotate', 'slow', 'up', 'size', 'look', 'life', 'kb', 'loop', 'smooth', 'fps']) if (pre[k]) pre[k].on = false;
-    pre.out = { ...pre.out, crf: 12, minSeconds: 0, fps: 0, keepAudio: false };
+    const pre = clone(R); for (const k of ['crop', 'rotate', 'slow', 'up', 'size', 'look', 'life', 'kb', 'loop', 'smooth', 'fps']) if (pre[k] && !(shrink && ['crop', 'rotate', 'size'].includes(k))) pre[k].on = false;
+    pre.out = { ...pre.out, crf: ICRF, minSeconds: 0, fps: 0, keepAudio: false };
     const pa = planRecipe(info, pre, { ...baseProf, maxMBps: 0, preset: 'veryfast' }), out = `${tag}_c.mp4`; tmps.push(out); ctl.check();
-    const r = await engine.exec(encodeArgs(src, out, { ...pa.prof, crf: 12, minSeconds: 0, maxMBps: 0, preset: 'veryfast' }, pa.cur, { pre: pa.pre, seek: pa.seek, limit: pa.limit, repeat: 1 }), { onProgress: x => rep(W.cut, x) });
+    const r = await engine.exec(encodeArgs(src, out, { ...pa.prof, crf: ICRF, minSeconds: 0, maxMBps: 0, preset: 'veryfast' }, pa.cur, { pre: pa.pre, seek: pa.seek, limit: pa.limit, repeat: 1 }), { onProgress: x => rep(W.cut, x) });
     if (r.code !== 0) throw fail('prepare this clip', r);
     done += W.cut; path = out; cur = await loops.probe(engine, out); R3.cut.on = false;
+    if (shrink) { R3.crop.on = false; R3.rotate.on = false; notes.push('made smaller first'); }
   }
   if (doS) {
     const fps = chooseFps({ ...cur, fps: cur.fps || 25 }, { fps: 0, maxFps: 60 }); ctl.check();
@@ -403,7 +470,7 @@ async function timeStage(engine, loops, src, info, R, baseProf, ctl, report, tag
       const out = `${tag}_sm.mp4`; tmps.push(out); ctl.check();
       const r = await engine.exec(['-y', '-i', path, '-an', '-vf', smoothChain(plan, fps), ...enc, '-r', String(fps), '-fps_mode', 'cfr', '-movflags', '+faststart', out], { onProgress: x => rep(W.enc, x) });
       if (r.code !== 0) throw fail('smooth this clip', r);
-      done += W.enc; path = out; cur = await loops.probe(engine, out); notes.push(plan.drop.length ? 'smoothed, stray frames removed' : 'smoothed');
+      done += W.enc; await drop(path); path = out; cur = await loops.probe(engine, out); notes.push(plan.drop.length ? 'smoothed, stray frames removed' : 'smoothed');
     }
   }
   if (doF) {
@@ -413,18 +480,28 @@ async function timeStage(engine, loops, src, info, R, baseProf, ctl, report, tag
     if (pl.skip) { done += W.enc; notes.push(pl.note); }
     else {
       const out = `${tag}_fr.mp4`; tmps.push(out); ctl.check();
-      const args = ['-y', ...(pl.wrap ? ['-stream_loop', '1'] : []), '-i', path, '-an', '-vf', pl.chain, ...(pl.wrap ? ['-frames:v', String(pl.outFrames)] : []), ...enc, '-g', String(Math.round(pl.target)), '-r', String(pl.target), '-fps_mode', 'cfr', '-movflags', '+faststart', out];
-      Object.defineProperty(args, 'expect', { value: pl.outFrames / pl.target, enumerable: false });
-      const r = await engine.exec(args, { onProgress: x => rep(W.enc, x) });
+      const r = await motionPass(engine, { input: path, out, head: pl.wrap ? ['-stream_loop', '1'] : [], vf: pl.chain, tail: [...(pl.wrap ? ['-frames:v', String(pl.outFrames)] : []), ...enc, '-g', String(Math.round(pl.target)), '-r', String(pl.target), '-fps_mode', 'cfr'],
+        w: cur.width, h: cur.height, lowMem, enc, tag: `${tag}_fr`, onProgress: x => rep(W.enc, x), expect: pl.outFrames / pl.target, tmps });
       if (r.code !== 0) throw fail('change the frame rate of this clip', r);
-      done += W.enc; path = out; cur = await loops.probe(engine, out); notes.push(pl.note);
+      done += W.enc; await drop(path); path = out; cur = await loops.probe(engine, out); notes.push(pl.note);
     }
+  }
+  if (doSlowM) {   // Smooth-motion slow motion in the browser, on a big picture: its own pass, in bands (see motionPass)
+    const sp = slowPlan(cur, { factor: Math.round(+R.slow.factor) || 2, mode: R.slow.mode, engine: 'motion' }); R3.slow.on = false;
+    if (sp.pre) {
+      const out = `${tag}_sl.mp4`; tmps.push(out); ctl.check();
+      const r = await motionPass(engine, { input: path, out, vf: `${sp.pre},fps=${sp.fps || cur.fps || 25}`, tail: [...enc], w: cur.width, h: cur.height, lowMem, enc, tag: `${tag}_sl`,
+        onProgress: x => rep(W.enc, x), expect: (cur.duration || 0) * sp.durMul, tmps });
+      if (r.code !== 0) throw fail('make slow motion of this clip', r);
+      await drop(path); path = out; cur = await loops.probe(engine, out); notes.push(sp.note);
+    }
+    done += W.enc;
   }
   return { path, info: cur, R: R3, notes, tmps, base: done / total, rest: W.fin / total };
 }
 
 export async function runRecipe(engine, loops, src, dst, info, R, baseProf, { ctl = { check() {} }, onProgress, onStage, tmp = 'hosp_tmp.mp4' } = {}) {
-  if ((R.smooth && R.smooth.on) || (R.fps && R.fps.on && R.fps.engine !== 'ai')) {
+  if ((R.smooth && R.smooth.on) || (R.fps && R.fps.on && R.fps.engine !== 'ai') || needsBandedSlow(engine, info, R)) {
     const st = await timeStage(engine, loops, src, info, R, baseProf, ctl, onProgress, tmp.replace(/\.mp4$/, '') + '_sm');
     try {
       const r = await runRecipe(engine, loops, st.path, dst, st.info, st.R, baseProf, { ctl, onProgress: onProgress && (x => onProgress(st.base + st.rest * x)), onStage, tmp });

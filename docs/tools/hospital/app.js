@@ -173,7 +173,7 @@ function showAfter() {
 }
 placeAfter();
 
-async function ensureEngine() { if (engine.pick) { try { await engine.pick(); } catch (e) { /* the web engine loads below */ } } await engine.load(status); status(''); if (engine.kind === 'native' && engine.comfyInfo && !engine.comfy) await engine.comfyInfo(); aiAvail(); }
+async function ensureEngine() { if (engine.pick) { try { await engine.pick(); } catch (e) { /* the web engine loads below */ } } await engine.load(status); status(''); aiDefaults(); if (engine.kind === 'native' && engine.comfyInfo && !engine.comfy) await engine.comfyInfo(); aiAvail(); }
 const openInput = async file => engine.mount(new File([file], 'src' + (extOf(file.name) || '.mp4'), { type: file.type }));
 const okFile = f => OK_EXT.has(extOf(f.name));
 
@@ -213,7 +213,7 @@ function examine() {
   const i = patient.info, lp = patient.loop;
   const verdict = lp ? (lp.verdict === 'seamless' ? '<span class="chip good">loops ✓</span>' : lp.verdict === 'almost' ? '<span class="chip bad">almost loops</span>' : '<span class="chip bad">jumps</span>') : '';
   $('#facts').innerHTML = `<span>${i.width}×${i.height}</span><span>${Math.round(i.fps * 100) / 100} fps</span><span>${Math.round(i.duration * 10) / 10} s</span><span>${fmtSize(patient.file.size)}</span><span>${esc(i.codec || '')}</span>${verdict}`;
-  const d = ST.diagnose(i, lp, { slowEngine: engine.kind !== 'native' });
+  const d = ST.diagnose(i, lp, { slowEngine: engine.kind !== 'native', ai: aiFrames() });
   $('#findings').innerHTML = d.length ? d.map((x, n) => `<li><span>${esc(x.text)}</span>${Object.keys(x.fix).length ? `<button class="sm" data-fix="${n}" type="button">Add this treatment</button>` : ''}</li>`).join('')
     : '<li class="ok"><span>Nothing wrong found. This clip is ready for the mixers.</span></li>';
   $('#gifbar').classList.toggle('hide', !i.isGif);
@@ -427,7 +427,17 @@ document.querySelectorAll('[data-reset]').forEach(b => { b.onclick = () => {
   try { location.reload(); } catch (e) { location.href = location.pathname; }
 }; });
 
+// On Linux with Video2X (RIFE): AI makes the new frames for Frame rate and Slow motion by default. It runs on the graphics card,
+// so it is both the best and usually the fastest method there. A method chosen by hand is kept.
+const aiFrames = () => ST.v2xReady(engine) && !(engine.info.v2x && engine.info.v2x.rife === false);
+let aiDefaultsSet = false;
+function aiDefaults() {
+  if (aiDefaultsSet || !aiFrames()) return; aiDefaultsSet = true;
+  const d = ST.defaultRecipe(); let changed = false;
+  for (const k of ['fps', 'slow']) if (R[k].engine === d[k].engine) { R[k].engine = 'ai'; changed = true; }
+  if (changed) syncUI();
+}
 buildSteps(); info(); aiAvail();
 // the local versions are recognised at once; the NVIDIA version also tells whether ComfyUI with ReCaVSR is ready
-if (engine.pick) engine.pick().then(async () => { if (engine.kind === 'native' && engine.comfyInfo) { await engine.comfyInfo(); aiAvail(); } }).catch(() => {});
+if (engine.pick) engine.pick().then(async () => { aiDefaults(); if (engine.kind === 'native' && engine.comfyInfo) { await engine.comfyInfo(); aiAvail(); } }).catch(() => {});
 window.HOSP = { R, choose, ST, engine };   // for tests and the console

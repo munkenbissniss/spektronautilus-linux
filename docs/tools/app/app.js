@@ -235,6 +235,10 @@ function nativeBadge() {
   if (engine.kind !== 'native') return;
   $('#ekind').textContent = `Fast mode: using ffmpeg on this computer (${engine.info.cores} cores${engine.info.version ? ', ffmpeg ' + engine.info.version : ''}).`;
   const p = $('#o_preset'); if (p && p.value === 'veryfast') { p.value = 'fast'; p.dispatchEvent(new Event('input', { bubbles: true })); p.dispatchEvent(new Event('change', { bubbles: true })); }
+  // With Video2X (RIFE), AI makes the new frames for slow motion by default: on the graphics card, the best and usually the fastest
+  const v = engine.info && engine.info.v2x, sl = $('#o_slowEngine');
+  if (v && v.ok && v.rife !== false && sl && sl.value === 'motion' && !nativeBadge.done) { sl.value = 'ai'; sl.dispatchEvent(new Event('change', { bubbles: true })); }
+  nativeBadge.done = true;
 }
 function proNote() {
   aiNote();
