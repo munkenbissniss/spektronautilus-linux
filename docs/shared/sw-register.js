@@ -10,8 +10,8 @@
   function bar(reg) {
     if (document.getElementById('spk-upd')) return;
     var d = document.createElement('div'); d.id = 'spk-upd'; d.setAttribute('role', 'status');
-    d.style.cssText = 'position:fixed;left:50%;bottom:14px;transform:translateX(-50%);z-index:99999;background:#14182b;color:#fff;padding:8px 10px 8px 16px;border-radius:999px;font:600 14px system-ui,sans-serif;display:flex;gap:10px;align-items:center;box-shadow:0 4px 18px #0006;max-width:94vw';
-    d.innerHTML = '<span></span><button style="font:inherit;border:0;border-radius:999px;padding:6px 14px;background:#ff6fa3;color:#14182b;cursor:pointer;min-height:32px"></button><button aria-label="x" style="font:inherit;border:0;background:transparent;color:#fff;cursor:pointer;opacity:.8;min-height:32px"></button>';
+    d.style.cssText = 'position:fixed;left:50%;bottom:14px;transform:translateX(-50%);z-index:99999;background:#1c0b3a;color:#fff;padding:8px 10px 8px 16px;border-radius:999px;font:600 14px system-ui,sans-serif;display:flex;gap:10px;align-items:center;box-shadow:0 4px 18px #0006;max-width:94vw';
+    d.innerHTML = '<span></span><button style="font:inherit;border:0;border-radius:999px;padding:6px 14px;background:#ff5ccf;color:#1c0b3a;cursor:pointer;min-height:32px"></button><button aria-label="x" style="font:inherit;border:0;background:transparent;color:#fff;cursor:pointer;opacity:.8;min-height:32px"></button>';
     var b = d.querySelectorAll('button'); d.firstChild.textContent = t[0]; b[0].textContent = t[1]; b[1].textContent = t[2];
     b[0].onclick = function () { if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' }); };
     b[1].onclick = function () { d.remove(); };

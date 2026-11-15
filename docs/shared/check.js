@@ -65,12 +65,12 @@
   // ---- interface
   var dlg, list, sum;
   var css = '#spk-chk{position:fixed;inset:0;z-index:99999;background:#000a;display:flex;align-items:center;justify-content:center;padding:12px;font:15px/1.4 system-ui,sans-serif}' +
-    '#spk-chk .b{background:#14182b;color:#f4f5fb;border:1px solid #8886;border-radius:16px;max-width:560px;width:100%;max-height:92vh;overflow:auto;padding:18px 18px 14px;box-shadow:0 10px 40px #0009}' +
+    '#spk-chk .b{background:#1c0b3a;color:#f7f4fb;border:1px solid #8886;border-radius:16px;max-width:560px;width:100%;max-height:92vh;overflow:auto;padding:18px 18px 14px;box-shadow:0 10px 40px #0009}' +
     '#spk-chk h2{margin:0 0 4px;font-size:20px}#spk-chk p{margin:0 0 10px;opacity:.8;font-size:14px}#spk-chk ul{list-style:none;margin:0;padding:0}' +
     '#spk-chk li{display:flex;gap:10px;padding:8px 0;border-top:1px solid #ffffff1c;align-items:flex-start}#spk-chk li i{flex:none;font-style:normal;font-weight:700;font-size:12px;border-radius:999px;padding:2px 8px;margin-top:1px;min-width:54px;text-align:center}' +
-    '#spk-chk .ok i{background:#1f7a46;color:#fff}#spk-chk .warn i{background:#b97d00;color:#fff}#spk-chk .bad i{background:#b3263b;color:#fff}#spk-chk .info i{background:#3a4263;color:#fff}' +
+    '#spk-chk .ok i{background:#1f7a46;color:#fff}#spk-chk .warn i{background:#b97d00;color:#fff}#spk-chk .bad i{background:#b3263b;color:#fff}#spk-chk .info i{background:#4b3964;color:#fff}' +
     '#spk-chk li b{display:block;font-size:14px}#spk-chk li span{opacity:.85;font-size:13.5px}#spk-chk .sum{margin:10px 0;font-weight:700}' +
-    '#spk-chk .bt{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}#spk-chk button{font:inherit;font-weight:600;border-radius:10px;border:1px solid #8886;background:#232a47;color:#fff;padding:9px 14px;min-height:42px;cursor:pointer}' +
+    '#spk-chk .bt{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}#spk-chk button{font:inherit;font-weight:600;border-radius:10px;border:1px solid #8886;background:#322248;color:#fff;padding:9px 14px;min-height:42px;cursor:pointer}' +
     '#spk-chk button.p{background:#ff2d7a;border-color:#ff2d7a}#spk-chk button:focus-visible{outline:3px solid #fff;outline-offset:2px}' +
     '#spk-card{position:fixed;inset:0;z-index:100000;background:#000}#spk-card iframe{border:0;width:100%;height:100%}' +
     '#spk-chk-open{white-space:nowrap}@media print{#spk-chk,#spk-chk-open{display:none}}';

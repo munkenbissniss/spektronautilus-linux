@@ -10,19 +10,20 @@
 <link rel="alternate" hreflang="en" href="https://munkenbissniss.github.io/spektronautilus/guides/queue/"><link rel="alternate" hreflang="de" href="https://munkenbissniss.github.io/spektronautilus/de/guides/queue/"><link rel="alternate" hreflang="es" href="https://munkenbissniss.github.io/spektronautilus/es/guides/queue/"><link rel="alternate" hreflang="no" href="https://munkenbissniss.github.io/spektronautilus/no/guides/queue/"><link rel="alternate" hreflang="pt" href="https://munkenbissniss.github.io/spektronautilus/pt/guides/queue/"><link rel="alternate" hreflang="x-default" href="https://munkenbissniss.github.io/spektronautilus/guides/queue/">
 <meta property="og:site_name" content="Spektronautilus"><meta property="og:type" content="website"><meta property="og:title" content="Warteschlange: alle Aufgaben an einem Ort verfolgen | Spektronautilus"><meta property="og:description" content="Die Seite Warteschlange zeigt alle Aufgaben aus den Werkzeugen und den Magic Videomixern in einer Liste, damit du lange Exporte verfolgen und die Ergebnisse herunterladen kannst."><meta property="og:url" content="https://munkenbissniss.github.io/spektronautilus/de/guides/queue/"><meta property="og:locale" content="de_DE">
 <meta name="twitter:card" content="summary">
-<meta name="theme-color" content="#14182b">
+<meta name="theme-color" content="#1c0b3a">
 <link rel="icon" href="../../../favicon.svg" type="image/svg+xml">
 <link rel="manifest" href="../../../manifest.webmanifest">
 <link rel="apple-touch-icon" href="../../../apple-touch-icon.png"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="Spektro"><meta name="apple-mobile-web-app-status-bar-style" content="default">
-<style>:root{--bt:#c4155a;--okt:#0b7358;--bg:#f3f4f8;--ink:#14182b;--mute:#5a607a;--line:#d5d8e6;--panel:#fff;--a:#2b3af0;--b:#ff3d81;--ok:#12906f;color-scheme:light}
-@media (prefers-color-scheme:dark){:root{--bt:#ff6fa3;--okt:#3fd6a4;--bg:#10122a;--ink:#eceefb;--mute:#a0a6c8;--line:#2a2e57;--panel:#171a3a;--a:#7f8bff;--b:#ff6fa3;--ok:#3fd6a4;color-scheme:dark}}
+<style>:root{--bt:#a8177e;--okt:#0b7358;--bg:#f4f0fa;--ink:#1c0b3a;--mute:#5e5478;--line:#dcd2ec;--panel:#fff;--a:#5a2496;--b:#d6249f;--ok:#12906f;color-scheme:light}
+@media (prefers-color-scheme:dark){:root{--bt:#ff5ccf;--okt:#3fd6a4;--bg:#1e0a45;--ink:#f3eeff;--mute:#b8a9dc;--line:#45257a;--panel:#2a1160;--a:#c6a6ff;--b:#ff5ccf;--ok:#3fd6a4;color-scheme:dark}}
 *{box-sizing:border-box}html{scroll-behavior:smooth}
 body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+@media (prefers-color-scheme:dark){body{background:radial-gradient(1100px 520px at 50% -140px,#3f1688,transparent 75%) no-repeat,var(--bg)}}
 a{color:var(--a)}a:focus-visible,summary:focus-visible,button:focus-visible{outline:3px solid var(--b);outline-offset:2px;border-radius:6px}
 .wrap{max-width:1060px;margin:0 auto;padding:0 20px}
 header.top{border-bottom:1px solid var(--line);background:var(--bg);position:sticky;top:0;z-index:5}
 header.top .wrap{display:flex;align-items:center;gap:18px;flex-wrap:wrap;padding-top:10px;padding-bottom:10px}
-.brand{display:flex;align-items:center;gap:8px;font-weight:800;letter-spacing:-.02em;text-decoration:none;color:var(--ink);font-size:1.1rem}
+.brand{display:flex;align-items:center;gap:9px;font-weight:900;letter-spacing:.07em;text-transform:uppercase;text-decoration:none;color:var(--ink);font-size:1rem}
 .brand svg{width:36px;height:36px}
 nav.main{display:flex;gap:2px 14px;flex-wrap:wrap;flex:1}
 nav.main a{color:var(--ink);text-decoration:none;padding:4px 2px;border-bottom:2px solid transparent;font-size:.95rem}
@@ -51,7 +52,7 @@ footer{border-top:1px solid var(--line);color:var(--mute);font-size:.88rem;paddi
 footer .wrap{display:flex;gap:10px 24px;flex-wrap:wrap;justify-content:space-between}
 @media(max-width:760px){header.top .wrap{gap:6px 12px}nav.main{flex-basis:100%;order:3;gap:0 14px}h1{font-size:1.8rem}}
 
-.qn{display:inline-block;margin-left:6px;min-width:1.3em;padding:0 6px;border-radius:999px;background:var(--b,#ff3d81);color:#fff;font-size:.75em;font-weight:800;text-align:center}.qn[hidden]{display:none}
+.qn{display:inline-block;margin-left:6px;min-width:1.3em;padding:0 6px;border-radius:999px;background:var(--b,#d6249f);color:#fff;font-size:.75em;font-weight:800;text-align:center}.qn[hidden]{display:none}
 
 /* guides */
 .docs{display:grid;grid-template-columns:230px minmax(0,1fr);gap:34px;align-items:start}
@@ -96,9 +97,9 @@ footer .fcols{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1f
 footer .fcols a{display:block;color:var(--ink);text-decoration:none;padding:2px 0}footer .fcols a:hover{text-decoration:underline}
 footer .fbase{align-items:center}
 .spkdock{position:fixed;right:10px;bottom:10px;z-index:9985;display:flex;gap:8px;align-items:center}
-.spkdock button{font:inherit;font-size:.82rem;cursor:pointer;color:#e8eaff;background:rgba(20,24,43,.88);border:1px solid rgba(255,255,255,.18);border-radius:999px;padding:5px 12px;opacity:.8}
+.spkdock button{font:inherit;font-size:.82rem;cursor:pointer;color:#f1e8ff;background:rgba(20,24,43,.88);border:1px solid rgba(255,255,255,.18);border-radius:999px;padding:5px 12px;opacity:.8}
 .spkdock button:hover,.spkdock button:focus-visible{opacity:1}.spkdock .up{width:34px;height:34px;padding:0;font-size:1rem;display:none}.spkdock .up.on{display:block}
-.spkdock .qn{background:#ff6fa3;color:#14182b;margin-left:6px}
+.spkdock .qn{background:#ff5ccf;color:#1c0b3a;margin-left:6px}
 
 /* front page */
 .hero .lead{max-width:40em}.mute{color:var(--mute)}
@@ -131,7 +132,7 @@ document.addEventListener('DOMContentLoaded',function(){document.querySelectorAl
 <body>
 <a href="#main" class="sr" style="position:absolute;left:-999px">Zum Inhalt springen</a>
 <header class="top"><div class="wrap">
-<a class="brand" href="../../../de/"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><circle cx="34.92" cy="34.95" r="1.52" fill="#7a3cff"/><circle cx="37.08" cy="33.92" r="1.61" fill="#7a3cff"/><circle cx="39.66" cy="34.37" r="1.71" fill="#2b3af0"/><circle cx="41.69" cy="36.43" r="1.82" fill="#2b3af0"/><circle cx="42.18" cy="39.55" r="1.94" fill="#2b3af0"/><circle cx="40.63" cy="42.65" r="2.07" fill="#2b3af0"/><circle cx="37.27" cy="44.44" r="2.22" fill="#19c3e6"/><circle cx="33.12" cy="43.89" r="2.38" fill="#19c3e6"/><circle cx="29.77" cy="40.76" r="2.56" fill="#19c3e6"/><circle cx="28.78" cy="35.82" r="2.75" fill="#2fd39a"/><circle cx="31.04" cy="30.78" r="2.96" fill="#2fd39a"/><circle cx="36.27" cy="27.72" r="3.2" fill="#2fd39a"/><circle cx="42.9" cy="28.32" r="3.45" fill="#2fd39a"/><circle cx="48.43" cy="33.08" r="3.73" fill="#ffd23f"/><circle cx="50.34" cy="40.86" r="4.04" fill="#ffd23f"/><circle cx="47.08" cy="49.03" r="4.38" fill="#ffd23f"/><circle cx="38.96" cy="54.25" r="4.75" fill="#ff8a3d"/><circle cx="28.38" cy="53.73" r="5.16" fill="#ff8a3d"/><circle cx="19.26" cy="46.53" r="5.6" fill="#ff8a3d"/><circle cx="15.71" cy="34.27" r="6.09" fill="#ff8a3d"/><circle cx="20.35" cy="21.06" r="6.63" fill="#ff3d81"/><circle cx="32.92" cy="12.22" r="7.22" fill="#ff3d81"/></svg><span>Spektronautilus</span></a>
+<a class="brand" href="../../../de/"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><circle cx="32" cy="32" r="32" fill="#5a2496"/><circle cx="32" cy="32" r="27" fill="#ffffff"/><path d="M30.7 21.5 L17.3 41 L44.1 41 Z" fill="#5a2496"/><g fill="#5a2496"><rect x="6.5" y="31.1" width="17" height="1.9"/><rect x="36.4" y="27.3" width="18.8" height="1.9"/><rect x="39.2" y="31.1" width="16" height="1.9"/><rect x="42" y="34.9" width="13.2" height="1.9"/></g></svg><span>Spektronautilus</span></a>
 <nav class="main" aria-label="Main"><a href="../../../de/">Start</a><div class="dd"><button type="button" class="ddb" aria-expanded="false" aria-haspopup="true">Mixer <span aria-hidden="true">▾</span></button><div class="ddm" hidden><a href="../../../de/vj-mixer/">VJ-Mixer</a><a href="../../../de/magic-mixer/">Magic Mixer</a><a href="../../../de/live-mixer/">Video DJ</a></div></div><a href="../../../de/tools/">Werkzeuge</a><a href="../../../de/packs/">Loop-Pakete</a><a href="../../../de/guides/" aria-current=page>Anleitungen</a></nav>
 <div class="ld" role="navigation" aria-label="Sprache"><button type="button" class="ddb" aria-expanded="false" aria-haspopup="true" aria-label="Sprache">🌐 DE <span aria-hidden="true">▾</span></button><div class="ddm" hidden><a href="../../../guides/queue/" hreflang="en" lang="en">English</a><a href="../../../de/guides/queue/" hreflang="de" lang="de" aria-current=true>Deutsch</a><a href="../../../es/guides/queue/" hreflang="es" lang="es">Español</a><a href="../../../no/guides/queue/" hreflang="no" lang="no">Norsk</a><a href="../../../pt/guides/queue/" hreflang="pt" lang="pt">Português</a></div></div>
 </div></header>

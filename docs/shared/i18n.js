@@ -20,8 +20,8 @@
     var w = document.createElement('div'); w.id = 'spk-lang'; w.setAttribute('data-no-i18n', '');
     w.style.cssText = 'position:fixed;left:8px;bottom:8px;z-index:99998;font:600 13px system-ui,sans-serif';
     var b = document.createElement('button'); b.type = 'button'; b.textContent = '🌐 ' + lang.toUpperCase(); b.setAttribute('aria-label', 'Language'); b.setAttribute('aria-haspopup', 'true');
-    b.style.cssText = 'border:1px solid #8886;border-radius:999px;background:#14182bcc;color:#fff;padding:5px 11px;cursor:pointer;min-height:32px;opacity:.75';
-    var m = document.createElement('div'); m.hidden = true; m.style.cssText = 'position:absolute;left:0;bottom:38px;background:#14182b;border:1px solid #8886;border-radius:12px;padding:4px;min-width:130px;box-shadow:0 4px 18px #0006';
+    b.style.cssText = 'border:1px solid #8886;border-radius:999px;background:#1c0b3acc;color:#fff;padding:5px 11px;cursor:pointer;min-height:32px;opacity:.75';
+    var m = document.createElement('div'); m.hidden = true; m.style.cssText = 'position:absolute;left:0;bottom:38px;background:#1c0b3a;border:1px solid #8886;border-radius:12px;padding:4px;min-width:130px;box-shadow:0 4px 18px #0006';
     Object.keys(LANGS).forEach(function (k) {
       var o = document.createElement('button'); o.type = 'button'; o.textContent = LANGS[k]; o.lang = k;
       o.style.cssText = 'display:block;width:100%;text-align:left;border:0;background:' + (k === lang ? '#ffffff22' : 'transparent') + ';color:#fff;padding:7px 10px;border-radius:8px;cursor:pointer;font:inherit;min-height:34px';

@@ -24,7 +24,7 @@ export function html(title, rows, meta = {}) {
   const total = rows.reduce((a, r) => a + r.size, 0);
   const tr = rows.map((r, i) => `<tr data-i="${i}"><td><img alt="" ${r.jpg ? `src="data:image/jpeg;base64,${b64(r.jpg)}"` : ''}></td><td data-v="${esc(r.name.toLowerCase())}"><b>${esc(r.name)}</b>${r.folder ? `<br><small>${esc(r.folder)}</small>` : ''}</td><td data-v="${r.info.duration}">${secs(r.info.duration)} s</td><td data-v="${r.info.width * r.info.height}">${r.info.width}×${r.info.height}</td><td data-v="${r.info.fps}">${Math.round(r.info.fps * 100) / 100}</td><td data-v="${esc(r.info.codec)}">${esc(r.info.codec)}</td><td data-v="${r.size}">${mb(r.size)} MB</td><td data-v="${r.loop ? r.loop.ratio : 99}" class="lp ${r.loop ? r.loop.verdict : ''}">${loopWord(r.loop) || '–'}</td></tr>`).join('');
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title>
-<style>:root{--bg:#fff;--ink:#14182b;--mute:#6b7194;--line:#d9dcec;--ok:#17803d;--bad:#b3263b;--a:#b97d00}@media(prefers-color-scheme:dark){:root{--bg:#10142a;--ink:#f1f2fb;--mute:#9aa0c8;--line:#2b3157;--ok:#58d98b;--bad:#ff7b8f;--a:#ffc857}}
+<style>:root{--bg:#fff;--ink:#1c0b3a;--mute:#7c6a95;--line:#e1d9ec;--ok:#17803d;--bad:#b3263b;--a:#b97d00}@media(prefers-color-scheme:dark){:root{--bg:#1b0f2b;--ink:#f5f1fb;--mute:#ad99c9;--line:#3d2a58;--ok:#58d98b;--bad:#ff7b8f;--a:#ffc857}}
 body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 system-ui,sans-serif}main{max-width:1100px;margin:0 auto;padding:20px 16px 40px}h1{margin:0 0 4px}.meta{color:var(--mute);margin:0 0 14px}
 input[type=search]{font:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:transparent;color:inherit;width:100%;max-width:340px;margin:6px 0 12px}
 table{border-collapse:collapse;width:100%}th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:middle}th{cursor:pointer;user-select:none;white-space:nowrap;font-size:.85rem;color:var(--mute)}th:hover{color:var(--ink)}
@@ -60,13 +60,13 @@ export function packJson(meta, rows) {
 export async function contactSheet(title, sub, rows) {
   const cols = rows.length <= 4 ? Math.max(1, rows.length) : rows.length <= 9 ? 3 : 4, tw = 320, th = 180, lab = 26, pad = 10, head = 74, n = rows.length, rws = Math.ceil(n / cols);
   const W = cols * (tw + pad) + pad, H = head + rws * (th + lab + pad) + pad, c = document.createElement('canvas'); c.width = W; c.height = H; const x = c.getContext('2d');
-  x.fillStyle = '#12162b'; x.fillRect(0, 0, W, H); x.fillStyle = '#fff'; x.textBaseline = 'alphabetic';
-  x.font = '700 26px system-ui,sans-serif'; x.fillText(title, pad + 4, 34, W - 2 * pad); x.fillStyle = '#9aa0c8'; x.font = '15px system-ui,sans-serif'; x.fillText(sub, pad + 4, 58, W - 2 * pad);
+  x.fillStyle = '#1c112c'; x.fillRect(0, 0, W, H); x.fillStyle = '#fff'; x.textBaseline = 'alphabetic';
+  x.font = '700 26px system-ui,sans-serif'; x.fillText(title, pad + 4, 34, W - 2 * pad); x.fillStyle = '#ad99c9'; x.font = '15px system-ui,sans-serif'; x.fillText(sub, pad + 4, 58, W - 2 * pad);
   for (let i = 0; i < n; i++) {
     const cx = pad + (i % cols) * (tw + pad), cy = head + Math.floor(i / cols) * (th + lab + pad), r = rows[i];
     x.fillStyle = '#000'; x.fillRect(cx, cy, tw, th);
     if (r.jpg) { try { const bm = await createImageBitmap(new Blob([r.jpg], { type: 'image/jpeg' })), s = Math.min(tw / bm.width, th / bm.height); x.drawImage(bm, cx + (tw - bm.width * s) / 2, cy + (th - bm.height * s) / 2, bm.width * s, bm.height * s); bm.close && bm.close(); } catch (e) { /* no picture */ } }
-    x.fillStyle = '#e8eaf8'; x.font = '13px system-ui,sans-serif'; x.fillText(r.name.length > 36 ? r.name.slice(0, 35) + '…' : r.name, cx, cy + th + 17, tw);
+    x.fillStyle = '#eee8f8'; x.font = '13px system-ui,sans-serif'; x.fillText(r.name.length > 36 ? r.name.slice(0, 35) + '…' : r.name, cx, cy + th + 17, tw);
     if (r.loop) { x.font = '700 12px system-ui,sans-serif'; x.fillStyle = r.loop.verdict === 'seamless' ? '#58d98b' : r.loop.verdict === 'almost' ? '#ffc857' : '#ff7b8f'; const t = loopWord(r.loop); x.fillText(t, cx + tw - x.measureText(t).width, cy + th + 17); }
   }
   return await new Promise(res => c.toBlob(res, 'image/jpeg', 0.88));

@@ -33,10 +33,10 @@ export function posterFrame(t, inMs = 700, holdMs = 6000, outMs = 600) {
 }
 
 export const POSTER_COLORS = [
-  { id: 'neon',  name: 'Neon pink',     bg: '#ff2d7a', fg: '#ffffff', accent: '#14182b' },
-  { id: 'blue',  name: 'Electric blue', bg: '#2b3af0', fg: '#ffffff', accent: '#9fb0ff' },
+  { id: 'neon',  name: 'Neon pink',     bg: '#ff2d7a', fg: '#ffffff', accent: '#1c0b3a' },
+  { id: 'blue',  name: 'Electric blue', bg: '#5a2496', fg: '#ffffff', accent: '#c69fff' },
   { id: 'mono',  name: 'Black & white', bg: '#ffffff', fg: '#000000', accent: '#000000' },
-  { id: 'night', name: 'Night',         bg: '#0b0d1e', fg: '#ffffff', accent: '#ff3d81' },
+  { id: 'night', name: 'Night',         bg: '#130b1e', fg: '#ffffff', accent: '#d6249f' },
   { id: 'gold',  name: 'Gold',          bg: '#ffc928', fg: '#1a1400', accent: '#1a1400' },
   { id: 'mint',  name: 'Mint',          bg: '#2de2b0', fg: '#04261c', accent: '#04261c' },
   { id: 'red',   name: 'Red alert',     bg: '#e11d2e', fg: '#ffffff', accent: '#ffffff' },

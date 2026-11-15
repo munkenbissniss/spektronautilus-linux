@@ -47,15 +47,15 @@
 
   // ------------------------------------------------------------------ the dialog
   var css = '#spk-up{position:fixed;inset:0;z-index:100000;display:flex;align-items:center;justify-content:center;background:#000a;padding:12px;font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}' +
-    '#spk-up .b{background:#fff;color:#14182b;border-radius:14px;width:min(520px,100%);max-height:100%;overflow:auto;padding:16px;box-sizing:border-box}' +
-    '#spk-up *{box-sizing:border-box}#spk-up h2{margin:0 0 8px;font-size:1.15rem}#spk-up .m{color:#5a607a;font-size:.85rem}' +
-    '#spk-up label{display:block;font-size:.88rem;margin:8px 0 2px}#spk-up input,#spk-up select,#spk-up textarea{width:100%;font:inherit;padding:6px 8px;border:1px solid #c9cde0;border-radius:8px;background:#f3f4f8;color:#14182b}' +
-    '#spk-up textarea{min-height:56px}#spk-up button{font:inherit;cursor:pointer;border:2px solid #14182b;background:transparent;color:#14182b;padding:5px 14px;border-radius:999px;font-weight:600}' +
-    '#spk-up button.main{background:#14182b;color:#fff}#spk-up button:disabled{opacity:.4;cursor:default}' +
-    '#spk-up .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:12px}#spk-up .bar{height:8px;background:#d5d8e6;border-radius:4px;overflow:hidden;margin-top:10px}#spk-up .bar.ind i{width:35%!important;background:repeating-linear-gradient(45deg,#4a56d8 0 10px,#8c94e8 10px 20px);animation:spkup 1.1s linear infinite}@keyframes spkup{0%{transform:translateX(-100%)}100%{transform:translateX(290%)}}'+
-    '#spk-up .bar i{display:block;height:100%;width:0;background:#ff3d81}' +
-    '#spk-up .st{margin-top:8px;overflow-wrap:anywhere}#spk-up .er{color:#d1334a}#spk-up .ok{color:#12906f}#spk-up a{color:#2b3af0}' +
-    '@media (prefers-color-scheme:dark){#spk-up .b{background:#171a3a;color:#eceefb}#spk-up .m{color:#a0a6c8}#spk-up input,#spk-up select,#spk-up textarea{background:#10122a;color:#eceefb;border-color:#2a2e57}#spk-up button{border-color:#eceefb;color:#eceefb}#spk-up button.main{background:#eceefb;color:#10122a}#spk-up a{color:#7f8bff}#spk-up .bar{background:#2a2e57}}';
+    '#spk-up .b{background:#fff;color:#1c0b3a;border-radius:14px;width:min(520px,100%);max-height:100%;overflow:auto;padding:16px;box-sizing:border-box}' +
+    '#spk-up *{box-sizing:border-box}#spk-up h2{margin:0 0 8px;font-size:1.15rem}#spk-up .m{color:#5e5478;font-size:.85rem}' +
+    '#spk-up label{display:block;font-size:.88rem;margin:8px 0 2px}#spk-up input,#spk-up select,#spk-up textarea{width:100%;font:inherit;padding:6px 8px;border:1px solid #d2c8e1;border-radius:8px;background:#f4f0fa;color:#1c0b3a}' +
+    '#spk-up textarea{min-height:56px}#spk-up button{font:inherit;cursor:pointer;border:2px solid #1c0b3a;background:transparent;color:#1c0b3a;padding:5px 14px;border-radius:999px;font-weight:600}' +
+    '#spk-up button.main{background:#1c0b3a;color:#fff}#spk-up button:disabled{opacity:.4;cursor:default}' +
+    '#spk-up .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:12px}#spk-up .bar{height:8px;background:#dcd2ec;border-radius:4px;overflow:hidden;margin-top:10px}#spk-up .bar.ind i{width:35%!important;background:repeating-linear-gradient(45deg,#8446dc 0 10px,#b18aea 10px 20px);animation:spkup 1.1s linear infinite}@keyframes spkup{0%{transform:translateX(-100%)}100%{transform:translateX(290%)}}'+
+    '#spk-up .bar i{display:block;height:100%;width:0;background:#d6249f}' +
+    '#spk-up .st{margin-top:8px;overflow-wrap:anywhere}#spk-up .er{color:#d1334a}#spk-up .ok{color:#12906f}#spk-up a{color:#5a2496}' +
+    '@media (prefers-color-scheme:dark){#spk-up .b{background:#2a1160;color:#f3eeff}#spk-up .m{color:#b8a9dc}#spk-up input,#spk-up select,#spk-up textarea{background:#1e0a45;color:#f3eeff;border-color:#45257a}#spk-up button{border-color:#f3eeff;color:#f3eeff}#spk-up button.main{background:#f3eeff;color:#1e0a45}#spk-up a{color:#c6a6ff}#spk-up .bar{background:#45257a}}';
   var guideHref = function () { var l = window.SPK_LANG || 'en', p = location.pathname.replace(/\/(mixer|mixer-mobile|live-dj|live-mobile|vj-pad|vj-mobile|tools\/app|tools\/hospital|queue)\/.*$/, '/'); return p + (l !== 'en' ? l + '/' : '') + 'guides/tools/#upload'; };
   var cur = null, PRIV = { private: 'nobody', unlisted: 'unlisted', public: 'anybody' };
 

@@ -8,8 +8,8 @@
 <script>(function(){try{if(location.search.indexOf('desktop=1')>-1){localStorage.setItem('spk_desktop','1');return}
 if(!localStorage.getItem('spk_desktop')&&matchMedia('(pointer:coarse) and (max-width:900px)').matches)location.replace('../mixer-mobile/')}catch(e){}})();</script>
 <style>
-:root{--bg:#f3f4f8;--ink:#14182b;--mute:#5a607a;--line:#d5d8e6;--panel:#fff;--b:#ff3d81;--a:#2b3af0;--ok:#12906f;--bad:#d1334a;--warn:#b7791f;color-scheme:light}
-@media (prefers-color-scheme:dark){:root{--bg:#10122a;--ink:#eceefb;--mute:#a0a6c8;--line:#2a2e57;--panel:#171a3a;--b:#ff6fa3;--a:#7f8bff;--ok:#3fd6a4;--bad:#ff7088;--warn:#f0b254;color-scheme:dark}}
+:root{--bg:#f4f0fa;--ink:#1c0b3a;--mute:#5e5478;--line:#dcd2ec;--panel:#fff;--b:#d6249f;--a:#5a2496;--ok:#12906f;--bad:#d1334a;--warn:#b7791f;color-scheme:light}
+@media (prefers-color-scheme:dark){:root{--bg:#1e0a45;--ink:#f3eeff;--mute:#b8a9dc;--line:#45257a;--panel:#2a1160;--b:#ff5ccf;--a:#c6a6ff;--ok:#3fd6a4;--bad:#ff7088;--warn:#f0b254;color-scheme:dark}}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
 .wrap{max-width:1080px;margin:0 auto;padding:20px}h1{font-size:2rem;letter-spacing:-.03em;margin:6px 0 2px}h2{font-size:1.1rem;margin:0 0 8px}
 .drop,#an,.jm,.jn,.jp,.jf,#thumbs{overflow-wrap:anywhere;min-width:0}
@@ -677,7 +677,7 @@ function drawTL(j,A,P){const c=j.lctx.canvas,g=j.lctx,W=c.width,H=c.height;g.cle
  P.slots.forEach(s=>{g.fillStyle=hueOf(s.loop);g.fillRect(s.t0/A.dur*W,H*.45,Math.max(1,(s.t1-s.t0)/A.dur*W-1),H*.3)});
  P.layers.forEach(l=>{g.fillStyle=hueOf(l.loop);g.globalAlpha=.8;g.fillRect(l.t0/A.dur*W,H*.78,Math.max(1,(l.t1-l.t0)/A.dur*W),H*.2);g.globalAlpha=1});
  g.strokeStyle=getComputedStyle(document.body).color;g.beginPath();A.energy.forEach((e,i)=>{const x=A.bt[i]/A.dur*W,y=H*.4-e*H*.36;i?g.lineTo(x,y):g.moveTo(x,y)});g.stroke();
- g.fillStyle='#ff3d81';A.drops.forEach(d=>g.fillRect(A.bt[d]/A.dur*W-1,0,2,H*.4));g.fillStyle=g.strokeStyle;A.sections.forEach(([a])=>g.fillRect(A.bt[a]/A.dur*W,0,1,H*.4))}
+ g.fillStyle='#d6249f';A.drops.forEach(d=>g.fillRect(A.bt[d]/A.dur*W-1,0,2,H*.4));g.fillStyle=g.strokeStyle;A.sections.forEach(([a])=>g.fillRect(A.bt[a]/A.dur*W,0,1,H*.4))}
 function card(j){const d=document.createElement('div');d.className='job';
  d.innerHTML=`<div class="jh"><b class="jn"></b><span class="chip"></span></div><div class="mute jm"></div><div class="jb"><canvas class="jt" width="192" height="108"></canvas><div class="jr"><div class="prog"><i></i></div><div class="mute jp"></div><canvas class="jl" width="700" height="44"></canvas><div class="acts"></div><div class="mute jf"></div></div></div>`;
  j.tctx=d.querySelector('.jt').getContext('2d');j.lctx=d.querySelector('.jl').getContext('2d');j.el=d;d.addEventListener('click',e=>{if(e.target.closest('a[download]'))j.saved=true});d.onclick=e=>{const a=e.target.dataset.a;if(!a)return;
