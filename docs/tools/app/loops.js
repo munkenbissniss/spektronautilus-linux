@@ -11,7 +11,8 @@ export async function probe(engine, path, name = '') {
 // grey 64x36 pictures at `fps`, as one Uint8Array (n * S)
 export async function grayFrames(engine, path, fps, maxFrames = 20000, onProgress) {
   const out = `g_${Math.random().toString(36).slice(2)}.raw`;
-  const r = await engine.exec(['-y', '-hide_banner', '-i', path, '-an', '-vf', `fps=${fps},scale=${W}:${H}:flags=area,format=gray`, '-frames:v', String(maxFrames), '-f', 'rawvideo', out], onProgress ? { onProgress } : undefined);
+  // fps 0: every frame of the file as it is, one grey picture each (no frames added or dropped to fit a rate)
+  const r = await engine.exec(['-y', '-hide_banner', '-i', path, '-an', '-vf', `${fps ? `fps=${fps},` : ''}scale=${W}:${H}:flags=area,format=gray`, ...(fps ? [] : ['-fps_mode', 'passthrough']), '-frames:v', String(maxFrames), '-f', 'rawvideo', out], onProgress ? { onProgress } : undefined);
   if (r.code !== 0) throw new Error('Could not read this video');
   const data = await engine.read(out);
   await engine.remove(out);

@@ -1131,6 +1131,7 @@ window.SPK_DICT=window.SPK_DICT||{};SPK_DICT.es={
 "This browser cannot share sound. Use Chrome or Edge.": "Este navegador no puede compartir sonido. Usa Chrome o Edge.",
 "This browser cannot tell if a second screen is connected. Open the output window and see.": "Este navegador no puede saber si hay una segunda pantalla conectada. Abre la ventana de salida y compruébalo.",
 "This browser cannot use sound input.": "Este navegador no puede usar entrada de sonido.",
+"This browser does not use the graphics card (it draws with the processor), so the fast way is slow here. Turn on hardware acceleration in the browser settings and restart the browser. In Chrome, the page chrome://gpu shows what is used.": "Este navegador no usa la tarjeta gráfica (dibuja con el procesador), así que la vía rápida es lenta aquí. Activa la aceleración por hardware en los ajustes del navegador y reinícialo. En Chrome, la página chrome://gpu muestra qué se usa.",
 "This browser has no MIDI support. Use Chrome or Edge on a computer.": "Este navegador no admite MIDI. Usa Chrome o Edge en un ordenador.",
 "This browser has no MIDI. Use Chrome or Edge if you want to use a controller.": "Este navegador no tiene MIDI. Usa Chrome o Edge si quieres usar un controlador.",
 "This browser plays mp4 (H.264), the format the mixers like best.": "Este navegador reproduce mp4 (H.264), el formato que mejor van a los mezcladores.",

@@ -73,8 +73,9 @@ float la(vec2 p) { return texelFetch(A, ivec2(clamp(p, vec2(0.0), sz - 1.0)), 0)
 float lb(vec2 p) { return texture(B, (p + 0.5) / sz).r; }
 float cost(vec2 p, vec2 d) {
   float s = 0.0;
-  for (int y = -2; y <= 2; y++) for (int x = -2; x <= 2; x++) { vec2 q = p + vec2(x, y) * 1.0; s += abs(la(q) - lb(q + d)); }
-  return s;
+  // nine points spread over a 5 x 5 patch: as good as all 25 here (measured against real in-between frames), at a third of the work
+  for (int y = -1; y <= 1; y++) for (int x = -1; x <= 1; x++) { vec2 q = p + vec2(x, y) * 2.0; s += abs(la(q) - lb(q + d)); }
+  return s * 25.0 / 9.0;
 }
 void main() {
   sz = vec2(textureSize(A, 0)); vec2 p = floor(gl_FragCoord.xy);
@@ -97,34 +98,52 @@ float med9(float v[9]) { for (int i = 0; i < 5; i++) for (int j = i + 1; j < 9; 
 void main() { ivec2 p = ivec2(gl_FragCoord.xy), m = textureSize(F, 0) - 1; float xs[9], ys[9], cs[9]; int k = 0;
   for (int y = -1; y <= 1; y++) for (int x = -1; x <= 1; x++) { vec4 f = texelFetch(F, clamp(p + ivec2(x, y), ivec2(0), m), 0); xs[k] = f.x; ys[k] = f.y; cs[k] = f.z; k++; }
   o = vec4(med9(xs), med9(ys), med9(cs), 1.0); }`;
+// Where following the movement does not make the two pictures agree better than standing still, a plain blend is safer. This is
+// worked out on the small pictures of the motion search (cheap), once for every new frame: 1 = blend, 0 = follow the movement.
+const FS_CONF = HEAD + `
+uniform sampler2D LA; uniform sampler2D LB; uniform sampler2D F01; uniform sampler2D F10; uniform float t;
+void main() {
+  vec2 sz = vec2(textureSize(LA, 0)), p = gl_FragCoord.xy; ivec2 ip = ivec2(p);
+  vec2 f01 = texelFetch(F01, ip, 0).xy, f10 = texelFetch(F10, ip, 0).xy;
+  vec2 ft0 = -(1.0 - t) * t * f01 + t * t * f10, ft1 = (1.0 - t) * (1.0 - t) * f01 - t * (1.0 - t) * f10;
+  float ew = 0.0, e0 = 0.0;
+  for (int y = -1; y <= 1; y++) for (int x = -1; x <= 1; x++) { vec2 q = p + vec2(x, y);
+    ew += abs(texture(LA, (q + ft0) / sz).r - texture(LB, (q + ft1) / sz).r); e0 += abs(texture(LA, q / sz).r - texture(LB, q / sz).r); }
+  o = vec4(vec3(smoothstep(-0.025, 0.02, (ew - e0) / 9.0)), 1.0);
+}`;
 // the frame in between at time t: both pictures pushed along the flow (linear approximation of the flow from time t), then blended
 const FS_INTERP = HEAD + `
-uniform sampler2D A; uniform sampler2D B; uniform sampler2D F01; uniform sampler2D F10; uniform float t; uniform float k;
+uniform sampler2D A; uniform sampler2D B; uniform sampler2D F01; uniform sampler2D F10; uniform sampler2D C; uniform float t; uniform float k;
 void main() {
   vec2 sz = vec2(textureSize(A, 0)), p = gl_FragCoord.xy, fu = p / sz;
   vec2 f01 = texture(F01, fu).xy * k, f10 = texture(F10, fu).xy * k;
   vec2 ft0 = -(1.0 - t) * t * f01 + t * t * f10, ft1 = (1.0 - t) * (1.0 - t) * f01 - t * (1.0 - t) * f10;
   vec3 a = texture(A, (p + ft0) / sz).rgb, b = texture(B, (p + ft1) / sz).rgb;
-  // where following the movement does not make the two pictures agree better than standing still, a plain blend is safer
-  float ew = 0.0, e0 = 0.0;
-  for (int y = -1; y <= 1; y++) for (int x = -1; x <= 1; x++) { vec2 d = vec2(x, y) * 2.0;
-    ew += abs(dot(texture(A, (p + d + ft0) / sz).rgb - texture(B, (p + d + ft1) / sz).rgb, vec3(0.3, 0.55, 0.15)));
-    e0 += abs(dot(texture(A, (p + d) / sz).rgb - texture(B, (p + d) / sz).rgb, vec3(0.3, 0.55, 0.15))); }
-  float s = smoothstep(-0.025, 0.02, (ew - e0) / 9.0);
-  o = vec4(mix(mix(a, b, t), mix(texture(A, p / sz).rgb, texture(B, p / sz).rgb, t), s), 1.0);
+  float s = texture(C, fu).r;
+  vec3 m = mix(a, b, t);
+  o = vec4(s > 0.004 ? mix(m, mix(texture(A, fu).rgb, texture(B, fu).rgb, t), s) : m, 1.0);
 }`;
 
-// a picture as the three planes of BT.709 video (limited range, 4:2:0), four values packed into each RGBA pixel, for the encoder
+// A picture as BT.709 video (limited range, 4:2:0) for the encoder, all three planes in ONE texture so that one read gets it all:
+// rows 0..H-1 hold the luma (four values in each RGBA pixel); below them H/2 rows with U in the left part and V from pixel cw on.
 const FS_YUV = HEAD + `
-uniform sampler2D src; uniform int plane;
+uniform sampler2D src; uniform int H; uniform int cw;
 float Y(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
-float val(ivec2 q) {
-  ivec2 m = textureSize(src, 0) - 1;
-  if (plane == 0) return (16.0 + 219.0 * Y(texelFetch(src, clamp(q, ivec2(0), m), 0).rgb)) / 255.0;
+float luma(ivec2 q, ivec2 m) { return (16.0 + 219.0 * Y(texelFetch(src, clamp(q, ivec2(0), m), 0).rgb)) / 255.0; }
+float chroma(ivec2 q, ivec2 m, bool u) {
   vec3 c = vec3(0.0); for (int y = 0; y < 2; y++) for (int x = 0; x < 2; x++) c += texelFetch(src, clamp(q * 2 + ivec2(x, y), ivec2(0), m), 0).rgb; c *= 0.25;
-  float l = Y(c); return (128.0 + 224.0 * (plane == 1 ? (c.b - l) / 1.8556 : (c.r - l) / 1.5748)) / 255.0;
+  float l = Y(c); return (128.0 + 224.0 * (u ? (c.b - l) / 1.8556 : (c.r - l) / 1.5748)) / 255.0;
 }
-void main() { ivec2 p = ivec2(gl_FragCoord.xy); o = vec4(val(ivec2(p.x * 4, p.y)), val(ivec2(p.x * 4 + 1, p.y)), val(ivec2(p.x * 4 + 2, p.y)), val(ivec2(p.x * 4 + 3, p.y))); }`;
+void main() {
+  ivec2 p = ivec2(gl_FragCoord.xy), m = textureSize(src, 0) - 1;
+  if (p.y < H) { int x = p.x * 4; o = vec4(luma(ivec2(x, p.y), m), luma(ivec2(x + 1, p.y), m), luma(ivec2(x + 2, p.y), m), luma(ivec2(x + 3, p.y), m)); }
+  else { bool u = p.x < cw; int x = (u ? p.x : p.x - cw) * 4, y = p.y - H; o = vec4(chroma(ivec2(x, y), m, u), chroma(ivec2(x + 1, y), m, u), chroma(ivec2(x + 2, y), m, u), chroma(ivec2(x + 3, y), m, u)); }
+}`;
+
+// Safari and every browser on an iPhone or iPad (all WebKit) keep the plain, proven way of reading pictures back; the others read
+// them back without waiting (see readBegin).
+const WEBKIT = typeof navigator !== 'undefined' && /AppleWebKit/.test(navigator.userAgent || '') && !/Chrome\/|Chromium\/|Edg\//.test(navigator.userAgent || '');
+const tick = () => new Promise(r => setTimeout(r, 0));
 
 export class Gpu {
   constructor() {
@@ -133,12 +152,19 @@ export class Gpu {
     const gl = this.gl = this.canvas.getContext('webgl2', { antialias: false, alpha: false, depth: false, stencil: false, preserveDrawingBuffer: true, premultipliedAlpha: false });
     if (!gl) throw new Error('WebGL 2 is not available');
     this.floatOk = !!gl.getExtension('EXT_color_buffer_float');
+    // Which graphics card draws? A browser that has no working driver for it draws with the processor instead (SwiftShader, llvmpipe),
+    // which is some 30 times slower: then the fast way is not fast.
+    const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+    this.renderer = String((dbg && gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL)) || gl.getParameter(gl.RENDERER) || '');
+    this.software = /swiftshader|llvmpipe|softpipe|lavapipe|software|basic render|microsoft basic/i.test(this.renderer);
     gl.getExtension('OES_texture_float_linear');
     this.lost = false;
     if (this.canvas.addEventListener) this.canvas.addEventListener('webglcontextlost', e => { e.preventDefault(); this.lost = true; });
     this.vao = gl.createVertexArray(); this.fb = gl.createFramebuffer(); this.progs = {};
-    for (const [k, fs] of Object.entries({ yuv: FS_YUV, warp: FS_WARP, mix: FS_MIX, fx: FS_FX, trail: FS_TRAIL, down: FS_DOWN, match: FS_MATCH, med: FS_MED, interp: FS_INTERP })) this.progs[k] = this.prog(fs);
-    this.scratch = new Map(); this.pool = [];
+    for (const [k, fs] of Object.entries({ yuv: FS_YUV, warp: FS_WARP, mix: FS_MIX, fx: FS_FX, trail: FS_TRAIL, down: FS_DOWN, match: FS_MATCH, med: FS_MED, conf: FS_CONF, interp: FS_INTERP })) this.progs[k] = this.prog(fs);
+    this.scratch = new Map(); this.pool = []; this.pbos = [];
+    this.issued = 0; this.done = 0;   // pictures asked back from the card, and how many of those have arrived
+    this.asyncRead = !(Gpu.syncRead === true || (Gpu.syncRead !== false && WEBKIT));
   }
   prog(fs) {
     const gl = this.gl, mk = (t, s) => { const sh = gl.createShader(t); gl.shaderSource(sh, s); gl.compileShader(sh); if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) throw new Error('shader: ' + gl.getShaderInfoLog(sh)); return sh; };
@@ -205,27 +231,52 @@ export class Gpu {
   mix(dst, a, b, w) { this.run('mix', dst, U => { U.tex('a', a); U.tex('b', b); U.f('w', w); }); }
   fx(dst, src, { sharp = 0, bright = 0, sat = 1 } = {}) { this.run('fx', dst, U => { U.tex('src', src); U.f('sharp', sharp); U.f('bright', bright); U.f('sat', sat); U.i('flip', dst ? 0 : 1); U.f('outH', dst ? dst.h : this.canvas.height); }); }
   trail(dst, ts, ws) { const t = [0, 1, 2, 3].map(i => ts[Math.min(i, ts.length - 1)]), w = [0, 1, 2, 3].map(i => i < ts.length ? ws[i] : 0); this.run('trail', dst, U => { t.forEach((x, i) => U.tex('t' + i, x)); U.f('w', ...w); }); }
-  // the picture as I420 video data (BT.709, limited range) with its plane layout, ready for new VideoFrame(...); we convert the colours
-  // ourselves, so they come out the same on every device (encoders differ in how they would turn RGB into video colours)
-  i420(src) {
-    const gl = this.gl, W = src.w, H = src.h, yw = Math.ceil(W / 4), cw = Math.ceil(W / 8), ys = yw * 4, cs = cw * 4;
-    const oU = ys * H, oV = oU + cs * (H / 2), size = oV + cs * (H / 2);
-    if (!this.yuvBuf || this.yuvBuf.length !== size) this.yuvBuf = new Uint8Array(size);
-    const planes = [[0, yw, H, 0], [1, cw, H / 2, oU], [2, cw, H / 2, oV]];
-    for (const [pl, w, h, off] of planes) {
-      const t = this.tmp('yuv' + pl, w, h); this.run('yuv', t, U => { U.tex('src', src); U.i('plane', pl); });
-      gl.bindFramebuffer(gl.FRAMEBUFFER, this.fb); gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t.t, 0);
-      gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, this.yuvBuf, off);
+  // ---- handing a finished picture to the encoder: I420 video data (BT.709, limited range), rows packed tight. We convert the colours
+  // ourselves, so they come out the same on every device (encoders differ in how they would turn RGB into video colours).
+  // Reading a picture back from the graphics card normally makes the page wait until the card has finished everything it was asked
+  // to do. readBegin only asks for the copy (into a buffer on the card's side) and returns at once; readEnd collects it when it is
+  // ready. In between, the page can already prepare the next frame, so the card and the processor work at the same time.
+  yuvPlan(W, H) { const yw = Math.ceil(W / 4), cw = Math.ceil(W / 8), tw = Math.max(yw, 2 * cw), th = H + H / 2; return { cw, tw, th, bytes: tw * th * 4 }; }
+  readBegin(src, wantGray = false) {
+    const gl = this.gl, W = src.w, H = src.h, P = this.yuvPlan(W, H), t = this.tmp('yuv', P.tw, P.th);
+    this.run('yuv', t, U => { U.tex('src', src); U.i('H', H); U.i('cw', P.cw); });
+    const g = wantGray ? this.grayTex(src) : null, total = P.bytes + (g ? 9216 : 0), job = { W, H, P, gray: !!g, total };
+    const att = x => { gl.bindFramebuffer(gl.FRAMEBUFFER, this.fb); gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, x.t, 0); };
+    if (this.asyncRead) {
+      const slot = this.pboI = ((this.pboI || 0) + 1) % 2; let pb = this.pbos[slot];
+      if (!pb || pb.size < total) { if (pb) gl.deleteBuffer(pb.b); pb = this.pbos[slot] = { b: gl.createBuffer(), size: total }; gl.bindBuffer(gl.PIXEL_PACK_BUFFER, pb.b); gl.bufferData(gl.PIXEL_PACK_BUFFER, total, gl.STREAM_READ); }
+      gl.bindBuffer(gl.PIXEL_PACK_BUFFER, pb.b);
+      att(t); gl.readPixels(0, 0, P.tw, P.th, gl.RGBA, gl.UNSIGNED_BYTE, 0);
+      if (g) { att(g); gl.readPixels(0, 0, 64, 36, gl.RGBA, gl.UNSIGNED_BYTE, P.bytes); }
+      gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+      job.pb = pb; job.sync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0); gl.flush(); job.no = ++this.issued;
+    } else {
+      if (!this.raw || this.raw.length < total) this.raw = new Uint8Array(total);
+      att(t); gl.readPixels(0, 0, P.tw, P.th, gl.RGBA, gl.UNSIGNED_BYTE, this.raw, 0);
+      if (g) { att(g); gl.readPixels(0, 0, 64, 36, gl.RGBA, gl.UNSIGNED_BYTE, this.raw, P.bytes); }
+      this.done = ++this.issued;   // read at once: the card has finished
     }
-    if (ys === W && cs === W / 2) return { data: this.yuvBuf, layout: [{ offset: 0, stride: ys }, { offset: oU, stride: cs }, { offset: oV, stride: cs }], w: W, h: H };
-    // A width that is not a multiple of 8 leaves a few spare bytes at the end of each row. Some encoders ignore the row length they are
-    // given (the picture then comes out slanted in stripes), so the rows are packed tight here.
-    const cw2 = W / 2, h2 = H / 2, tY = W * H, size2 = tY + 2 * cw2 * h2;
-    if (!this.tight || this.tight.length !== size2) this.tight = new Uint8Array(size2);
-    const s = this.yuvBuf, d = this.tight;
-    for (let y = 0; y < H; y++) d.set(s.subarray(y * ys, y * ys + W), y * W);
-    for (let y = 0; y < h2; y++) { d.set(s.subarray(oU + y * cs, oU + y * cs + cw2), tY + y * cw2); d.set(s.subarray(oV + y * cs, oV + y * cs + cw2), tY + cw2 * h2 + y * cw2); }
-    return { data: d, layout: [{ offset: 0, stride: W }, { offset: tY, stride: cw2 }, { offset: tY + cw2 * h2, stride: cw2 }], w: W, h: H };
+    return job;
+  }
+  // -> { pic: { data, layout, w, h } for new VideoFrame(...) or a raw-video pipe, gray: the 64 x 36 grey picture or null }
+  async readEnd(job) {
+    const gl = this.gl;
+    if (job.sync) {
+      const t0 = performance.now();
+      for (;;) { const s = gl.clientWaitSync(job.sync, 0, 0); if (s !== gl.TIMEOUT_EXPIRED || performance.now() - t0 > 8000) break; await tick(); this.check(); }
+      gl.deleteSync(job.sync); job.sync = null;
+      if (!this.raw || this.raw.length < job.total) this.raw = new Uint8Array(job.total);
+      gl.bindBuffer(gl.PIXEL_PACK_BUFFER, job.pb.b); gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, this.raw, 0, job.total); gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+      this.done = Math.max(this.done, job.no);
+    }
+    const raw = this.raw, { W, H, P } = job, st = P.tw * 4, cw2 = W / 2, h2 = H / 2, tY = W * H, size = tY + 2 * cw2 * h2;
+    // rows packed tight: some encoders ignore the row length they are given (the picture then comes out slanted in stripes)
+    if (!this.tight || this.tight.length !== size) this.tight = new Uint8Array(size);
+    const d = this.tight;
+    if (st === W) d.set(raw.subarray(0, tY), 0); else for (let y = 0; y < H; y++) d.set(raw.subarray(y * st, y * st + W), y * W);
+    for (let y = 0; y < h2; y++) { const o = (H + y) * st; d.set(raw.subarray(o, o + cw2), tY + y * cw2); d.set(raw.subarray(o + P.cw * 4, o + P.cw * 4 + cw2), tY + cw2 * h2 + y * cw2); }
+    let gray = null; if (job.gray) { gray = new Uint8Array(2304); for (let i = 0; i < 2304; i++) gray[i] = raw[P.bytes + i * 4]; }
+    return { pic: { data: d, layout: [{ offset: 0, stride: W }, { offset: tY, stride: cw2 }, { offset: tY + cw2 * h2, stride: cw2 }], w: W, h: H }, gray };
   }
   // copy a picture to the canvas (turned over for it), so a VideoFrame can be made from it
   show(src) { this.size(src.w, src.h); this.fx(null, src, {}); }
@@ -238,7 +289,8 @@ export class Gpu {
   // the 64 x 36 grey picture used to study a clip (like ffmpeg's scale=64:36:flags=area,format=gray)
   // A big picture is first shrunk to 512 x 288 (8 x 8 taps per pixel there), then to 64 x 36: no picture levels (mipmaps) need to be
   // made for every frame, which is what made looking at a big clip slow.
-  gray(src) { const g = this.tmp('gray', 64, 36); let s = src; if (src.w > 1024 || src.h > 576) { s = this.tmp('gray2', 512, 288); this.down(s, src, 0); } this.down(g, s, 2); const px = this.read(g), out = new Uint8Array(64 * 36); for (let i = 0; i < out.length; i++) out[i] = px[i * 4]; return out; }
+  grayTex(src) { const g = this.tmp('gray', 64, 36); let s = src; if (src.w > 1024 || src.h > 576) { s = this.tmp('gray2', 512, 288); this.down(s, src, 0); } this.down(g, s, 2); return g; }
+  gray(src) { const px = this.read(this.grayTex(src)), out = new Uint8Array(64 * 36); for (let i = 0; i < out.length; i++) out[i] = px[i * 4]; return out; }
 
   // ------------------------------------------------------------------------------------------ Smooth motion
   // The motion field between two pictures is worked out once and reused for every frame made between them.
@@ -252,7 +304,7 @@ export class Gpu {
     let prev = null;
     for (let i = LA.length - 1; i >= 0; i--) {
       const a = LA[i], b = LB[i], f = this.tmp(`${tag}f${i}`, a.w, a.h, 'f16'), m = this.tmp(`${tag}m${i}`, a.w, a.h, 'f16');
-      this.run('match', f, U => { U.tex('A', a); U.tex('B', b); if (prev) U.tex('prev', prev); else U.tex('prev', a); U.i('hasPrev', prev ? 1 : 0); U.i('R', i === LA.length - 1 ? 4 : 2); });
+      this.run('match', f, U => { U.tex('A', a); U.tex('B', b); if (prev) U.tex('prev', prev); else U.tex('prev', a); U.i('hasPrev', prev ? 1 : 0); U.i('R', i === LA.length - 1 ? 4 : 1); });   // wide search on the smallest picture, then one pixel each way per level
       this.run('med', m, U => U.tex('F', f)); prev = m;
     }
     return prev;
@@ -264,8 +316,9 @@ export class Gpu {
       const PA = this.pyramid('pa', a), PB = this.pyramid('pb', b);
       this.f01 = this.flowOne('ab', PA, PB); this.f10 = this.flowOne('ba', PB, PA); this.flowKey = key;
     }
-    const k = a.w / this.f01.w;
-    this.run('interp', dst, U => { U.tex('A', a); U.tex('B', b); U.tex('F01', this.f01); U.tex('F10', this.f10); U.f('t', t); U.f('k', k); });
+    const k = a.w / this.f01.w, c = this.tmp('conf', this.f01.w, this.f01.h);
+    this.run('conf', c, U => { U.tex('LA', this.scratch.get('pa0')); U.tex('LB', this.scratch.get('pb0')); U.tex('F01', this.f01); U.tex('F10', this.f10); U.f('t', t); });
+    this.run('interp', dst, U => { U.tex('A', a); U.tex('B', b); U.tex('F01', this.f01); U.tex('F10', this.f10); U.tex('C', c); U.f('t', t); U.f('k', k); });
   }
   forget() { this.flowKey = null; }
   destroy() { for (const x of this.scratch.values()) this.free(x); this.scratch.clear(); const ext = this.gl.getExtension('WEBGL_lose_context'); if (ext) ext.loseContext(); }

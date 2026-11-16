@@ -534,6 +534,15 @@ async function timeStage(engine, loops, src, info, R, baseProf, ctl, report, tag
   return { path, info: cur, R: R3, notes, tmps, base: done / total, rest: W.fin / total };
 }
 
+// Only the AI steps of a recipe (and the cut, turn and crop before them). Returns { path, info, R (what is left to do), notes, tmps, base,
+// rest }: the Loop Hospital hands that file to the fast way for everything else; runRecipe below goes on with ffmpeg.
+// simple(R): no step of the recipe has to come before the AI (Smooth out, or a Frame rate change without AI), so the AI part can go first.
+export const aiFirst = R => wantsAi(R) && !(R.smooth && R.smooth.on) && !(R.fps && R.fps.on && R.fps.engine !== 'ai');
+export async function aiPart(engine, loops, src, info, R, baseProf, { ctl = { check() {} }, onProgress, onStage, tmp = 'hosp_tmp.mp4' } = {}) {
+  if (wantsV2x(R) && !v2xReady(engine)) throw new Error('AI needs the Linux (local) version with Video2X installed. Choose another method.');
+  if (R.up.on && R.up.engine === 'recavsr' && !comfyReady(engine)) throw new Error('AI video upscaling (ReCaVSR) needs the Linux version and ComfyUI with ReCaVSR on a computer with an NVIDIA card. Choose another method, or check the ComfyUI address under Upscale.');
+  return aiStages(engine, loops, src, info, R, baseProf, ctl, onProgress, onStage, tmp.replace(/\.mp4$/, '') + '_ai');
+}
 export async function runRecipe(engine, loops, src, dst, info, R, baseProf, { ctl = { check() {} }, onProgress, onStage, tmp = 'hosp_tmp.mp4' } = {}) {
   if ((R.smooth && R.smooth.on) || (R.fps && R.fps.on && R.fps.engine !== 'ai') || needsBandedSlow(engine, info, R)) {
     const st = await timeStage(engine, loops, src, info, R, baseProf, ctl, onProgress, tmp.replace(/\.mp4$/, '') + '_sm');
@@ -543,9 +552,7 @@ export async function runRecipe(engine, loops, src, dst, info, R, baseProf, { ct
     } finally { for (const t of st.tmps) { try { await engine.remove(t); } catch (e) { /* ignore */ } } }
   }
   if (wantsAi(R)) {
-    if (wantsV2x(R) && !v2xReady(engine)) throw new Error('AI needs the Linux (local) version with Video2X installed. Choose another method.');
-    if (R.up.on && R.up.engine === 'recavsr' && !comfyReady(engine)) throw new Error('AI video upscaling (ReCaVSR) needs the Linux version and ComfyUI with ReCaVSR on a computer with an NVIDIA card. Choose another method, or check the ComfyUI address under Upscale.');
-    const tag = tmp.replace(/\.mp4$/, '') + '_ai', st = await aiStages(engine, loops, src, info, R, baseProf, ctl, onProgress, onStage, tag);
+    const st = await aiPart(engine, loops, src, info, R, baseProf, { ctl, onProgress, onStage, tmp });
     try {
       const r = await runRecipe(engine, loops, st.path, dst, st.info, st.R, baseProf, { ctl, onProgress: onProgress && (x => onProgress(st.base + st.rest * x)), onStage, tmp });
       return { ...r, note: [...st.notes, r.note].filter(Boolean).join(', ') };

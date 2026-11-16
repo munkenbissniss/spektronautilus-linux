@@ -1,4 +1,4 @@
-import { VIDEO_EXT, GIF_EXT, extOf, stemOf, defaultProfile, fmtSize, repeatsNeeded } from '../app/core.js';
+import { VIDEO_EXT, GIF_EXT, extOf, stemOf, defaultProfile, fmtSize, repeatsNeeded, chooseFps, aiDevice } from '../app/core.js';
 import { FILTERS } from '../app/filters.js';
 import { getEngine } from '../app/engine.js';
 import * as L from '../app/loops.js';
@@ -174,12 +174,39 @@ function showAfter() {
 }
 placeAfter();
 
-async function ensurePicked() { if (engine.pick) { try { await engine.pick(); } catch (e) { /* the web engine loads later */ } } aiDefaults(); }
+async function ensurePicked() { if (engine.pick) { try { await engine.pick(); } catch (e) { /* the web engine loads later */ } } await Promise.race([aiDefaults(), new Promise(r => setTimeout(r, 4000))]); }
 async function ensureEngine() { await ensurePicked(); await engine.load(status); status(''); if (engine.kind === 'native' && engine.comfyInfo && !engine.comfy) await engine.comfyInfo(); aiAvail(); }
 // The fast way: the device's own video chip and graphics card, no ffmpeg (see app/wc.js). Also in the local Linux version, where it is
 // faster than ffmpeg on the processor; the local ffmpeg then does only what the fast way cannot (AI, Looks, sound, files it cannot read).
-const wcOpen = async file => { await ensurePicked(); try { return await WC.open(file); } catch (e) { return null; } };
-const fastNote = on => { const el = $('#fastway'); if (el) { el.textContent = on ? T('Fast way: this device does the work with its own video chip and graphics card.') : ''; el.classList.toggle('hide', !on); } };
+// When the browser draws without the graphics card (software), the fast way is slow: the local version then uses its own ffmpeg, and the
+// page says what to change.
+let swWarned = false;
+const wcReady = async () => {
+  await ensurePicked();
+  try {
+    if (!(await WC.supported())) return false;
+    if (WC.gpuInfo().software) { swWarned = true; if (engine.kind === 'native') return false; }
+    return true;
+  } catch (e) { return false; }
+};
+const wcOpen = async file => { if (!(await wcReady())) return null; try { return await WC.open(file); } catch (e) { return null; } };
+// The local version writes the video with the computer's own ffmpeg (all processor cores) instead of the browser's slow encoder.
+const natEnc = () => (engine.kind === 'native' && engine.canEncode ? engine : null);
+// The local version studies the clip with the computer's ffmpeg (fast) and hands the small grey pictures to the fast way, which
+// needs them later for Frame rate and Smooth out.
+async function nativeLoop(file, h) {
+  await ensureEngine(); const path = await openInput(file);
+  try {
+    const g = await L.grayFrames(engine, path, 0); if (g.n === h.dm.video.count) h.grays = g;
+    return (h.loopRep = L.analyzeFrames(g.data, g.n, chooseFps(h.info, { fps: 0, maxFps: 60 })));
+  } finally { await engine.unmount(path); }
+}
+const fastNote = on => {
+  const el = $('#fastway'); if (!el) return;
+  const sw = swWarned ? T('This browser does not use the graphics card (it draws with the processor), so the fast way is slow here. Turn on hardware acceleration in the browser settings and restart the browser. In Chrome, the page chrome://gpu shows what is used.') : '';
+  el.textContent = [on ? T('Fast way: this device does the work with its own video chip and graphics card.') : '', sw].filter(Boolean).join(' ');
+  el.classList.toggle('hide', !el.textContent);
+};
 const openInput = async file => engine.mount(new File([file], 'src' + (extOf(file.name) || '.mp4'), { type: file.type }));
 const okFile = f => OK_EXT.has(extOf(f.name));
 
@@ -197,7 +224,10 @@ async function choose(file, converted) {
     const h = await wcOpen(file);
     if (h) {   // the fast way can read it: no ffmpeg needed for looking at it either
       if (g0 !== gen || !patient) return; patient.wc = h; patient.info = h.info; fastNote(true);
-      if (h.info.duration > 0 && h.info.duration <= 60) { try { patient.loop = await WC.analyze(h); } catch (e) { patient.loop = null; } }
+      if (h.info.duration > 0 && h.info.duration <= 60) {
+        try { patient.loop = engine.kind === 'native' && engine.exec ? await nativeLoop(file, h) : await WC.analyze(h); }
+        catch (e) { try { patient.loop = await WC.analyze(h); } catch (e2) { patient.loop = null; } }
+      }
       if (g0 !== gen || !patient) return; examine(); return;
     }
     fastNote(false);
@@ -226,7 +256,7 @@ function examine() {
   const i = patient.info, lp = patient.loop;
   const verdict = lp ? (lp.verdict === 'seamless' ? '<span class="chip good">loops ✓</span>' : lp.verdict === 'almost' ? '<span class="chip bad">almost loops</span>' : '<span class="chip bad">jumps</span>') : '';
   $('#facts').innerHTML = `<span>${i.width}×${i.height}</span><span>${Math.round(i.fps * 100) / 100} fps</span><span>${Math.round(i.duration * 10) / 10} s</span><span>${fmtSize(patient.file.size)}</span><span>${esc(i.codec || '')}</span>${verdict}`;
-  const d = ST.diagnose(i, lp, { slowEngine: engine.kind !== 'native' && !patient.wc, ai: aiFrames() });
+  const d = ST.diagnose(i, lp, { slowEngine: engine.kind !== 'native' && !patient.wc, ai: aiFast });
   $('#findings').innerHTML = d.length ? d.map((x, n) => `<li><span>${esc(x.text)}</span>${Object.keys(x.fix).length ? `<button class="sm" data-fix="${n}" type="button">Add this treatment</button>` : ''}</li>`).join('')
     : '<li class="ok"><span>Nothing wrong found. This clip is ready for the mixers.</span></li>';
   $('#gifbar').classList.toggle('hide', !i.isGif);
@@ -264,27 +294,45 @@ async function waitPause() {   // pause takes effect between clips/looks: a pass
   finally { $('#bar').classList.remove('pz'); pausedMs += Date.now() - t; $('#pausebtn').textContent = T('Pause after this clip'); }
 }
 let pausedMs = 0;
+const onAiStage = (kind, sec, i) => setCur(T(kind === 'recavsr' ? 'AI video upscaling (ReCaVSR)…' : kind === 'up' ? 'AI upscaling…' : kind === 'fps' ? 'AI frame rate…' : 'AI slow motion…') + (i && i.gpu ? ' · ' + i.gpu : '') + (i && i.soft ? ' · ' + T('Only a software graphics driver was found. AI will be very slow. Install the Vulkan driver for your graphics card.') : ''));
 async function treat(file, out, rec, label, base) {
-  let path; ctl = ctl || { cancel: false, check() { if (this.cancel) throw new Error('cancelled'); } };
+  let path; ctl = ctl || { cancel: false, check() { if (this.cancel) throw new Error('cancelled'); } }; base = base || baseProf();
+  const shown = curLabel;   // the AI steps put their own text here; it is put back afterwards
   const h = patient && patient.file === file && patient.wc ? patient.wc : await wcOpen(file);
   if (h && WC.canRun(h, rec)) {
-    try { const r = await WC.run(h, rec, base || baseProf(), { ctl, onProgress: prog }); return { data: r.data, note: r.note }; }
+    try { const r = await WC.run(h, rec, base, { ctl, onProgress: prog, native: natEnc() }); return { data: r.data, note: r.note }; }
     catch (e) { if (!e.fallback) throw e; $('#msg').textContent = T('The fast way could not finish this clip, so the slower way is used.') + ' (' + e.message + ')'; }
   }
   try {
     await ensureEngine();
     path = await openInput(file);
     const inf = await L.probe(engine, path, file.name); if (!inf.width) throw new Error('No picture found in this file');
-    const r = await ST.runRecipe(engine, L, path, out, inf, rec, base || baseProf(), { ctl, onProgress: prog, tmp: 'hosp_tmp_' + nextId + '.mp4',
-      onStage: (kind, sec, i) => setCur(T(kind === 'recavsr' ? 'AI video upscaling (ReCaVSR)…' : kind === 'up' ? 'AI upscaling…' : kind === 'fps' ? 'AI frame rate…' : 'AI slow motion…') + (i && i.gpu ? ' · ' + i.gpu : '') + (i && i.soft ? ' · ' + T('Only a software graphics driver was found. AI will be very slow. Install the Vulkan driver for your graphics card.') : '')) });
+    const tmp = 'hosp_tmp_' + nextId + '.mp4';
+    // AI (Video2X or ReCaVSR) does only its own steps; what is left of the recipe then goes the fast way, like any other clip
+    if (engine.kind === 'native' && ST.aiFirst(rec) && await wcReady()) {
+      const st = await ST.aiPart(engine, L, path, inf, rec, base, { ctl, onProgress: prog, onStage: onAiStage, tmp });
+      try {
+        const rest = x => prog(st.base + st.rest * x), notes = r => [...st.notes, r.note].filter(Boolean).join(', ');
+        let h2 = null; try { h2 = await WC.open(new File([engine.readBlob ? await engine.readBlob(st.path, 'video/mp4') : await engine.read(st.path)], 'ai.mp4', { type: 'video/mp4' })); } catch (e) { h2 = null; }
+        if (h2 && WC.canRun(h2, st.R)) {
+          setCur(shown);
+          try { const r = await WC.run(h2, st.R, base, { ctl, onProgress: rest, native: natEnc() }); return { data: r.data, note: notes(r) }; }
+          catch (e) { if (!e.fallback) throw e; }
+        }
+        const r = await ST.runRecipe(engine, L, st.path, out, st.info, st.R, base, { ctl, onProgress: rest, tmp });
+        const data = await engine.read(out); await engine.remove(out);
+        return { data, note: notes(r) };
+      } finally { for (const f of st.tmps) { try { await engine.remove(f); } catch (e) { /* ignore */ } } }
+    }
+    const r = await ST.runRecipe(engine, L, path, out, inf, rec, base, { ctl, onProgress: prog, tmp, onStage: onAiStage });
     const data = await engine.read(out); await engine.remove(out);
     return { data, note: r.note };
   } finally { if (path) await engine.unmount(path); }
 }
 let curLabel = '';
 const setCur = s => { curLabel = s; $('#cur').textContent = s; };
-async function run(fn) {
-  if (busy) return; $('#msg').textContent = ''; plan = null; best = 0; bestAt = Date.now(); pausedMs = 0; pauseReq = false; setBusy(true); prog(0); ctl = { cancel: false, check() { if (this.cancel) throw new Error('cancelled'); } };
+async function run(fn) {   // units are reset first: those of the last run would put the bar at 100 % at once
+  if (busy) return; $('#msg').textContent = ''; plan = null; best = 0; bestAt = Date.now(); pausedMs = 0; pauseReq = false; units = { done: 0, total: 1 }; setBusy(true); prog(0); ctl = { cancel: false, check() { if (this.cancel) throw new Error('cancelled'); } };
   const c = ctl, g = gen, t0 = Date.now(), started = t0;   // a clock, so you can see that it is working even when the browser reports no progress
   const tick = runTick = setInterval(() => {
     if (pauseReq && $('#bar').classList.contains('pz')) return;
@@ -365,7 +413,7 @@ async function measure(file, rec0, loopRep) {
   if (patient && patient.file === file && patient.wc && WC.canRun(patient.wc, rec0)) {   // the fast way: one real second of the clip, scaled up
     const D = patient.info.duration, M = Math.max(+rec0.out.minSeconds || 0, rec0.life.on ? +rec0.life.minSeconds || 0 : 0, rec0.kb.on ? +rec0.kb.minSeconds || 0 : 0);
     if (!(D > 0.8) || (Math.max(D, M) < 5 && !rec0.loop.on)) return null;
-    const r = await WC.estimate(patient.wc, rec0, baseProf(), ctl); if (g !== gen) throw new Error('cancelled'); return r;
+    const r = await WC.estimate(patient.wc, rec0, baseProf(), ctl, natEnc()); if (g !== gen) throw new Error('cancelled'); return r;
   }
   try {
     await ensureEngine();
@@ -452,15 +500,21 @@ document.querySelectorAll('[data-reset]').forEach(b => { b.onclick = () => {
   try { location.reload(); } catch (e) { location.href = location.pathname; }
 }; });
 
-// On Linux with Video2X (RIFE): AI makes the new frames for Frame rate and Slow motion by default. It runs on the graphics card,
-// so it is both the best and usually the fastest method there. A method chosen by hand is kept.
+// On Linux with Video2X (RIFE) and a separate graphics card (NVIDIA, AMD, Intel Arc): AI makes the new frames for Frame rate and Slow
+// motion by default. On the graphics built into the processor (a laptop's Intel Iris, say) RIFE is slow, and Smooth motion on the
+// fast way is many times quicker, so it stays the default there; AI can still be chosen by hand. A method chosen by hand is kept.
 const aiFrames = () => ST.v2xReady(engine) && !(engine.info.v2x && engine.info.v2x.rife === false);
-let aiDefaultsSet = false;
-function aiDefaults() {
-  if (aiDefaultsSet || !aiFrames()) return; aiDefaultsSet = true;
-  const d = ST.defaultRecipe(); let changed = false;
-  for (const k of ['fps', 'slow']) if (R[k].engine === d[k].engine) { R[k].engine = 'ai'; changed = true; }
-  if (changed) syncUI();
+let aiP = null, aiFast = false;
+function aiDefaults() {   // asked once, as soon as the local engine is known (the graphics card list takes a moment)
+  if (aiP) return aiP; if (!aiFrames()) return Promise.resolve();
+  return (aiP = (async () => {
+    let dev = null; try { dev = await aiDevice(engine, 0); } catch (e) { dev = null; }
+    aiFast = !!(dev && !dev.soft && /nvidia|geforce|rtx|gtx|radeon|\bamd\b|\barc\b/i.test(dev.name || ''));
+    if (!aiFast) return;
+    const d = ST.defaultRecipe(); let changed = false;
+    for (const k of ['fps', 'slow']) if (R[k].engine === d[k].engine) { R[k].engine = 'ai'; changed = true; }
+    if (changed) syncUI();
+  })());
 }
 buildSteps(); info(); aiAvail();
 // the local versions are recognised at once; the NVIDIA version also tells whether ComfyUI with ReCaVSR is ready

@@ -6,16 +6,21 @@
 // The work is done in passes, like the ffmpeg way: [Smooth out] -> [Frame rate] -> main (cut, turn, crop, slow motion, Life, Ken Burns,
 // upscale, size) -> [Make it loop]. Passes in between are kept in memory as compact, near lossless video. A result that is repeated to a
 // minimum length is encoded once and the encoded frames are copied, when nothing changes from one round to the next.
-import { demux, sampleData, muxMp4 } from './mp4.js';
+import { demux, sampleData, muxMp4, fpsRational } from './mp4.js';
 import { Gpu } from './gpu.js';
-import { chooseFps, repeatsNeeded, cropFor, targetSize, maxMBps } from './core.js';
+import { chooseFps, repeatsNeeded, cropFor, targetSize, maxMBps, codecArgs } from './core.js';
 import { analyzeFrames, reportText, loopForecast } from './loops.js';
 import * as ST from './steps.js';
 
 const TEST = () => (typeof window !== 'undefined' && window.SPK_WC_TEST) || null;   // tests: { codec: 'vp09...' } where H.264 is missing
 const EXT = /\.(mp4|m4v|mov)$/i;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+// where the time goes (seconds): reading frames (incl. upload), handing frames to the graphics card, picture work, writing
+export const TIMES = { read: 0, upload: 0, picture: 0, write: 0, starts: 0 };   // starts: how often a decoder had to begin again from a key frame
+const now = () => performance.now();
 
+// (tests can force the plain way of reading pictures back; so can localStorage.spk_read = 'plain', should a graphics driver misbehave)
+const newGpu = () => { const x = TEST(); if (x && x.syncRead != null) Gpu.syncRead = x.syncRead; else { try { if (localStorage.getItem('spk_read') === 'plain') Gpu.syncRead = true; } catch (e) { /* no storage */ } } return new Gpu(); };
 // ---------------------------------------------------------------------------------------------- can this browser do it?
 const avcLevels = [['640028', 245760, 8192], ['64002A', 522240, 8704], ['640032', 589824, 22080], ['640033', 983040, 36864], ['640034', 2073600, 36864]];
 function avcCandidates(w, h, fps) {
@@ -32,13 +37,15 @@ export async function encoderFor(w, h, fps, bitrate) {
   }
   return null;
 }
-let SUP = null;
+let SUP = null, GPU_INFO = { renderer: '', software: false };
+// { renderer, software }: software = the browser draws without the graphics card (known after supported())
+export const gpuInfo = () => GPU_INFO;
 export function supported() {
   return SUP || (SUP = (async () => {
     try {
       if (typeof VideoDecoder === 'undefined' || typeof VideoEncoder === 'undefined' || typeof EncodedVideoChunk === 'undefined' || !window.isSecureContext) return false;
       if (typeof localStorage !== 'undefined') { try { if (localStorage.getItem('spk_wc') === 'off') return false; } catch (e) { /* ignore */ } }
-      const g = new Gpu(); const ok = g.floatOk !== undefined; g.destroy(); if (!ok) return false;
+      const g = newGpu(); GPU_INFO = { renderer: g.renderer, software: g.software && !(TEST() && TEST().allowSoftware !== false) }; g.destroy();
       return !!(await encoderFor(1280, 720, 30, 5e6));
     } catch (e) { return false; }
   })());
@@ -68,21 +75,25 @@ export function canRun(h, R) {
 }
 
 // ---------------------------------------------------------------------------------------------- reading frames
-// Frames in display order 0..n-1. Asking for frames in order is cheap; going back starts again from the key frame before it.
+// Frames in display order 0..n-1, as textures. Asking for frames in order is cheap; going back starts again from the key frame before.
+// The decoder is only fed a few frames ahead of the one asked for. A fast decoder would otherwise run far ahead, its frames would push
+// the needed ones out of the small cache, and every frame would mean decoding again from the last key frame (very slow on clips with
+// few key frames). A decoder that keeps some frames to itself gets one more whenever it has nothing left to do.
 class Source {
   constructor(h, gpu, { cache = 6, mips = false } = {}) {
-    this.h = h; this.v = h.dm.video; this.gpu = gpu; this.max = cache; this.mips = mips; this.n = this.v.count;
+    this.h = h; this.v = h.dm.video; this.gpu = gpu; this.max = Math.max(4, cache); this.look = this.max - 3; this.mips = mips; this.n = this.v.count;
     this.inv = new Int32Array(this.n); this.v.order.forEach((s, k) => { this.inv[s] = k; });
     this.ts = new Map(); for (let k = 0; k < this.n; k++) this.ts.set(Math.round(this.v.pts[k] * 1e6), k);
-    this.cache = new Map(); this.spare = []; this.want = 0; this.pins = new Set(); this._p = null; this._r = null;
+    this.cache = new Map(); this.spare = []; this.want = 0; this.back = false; this.pins = new Set(); this._p = null; this._r = null;
     this.dec = null; this.err = null; this.fed = 0; this.fedFrom = 0; this.maxOut = -1; this.flushP = null; this.flushed = false;
-    this.buf = null;
+    this.seen = new Uint8Array(this.n);   // frames the current decoder has given (kept or not)
+    this.buf = null; this.tFeed = 0; this.tOut = 0; this.starts = 0;
   }
   wake() { const r = this._r; this._r = null; this._p = null; if (r) r(); }
   signal() { return this._p || (this._p = new Promise(r => { this._r = r; })); }
   start(d) {
     const old = this.dec; this.dec = null; if (old) { try { old.close(); } catch (e) { /* closed */ } }
-    this.err = null; this.flushP = null; this.flushed = false; this.maxOut = -1; this.fed = d; this.fedFrom = d; this.buf = null;
+    this.err = null; this.flushP = null; this.flushed = false; this.maxOut = -1; this.fed = d; this.fedFrom = d; this.buf = null; this.seen.fill(0); this.tFeed = this.tOut = now(); this.starts++; TIMES.starts++;
     // a decoder that was replaced still reports (its own close is an "abort"): only the current one counts
     const dec = this.dec = new VideoDecoder({ output: f => { if (this.dec === dec) this.got(f); else f.close(); }, error: e => { if (this.dec === dec) { this.err = e; this.wake(); } } });
     dec.configure(this.h.cfg); if ('ondequeue' in dec) dec.ondequeue = () => this.wake();
@@ -91,20 +102,28 @@ class Source {
     const k = this.ts.get(Math.round(f.timestamp));
     try {
       if (k === undefined) return;
-      if (k > this.maxOut) this.maxOut = k;
+      this.seen[k] = 1; this.tOut = now(); if (k > this.maxOut) this.maxOut = k;
+      if (this.cache.has(k)) return;
       if (k < this.want - (this.back ? this.max - 3 : 1) && !this.pins.has(k)) return;   // behind what is needed: not kept (going backwards: a window is kept)
       this.put(k, f);
     } finally { f.close(); this.wake(); }
   }
+  // how little a cached frame is worth now: far behind (or, going backwards, far ahead) is worst
+  bad(kk) { const w = this.want; return this.back ? (kk > w + 1 ? 1000 + kk - w : w - kk) : (kk < w - 1 ? 1000 + w - kk : kk - w); }
   put(k, f) {
-    let into = null;
-    if (this.cache.has(k)) into = this.cache.get(k);
-    else if (this.cache.size >= this.max) {
-      for (const [kk, t] of this.cache) if (!this.pins.has(kk) && kk !== this.want) { this.cache.delete(kk); into = t; break; }
+    if (this.cache.size >= this.max) {
+      const must = this.pins.has(k) || k === this.want;
+      let worst = null, wb = must ? -1 : this.bad(k);   // the new frame competes too, unless it is the one asked for
+      for (const kk of this.cache.keys()) if (!this.pins.has(kk) && kk !== this.want) { const b = this.bad(kk); if (b > wb) { wb = b; worst = kk; } }
+      if (worst === null && !must) return;              // the new frame is the least useful one: not kept
+      if (worst !== null) { this.spare.push({ t: this.cache.get(worst), at: this.gpu.issued }); this.cache.delete(worst); }
     }
-    if (!into && this.spare.length) into = this.spare.pop();
-    const t = this.gpu.upload(f, f.displayWidth, f.displayHeight, this.mips, into);
-    this.cache.delete(k); this.cache.set(k, t);
+    // A texture is only used again when the graphics card has finished everything that was asked of it while the old frame was in it
+    // (pictures are read back without waiting, see gpu.readBegin; an upload must not overtake a drawing that still needs the old frame).
+    let into = null; for (let i = 0; i < this.spare.length; i++) if (this.spare[i].at <= this.gpu.done) { into = this.spare.splice(i, 1)[0].t; break; }
+    const t0 = now(), t = this.gpu.upload(f, f.displayWidth, f.displayHeight, this.mips, into); TIMES.upload += (now() - t0) / 1000;
+    this.cache.set(k, t);
+    while (this.spare.length > 6) { const i = this.spare.findIndex(x => x.at <= this.gpu.done); if (i < 0) break; this.gpu.free(this.spare.splice(i, 1)[0].t); }
   }
   async read(s) {   // the bytes of sample s, read ahead in blocks
     const v = this.v, b = this.buf;
@@ -116,34 +135,38 @@ class Source {
     return data.subarray(0, v.sizes[s]);
   }
   async feed() {
-    const s = this.fed++, v = this.v, k = this.inv[s], data = await this.read(s);
-    this.dec.decode(new EncodedVideoChunk({ type: v.key[s] ? 'key' : 'delta', timestamp: Math.round(v.pts[k] * 1e6), duration: Math.round(1e6 / (v.fps || 30)), data }));
+    const dec = this.dec, s = this.fed++, v = this.v, k = this.inv[s], data = await this.read(s); this.tFeed = now();
+    if (dec !== this.dec) return;   // replaced while the bytes were read
+    dec.decode(new EncodedVideoChunk({ type: v.key[s] ? 'key' : 'delta', timestamp: Math.round(v.pts[k] * 1e6), duration: Math.round(1e6 / (v.fps || 30)), data }));
   }
   keyBefore(k) { const v = this.v; for (let s = this.inv[k]; s >= 0; s--) if (v.key[s] && this.inv[s] <= k) return s; return 0; }
   async get(k, pin = []) {
     k = Math.max(0, Math.min(this.n - 1, k)); if (k < this.want - 1) this.back = true; else if (k > this.want + 1) this.back = false; this.want = k; this.pins = new Set(pin);
-    const hit = this.cache.get(k); if (hit) { this.cache.delete(k); this.cache.set(k, hit); return hit; }
+    let hit = this.cache.get(k); if (hit) return hit;
     const s = this.inv[k];
-    const passed = this.dec && (s < this.fedFrom || (k < this.maxOut - 16) || (this.flushed && s < this.fed));
-    if (!this.dec || passed) this.start(this.keyBefore(k));
+    // given already and not kept, or before where this decoder began, or the decoder was emptied: again from the key frame before it
+    if (!this.dec || s < this.fedFrom || this.seen[k] || this.flushed) this.start(this.keyBefore(k));
     else if (s - this.fed > 90) { const d = this.keyBefore(k); if (d > this.fed) this.start(d); }
-    let last = performance.now(), seen = this.maxOut + ':' + this.fed;
+    let last = now(), mark = '', again = 0;
     for (;;) {
-      const got = this.cache.get(k); if (got) return got;
-      const now = this.maxOut + ':' + this.fed; if (now !== seen) { seen = now; last = performance.now(); }
-      else if (performance.now() - last > 20000 && document.visibilityState !== 'hidden') throw new Error('DECODE: the video chip stopped answering');
+      hit = this.cache.get(k); if (hit) return hit;
       if (this.err) throw new Error('DECODE: ' + (this.err.message || this.err));
+      if (this.seen[k] && !this.flushed) { if (++again > 3) throw new Error('DECODE: frame ' + k + ' was lost'); this.start(this.keyBefore(k)); continue; }
       if (this.flushed) {   // the decoder gave all it had: the nearest frame it did give
         let best = null, bd = 1e9; for (const [kk, t] of this.cache) if (Math.abs(kk - k) < bd) { bd = Math.abs(kk - k); best = t; }
         if (best) return best; throw new Error('DECODE: frame ' + k + ' missing');
       }
-      const sig = this.signal();
-      if (this.fed < this.n && this.dec.decodeQueueSize < 4) { await this.feed(); continue; }
+      const st = this.maxOut + ':' + this.fed; if (st !== mark) { mark = st; last = now(); }
+      else if (now() - last > 20000 && document.visibilityState !== 'hidden') throw new Error('DECODE: the video chip stopped answering');
+      const sig = this.signal(), q = this.dec.decodeQueueSize;
+      // a few frames ahead of the one asked for; one more when the decoder has nothing to do and still holds the frame back
+      const idle = q === 0 && now() - this.tFeed > 12 && now() - this.tOut > 12;
+      if (this.fed < this.n && q < 4 && (this.fed <= s + this.look || idle)) { await this.feed(); continue; }
       if (this.fed >= this.n && !this.flushP) { const dec = this.dec; this.flushP = dec.flush().then(() => { if (this.dec === dec) { this.flushed = true; this.wake(); } }, e => { if (this.dec === dec) { this.err = e; this.wake(); } }); }
-      await Promise.race([sig, sleep('ondequeue' in this.dec ? 200 : 4)]);
+      await Promise.race([sig, sleep(q === 0 ? 6 : 40)]);
     }
   }
-  close() { if (this.dec) { try { this.dec.close(); } catch (e) { /* closed */ } } for (const t of this.cache.values()) this.gpu.free(t); for (const t of this.spare) this.gpu.free(t); this.cache.clear(); }
+  close() { const d = this.dec; this.dec = null; if (d) { try { d.close(); } catch (e) { /* closed */ } } for (const t of this.cache.values()) this.gpu.free(t); for (const x of this.spare) this.gpu.free(x.t); this.cache.clear(); this.spare = []; }
 }
 
 // ---------------------------------------------------------------------------------------------- writing frames
@@ -172,10 +195,47 @@ class Encoder {
     try { this.enc.encode(f, { keyFrame: n % this.gop === 0 }); } finally { f.close(); }
   }
   async finish() {
-    await this.enc.flush(); if (this.err) throw new Error('ENCODE: ' + (this.err.message || this.err)); try { this.enc.close(); } catch (e) { /* closed */ }
+    const tw = now(); await this.enc.flush(); TIMES.write += (now() - tw) / 1000; if (this.err) throw new Error('ENCODE: ' + (this.err.message || this.err)); try { this.enc.close(); } catch (e) { /* closed */ }
     return { chunks: this.chunks, desc: this.desc, mux: this.mux, w: this.w, h: this.h, fps: this.fps };
   }
   close() { try { this.enc && this.enc.state !== 'closed' && this.enc.close(); } catch (e) { /* closed */ } }
+}
+// The local Linux version: the frames go to the computer's own ffmpeg (x264 on all processor cores) instead of the browser's encoder,
+// which on Linux is a slow software one. Same interface as Encoder; the finished video comes back as encoded frames.
+let NE = 0;
+const nativeArgs = (inter, prof, crf, gop) => {
+  const t = TEST(), ta = t && t.nativeArgs && t.nativeArgs(inter); if (ta) return ta;
+  if (inter) return ['-c:v', 'libx264', '-preset', 'superfast', '-crf', '14', '-bf', '0', '-g', String(gop), '-pix_fmt', 'yuv420p', '-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'bt709', '-color_range', 'tv'];
+  return [...codecArgs({ ...prof, crf, gop, preset: 'veryfast' }), '-color_range', 'tv'];
+};
+class NativeEncoder {
+  constructor(eng, w, h, fps, { crf = 18, gop = 30, inter = false, prof = {} } = {}) { Object.assign(this, { eng, w, h, fps, crf, gop: Math.max(1, Math.round(gop)), inter, prof, n: 0, prev: null, id: null, done: false }); }
+  async init() {
+    const { ts, dur } = fpsRational(this.fps); this.out = `wc_enc_${Date.now().toString(36)}_${++NE}.mp4`;
+    this.id = await this.eng.encOpen({ w: this.w, h: this.h, fps: `${ts}/${dur}`, out: this.out, args: nativeArgs(this.inter, this.prof, this.crf, this.gop) });
+    return this;
+  }
+  err(e) { return Object.assign(new Error('ENCODE: ' + (e && e.message || e)), { nativeEnc: true }); }
+  async add(pic) {   // one frame is on its way while the next is being made
+    const p = this.prev; this.prev = null; if (p) { try { await p; } catch (e) { throw this.err(e); } }
+    const q = this.eng.encFrame(this.id, pic.data.subarray(0, pic.w * pic.h * 3 / 2)); q.catch(() => {}); this.prev = q; this.n++;
+  }
+  async finish() {
+    const tw = now(); let u8, v;
+    try {
+      if (this.prev) await this.prev;
+      const r = await this.eng.encClose(this.id); this.done = true;
+      if (r.code !== 0) throw new Error('the local encoder failed (' + ((r.log || []).filter(l => /error|invalid|unknown|no such|not /i.test(l)).slice(-1)[0] || 'code ' + r.code).slice(0, 160) + ')');
+      u8 = await this.eng.read(this.out); await this.eng.remove(this.out);
+      v = (await demux(new File([u8], 'enc.mp4'))).video;
+      if (v.count !== this.n) throw new Error(`the local encoder wrote ${v.count} of ${this.n} frames`);
+    } catch (e) { throw this.err(e); }
+    const inv = new Int32Array(v.count); v.order.forEach((s, k) => { inv[s] = k; });
+    const chunks = []; for (let s = 0; s < v.count; s++) chunks.push({ data: u8.subarray(v.offsets[s], v.offsets[s] + v.sizes[s]), key: !!v.key[s], pts: inv[s] });
+    TIMES.write += (now() - tw) / 1000;
+    return { chunks, desc: v.description, mux: /^avc/.test(v.fmt) ? 'avc' : 'vp9', w: this.w, h: this.h, fps: this.fps };
+  }
+  close() { if (this.id != null && !this.done) { this.done = true; this.eng.encClose(this.id, true).catch(() => {}); try { this.eng.remove(this.out); } catch (e) { /* ignore */ } } }
 }
 const toMp4 = (r, repeat = 1) => {
   let chunks = r.chunks;
@@ -230,35 +290,51 @@ function sizeM(w, h, tw, th, fit) {
 
 // ---------------------------------------------------------------------------------------------- one pass
 // at(n) -> { layers: [{ a, b, w, mode, alpha }], H, clip, sharp, bright, sat, trails }   (a, b: input frame numbers; w: 0..1 towards b)
+const isIdent = H => H[0] === 1 && H[1] === 0 && H[2] === 0 && H[3] === 0 && H[4] === 1 && H[5] === 0 && H[6] === 0 && H[7] === 0 && H[8] === 1;
 async function pass(gpu, src, { w, h, count, at, enc, gray = false, ctl, report, tag }) {
   const grays = gray ? new Uint8Array(count * 64 * 36) : null, hist = [], big = src.mips;
-  const layer = async (L, out) => {
+  // one layer of the frame as a texture of the output size: the input frame itself when nothing has to be moved or scaled
+  const layer = async (L, name) => {
     const pin = [L.a, L.b].filter(x => x != null);
-    const A = await src.get(L.a, pin);
-    let T = A;
+    let tr = now(); const A = await src.get(L.a, pin); TIMES.read += (now() - tr) / 1000;
+    let T = A, lent = true;   // lent: a texture of the frame reader, which may reuse it for another frame later
     if (L.b != null && L.b !== L.a && L.w > 1e-4 && L.w < 1 - 1e-4) {
-      const B = await src.get(L.b, pin), A2 = src.cache.get(L.a) || await src.get(L.a, pin);
-      T = gpu.tmp(`${tag}mx`, A2.w, A2.h, 'rgba8', big);
+      tr = now(); const B = await src.get(L.b, pin), A2 = src.cache.get(L.a) || await src.get(L.a, pin); TIMES.read += (now() - tr) / 1000;
+      T = gpu.tmp(`${tag}mx${name}`, A2.w, A2.h, 'rgba8', big); lent = false;
       if (L.mode === 'motion') gpu.interp(T, A2, B, L.w, `${tag}:${L.a}:${L.b}`); else gpu.mix(T, A2, B, L.w);
       gpu.mipmap(T);
-    } else if (L.b != null && L.w >= 1 - 1e-4) T = await src.get(L.b, pin);
-    gpu.warp(out, T, L.H, { clip: L.clip });
+    } else if (L.b != null && L.w >= 1 - 1e-4) { tr = now(); T = await src.get(L.b, pin); TIMES.read += (now() - tr) / 1000; }
+    if (isIdent(L.H) && !L.clip && T.w === w && T.h === h) return { t: T, lent };
+    const out = gpu.tmp(`${tag}${name}`, w, h); gpu.warp(out, T, L.H, { clip: L.clip }); return { t: out, lent: false };
+  };
+  // the finished frame goes to the encoder one step behind: while the graphics card finishes frame n, the page already prepares n + 1
+  let pend = null;
+  const deliver = async j => {
+    const tp = now(), r = await gpu.readEnd(j.job); TIMES.picture += (now() - tp) / 1000;
+    if (grays) grays.set(r.gray, j.n * 2304);
+    const tw = now(); await enc.add(r.pic, j.n); TIMES.write += (now() - tw) / 1000;
+    if (report && (j.n % 4 === 0 || j.n === count - 1)) report((j.n + 1) / count);
   };
   for (let n = 0; n < count; n++) {
     ctl.check(); gpu.check();
-    const d = at(n), o1 = gpu.tmp(`${tag}o1`, w, h);
-    await layer({ ...d.layers[0], H: d.H, clip: d.clip }, o1);
-    let cur = o1;
-    if (d.layers[1]) { const o2 = gpu.tmp(`${tag}o2`, w, h), o3 = gpu.tmp(`${tag}o3`, w, h); await layer({ ...d.layers[1], H: d.H, clip: d.clip }, o2); gpu.mix(o3, o1, o2, d.layers[1].alpha); cur = o3; }
+    const d = at(n);
+    const l1 = await layer({ ...d.layers[0], H: d.H, clip: d.clip }, 'o1'); let cur = l1.t;
+    if (d.layers[1]) {
+      // a lent first layer could be reused while the second layer's frame is read: keep a copy of it first
+      if (l1.lent) { const c = gpu.tmp(`${tag}o1c`, w, h); gpu.mix(c, cur, cur, 0); cur = c; }
+      const l2 = await layer({ ...d.layers[1], H: d.H, clip: d.clip }, 'o2'), o3 = gpu.tmp(`${tag}o3`, w, h); gpu.mix(o3, cur, l2.t, d.layers[1].alpha); cur = o3;
+    }
+    const tq = now();
     if (d.sharp > 0 || d.bright || (d.sat != null && d.sat !== 1)) { const f = gpu.tmp(`${tag}fx`, w, h); gpu.fx(f, cur, { sharp: d.sharp || 0, bright: d.bright || 0, sat: d.sat == null ? 1 : d.sat }); cur = f; }
     if (d.trails) {   // ffmpeg tmix=frames=4:weights='4 3 2 1' (the oldest frame weighs most)
       const slot = gpu.tmp(`${tag}h${n % 4}`, w, h); gpu.mix(slot, cur, cur, 0); hist.push(slot); if (hist.length > 4) hist.shift();
       const ws = [4, 3, 2, 1].slice(0, hist.length); const t = gpu.tmp(`${tag}tr`, w, h); gpu.trail(t, hist, ws); cur = t;
     }
-    if (grays) grays.set(gpu.gray(cur), n * 2304);
-    await enc.add(gpu.i420(cur), n);
-    if (report && (n % 4 === 0 || n === count - 1)) report((n + 1) / count);
+    const job = gpu.readBegin(cur, !!grays); TIMES.picture += (now() - tq) / 1000;
+    if (!gpu.asyncRead) await deliver({ job, n });
+    else { if (pend) await deliver(pend); pend = { job, n }; }
   }
+  if (pend) await deliver(pend);
   return { grays };
 }
 
@@ -270,7 +346,7 @@ const mdiff = (d, a, b) => { let s = 0; const oa = a * 2304, ob = b * 2304; for 
 // The small grey pictures of every frame (for the loop check, Smooth out and Frame rate), worked out once per clip.
 export async function grays(h, ctl, report) {
   if (h.grays) return h.grays;
-  const gpu = new Gpu(), src = new Source(h, gpu, { cache: 3 }), n = src.n, data = new Uint8Array(n * 2304);
+  const gpu = newGpu(), src = new Source(h, gpu, { cache: 3 }), n = src.n, data = new Uint8Array(n * 2304);
   try { for (let k = 0; k < n; k++) { if (ctl) ctl.check(); const t = await src.get(k); data.set(gpu.gray(t), k * 2304); if (report && k % 8 === 0) report(k / n); } }
   finally { src.close(); gpu.destroy(); }
   return (h.grays = { data, n });
@@ -279,13 +355,16 @@ export async function analyze(h) { const g = await grays(h); return (h.loopRep =
 
 // ---------------------------------------------------------------------------------------------- the recipe
 // Returns { data (an mp4 file), note }. Same order and the same numbers as runRecipe in steps.js.
-export async function run(h, R, baseProf, { ctl = { check() {} }, onProgress } = {}) {
+export async function run(h, R, baseProf, { ctl = { check() {} }, onProgress, native = null } = {}) {
+  for (const k of Object.keys(TIMES)) TIMES[k] = 0;
   let hidden = false; const vis = () => { if (document.visibilityState === 'hidden') hidden = true; };
   document.addEventListener('visibilitychange', vis);
   try {
     for (let attempt = 0; ; attempt++) {
-      try { return await runOnce(h, R, baseProf, ctl, onProgress); }
+      try { return await runOnce(h, R, baseProf, ctl, onProgress, native); }
       catch (e) {
+        if (ctl.cancel) throw new Error('cancelled');
+        if (e.nativeEnc && native) { native = null; attempt--; continue; }   // the computer's own encoder failed: the browser's encoder instead
         if (e.message === 'cancelled' || attempt >= 2) throw friendly(e);
         // A phone that went to another app may take the video chip or the graphics card away: wait to be seen again, then start over.
         if (!hidden && !/GPU_LOST|reclaim|closed|DECODE|ENCODE/i.test(e.message || '')) throw friendly(e);
@@ -304,8 +383,16 @@ function friendly(e) {
 }
 
 const clone = o => JSON.parse(JSON.stringify(o));
-async function runOnce(h0, R, baseProf, ctl, onProgress) {
-  const gpu = new Gpu(), notes = [], info0 = h0.info, v0 = h0.dm.video, srcs = [], stats = { passes: [] };
+const fmtS = s => s >= 60 ? `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}` : `${Math.round(s)} s`;
+const timesNote = () => ` [time: reading ${fmtS(TIMES.read - TIMES.upload)}, to the graphics card ${fmtS(TIMES.upload)}, picture ${fmtS(TIMES.picture)}, writing ${fmtS(TIMES.write)}, ${TIMES.starts} decoder starts]`;
+async function runOnce(h0, R, baseProf, ctl, onProgress, native) {
+  const gpu = newGpu(), notes = [], info0 = h0.info, v0 = h0.dm.video, srcs = [], stats = { passes: [] };
+  const encs = [];   // the computer's own encoder (local Linux version) when there is one, else the browser's
+  const mkEnc = async (w, h, fps, o) => {
+    if (!(native && native.canEncode)) return new Encoder(w, h, fps, o).init();
+    const e = new NativeEncoder(native, w, h, fps, o); encs.push(e);
+    try { return await e.init(); } catch (x) { throw e.err(x); }
+  };
   const timed = async (kind, frames, fn) => { const t = performance.now(), r = await fn(); stats.passes.push({ kind, frames, ms: performance.now() - t }); return r; };
   try {
     const doS = !!(R.smooth && R.smooth.on), doF = !!(R.fps && R.fps.on && R.fps.engine !== 'ai');
@@ -327,7 +414,7 @@ async function runOnce(h0, R, baseProf, ctl, onProgress) {
       const gm = first ? (timeGeom.done = timeGeom()) : { m: G, w: inInfo.width, h: inInfo.height };
       const src = new Source(h, gpu, { cache: 6 }); srcs.push(src);
       const p = build(gm); if (!p) { src.close(); return false; }
-      const enc = await new Encoder(gm.w, gm.h, p.fps, { inter: true, gop: 8 }).init();
+      const enc = await mkEnc(gm.w, gm.h, p.fps, { inter: true, gop: 8 });
       const [r, out] = await timed(kind, p.count, async () => { const r = await pass(gpu, src, { w: gm.w, h: gm.h, fps: p.fps, count: p.count, at: n => ({ ...p.at(n), H: gm.m, clip: null }), enc, gray: true, ctl, report: p.report, tag: kind }); return [r, await enc.finish()]; }); src.close();
       h = await reopen(out); inInfo = { ...h.info }; G = I3(); g = { data: r.grays, n: p.count };
       if (first) { first = false; range = { k0: 0, n: h.dm.video.count, F: p.fps }; }
@@ -410,13 +497,13 @@ async function runOnce(h0, R, baseProf, ctl, onProgress) {
       if (kb || (lf && lf.S)) { H = mul(m, Hp); if (clip) clip = { ...clip, C: mul(clip.C, Hp) }; }
       return { layers, H, clip, sharp, bright: lf ? lf.bright : 0, sat: lf ? lf.sat : 1, trails: !!(lifeM && lifeM.trails) };
     };
-    const encMain = await new Encoder(TW, TH, OF, loopOn ? { inter: true, gop: 8 } : { crf: P.prof.crf, gop: P.prof.gop || 30, cap }).init();
+    const encMain = await mkEnc(TW, TH, OF, loopOn ? { inter: true, gop: 8 } : { crf: P.prof.crf, gop: P.prof.gop || 30, cap, prof: P.prof });
     const rep = part(mode === 'motion' ? W.motion : W.pass);
     const [r, out] = await timed('mn', renderCount, async () => { const r = await pass(gpu, srcMain, { w: TW, h: TH, fps: OF, count: renderCount, at: atMain, enc: encMain, gray: loopOn, ctl, report: rep, tag: 'mn' }); return [r, await encMain.finish()]; }); srcMain.close();
     Object.assign(stats, { OF, Drep, nRep, reps, perFrame });
     if (!loopOn) {
       const note = notes.filter(Boolean).join(', ');
-      return { data: toMp4(out, perFrame ? 1 : reps), note, stats };
+      return { data: toMp4(out, perFrame ? 1 : reps), note: note + timesNote(), stats };
     }
     // ---- Make it loop (what makeLoop does in loops.js)
     const N = nRep, rp = analyzeFrames(r.grays, N, OF);
@@ -444,21 +531,21 @@ async function runOnce(h0, R, baseProf, ctl, onProgress) {
           const b = Math.min(J2, lo + 1), wv = b > lo ? (k - PT[lo]) / (PT[b] - PT[lo]) : 0; return { layers: [{ a: S(lo), b: S(b), w: Math.max(0, Math.min(1, wv)), mode: 'blend' }], H: I3(), clip: null }; };
       }
     }
-    const encL = await new Encoder(TW, TH, OF, { crf: R.out.crf, gop: P.prof.gop || 30, cap }).init();
+    const encL = await mkEnc(TW, TH, OF, { crf: R.out.crf, gop: P.prof.gop || 30, cap, prof: P.prof });
     const outL = await timed('lp', frames, async () => { await pass(gpu, srcL, { w: TW, h: TH, fps: OF, count: frames, at: atL, enc: encL, ctl, report: part(W.loop), tag: 'lp' }); return encL.finish(); }); srcL.close();
     const weak = method === 'trim' && rp.bestRatio > 1.25;
     const what = { asis: rp.isLoop ? 'already loops' : 'kept as is', trim: `trimmed to the best loop point (frame ${rp.bestCut})` + (weak ? ' - no really good point exists, a small jump may remain' : ''), pingpong: 'played forward then backward', crossfade: `end crossfaded into the start (${R.loop.fade} s)` }[method];
     const reps2 = repeatsNeeded(frames / OF, P.prof.minSeconds);
     const note = [notes.filter(Boolean).join(', '), `${what}; before: ${reportText(rp)}`].filter(Boolean).join('; ');
-    return { data: toMp4(outL, reps2), note, stats };
-  } finally { for (const s of srcs) s.close(); gpu.destroy(); }
+    return { data: toMp4(outL, reps2), note: note + timesNote(), stats };
+  } finally { for (const s of srcs) s.close(); for (const e of encs) e.close(); gpu.destroy(); }
 }
 
 // ---------------------------------------------------------------------------------------------- how long will it take?
 // The recipe runs for real on the first second of the clip (without the loop step). Each pass reports how many frames it made and how
 // long that took, so the estimate is: the fixed start-up cost, plus the cost of one frame of each pass times the frames that pass will
 // make for the whole clip. Repeats that are copies cost nothing; repeats that change (Life, Ken Burns) are made frame by frame.
-export async function estimate(h, R, baseProf, ctl) {
+export async function estimate(h, R, baseProf, ctl, native = null) {
   const t0 = performance.now();
   try {
     const short = clone(R), D = h.info.duration, start = R.cut.on ? +R.cut.start || 0 : 0, avail = Math.max(0.2, Math.min(D - start, R.cut.on && +R.cut.len > 0 ? +R.cut.len : Infinity));
@@ -469,7 +556,7 @@ export async function estimate(h, R, baseProf, ctl) {
     if (!h.grays && ((R.smooth && R.smooth.on) || (R.fps && R.fps.on))) await grays(h, ctl);
     const M = Math.max(+R.out.minSeconds || 0, R.life.on ? +R.life.minSeconds || 0 : 0, R.kb.on ? +R.kb.minSeconds || 0 : 0);
     short.out.minSeconds = 0; short.life.minSeconds = 0; short.kb.minSeconds = 0;   // one round is enough to time; the repeats are counted below
-    const t1 = performance.now(), r = await run(h, short, baseProf, { ctl }), total = (performance.now() - t1) / 1000, st = r.stats || { passes: [] };
+    const t1 = performance.now(), r = await run(h, short, baseProf, { ctl, native }), total = (performance.now() - t1) / 1000, st = r.stats || { passes: [] };
     const per = kind => { const p = st.passes.filter(x => x.kind === kind); const f = p.reduce((a, x) => a + x.frames, 0), ms = p.reduce((a, x) => a + x.ms, 0); return f ? ms / 1000 / f : 0; };
     const inPasses = st.passes.reduce((a, x) => a + x.ms, 0) / 1000, fixed = Math.max(0, total - inPasses);
     let one = fixed;

@@ -180,6 +180,7 @@ class State:
         self.docs, self.port = docs, port
         self.work = Path(tempfile.mkdtemp(prefix="spektronautilus-"))
         self.ff = ffmpeg_info(); self.v2x = v2x_info(); self.procs = set(); self.lock = threading.Lock()
+        self.encs = {}; self.enc_n = 0          # video encoders that are being fed raw frames (see Handler._enc_start)
         if self.ff.get("ok"): threading.Thread(target=lambda: self.ff.update(hw=hw_probe(self.ff["path"])), daemon=True).start()     # a few seconds, so not while starting
         atexit.register(self.cleanup)
     def free_mb(self):
@@ -220,7 +221,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if not self._host_ok(): return self._deny()
         if self.path.startswith("/api/"):
             if not self._api_ok(): return self._deny()
-            if self.path == "/api/native": return self._json({**self.st.ff, "v2x": self.st.v2x, "free_mb": self.st.free_mb()})
+            if self.path == "/api/native": return self._json({**self.st.ff, "v2x": self.st.v2x, "free_mb": self.st.free_mb(), "enc": bool(self.st.ff.get("ok"))})
             if self.path == "/api/gpu": return self._json(gpu_stats())
             if self.path == "/api/sensors": return self._json(sensors())
             if self.path == "/api/v2x-gpus":
@@ -304,9 +305,82 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         finally:
             with self.st.lock: self.st.procs.discard(proc)
 
+    # ---- a video encoder fed with raw frames. The Loop Hospital's fast way does the picture work on the graphics card in the browser;
+    # the browser's own H.264 encoder on Linux is a slow software one, so the finished frames (I420) are sent here instead and the
+    # computer's ffmpeg writes the video, on all processor cores:  enc-start (size, rate, encoder options) -> enc-frame ... -> enc-end.
+    def _enc_start(self):
+        if not self.st.ff.get("ok"): return self._deny(503, "ffmpeg is not available")
+        try:
+            o = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)))
+            w, h, fps, out, args = int(o["w"]), int(o["h"]), str(o["fps"]), str(o["out"]), o.get("args") or []
+        except Exception: return self._deny(400, "Bad request")
+        if not (16 <= w <= 8192 and 16 <= h <= 8192 and w % 2 == 0 and h % 2 == 0 and re.fullmatch(r"\d{1,6}(/\d{1,6})?", fps) and re.fullmatch(r"[A-Za-z0-9_][\w.-]{0,80}", out)):
+            return self._deny(400, "Bad request")
+        if not isinstance(args, list) or len(args) > 80 or not all(isinstance(a, str) and SAFE_ARG.match(a) for a in args): return self._deny(400, "Arguments not allowed")
+        fm = self.st.free_mb()
+        if fm is not None and fm < MIN_FREE_MB: return self._deny(507, "Not enough free disk space")
+        try:
+            proc = subprocess.Popen([self.st.ff["path"], "-hide_banner", "-y", "-f", "rawvideo", "-pix_fmt", "yuv420p", "-s", f"{w}x{h}", "-framerate", fps, "-i", "pipe:0", "-an", *args, out],
+                                    cwd=self.st.work, stdin=subprocess.PIPE, stderr=subprocess.PIPE, stdout=subprocess.DEVNULL, **PRIO)
+        except Exception as e:
+            return self._json({"ok": False, "log": [str(e)]})
+        log = []
+        def drain():          # ffmpeg reports on stderr all the time; if nobody reads it, it stops
+            buf = b""
+            while True:
+                c = proc.stderr.read1(4096) if hasattr(proc.stderr, "read1") else proc.stderr.read(4096)
+                if not c: break
+                buf += c; parts = re.split(rb"[\r\n]+", buf); buf = parts.pop()
+                log.extend(x.decode("utf-8", "replace")[:300] for x in parts if x); del log[:-200]
+        th = threading.Thread(target=drain, daemon=True); th.start()
+        with self.st.lock:
+            self.st.enc_n += 1; eid = self.st.enc_n; self.st.procs.add(proc)
+            self.st.encs[eid] = {"proc": proc, "size": w * h * 3 // 2, "log": log, "th": th, "lock": threading.Lock()}
+        self._json({"ok": True, "id": eid})
+    def _enc(self):
+        try: return self.st.encs.get(int(urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query).get("id", ["0"])[0]))
+        except ValueError: return None
+    def _enc_frame(self):
+        e = self._enc(); n = int(self.headers.get("Content-Length") or 0)
+        if not e: return self._deny(404, "No such encoder")
+        if n != e["size"]: return self._deny(400, "Wrong frame size")
+        data = bytearray()
+        while len(data) < n:
+            c = self.rfile.read(min(n - len(data), 1 << 20))
+            if not c: break
+            data += c
+        if len(data) != n: return self._deny(400, "Short frame")
+        with e["lock"]:
+            try:
+                if e["proc"].poll() is not None: raise BrokenPipeError()
+                e["proc"].stdin.write(data); e["proc"].stdin.flush()          # waits while ffmpeg is busy: the page is never ahead of the encoder
+            except (BrokenPipeError, OSError, ValueError):
+                return self._json({"ok": False, "log": e["log"][-12:]})
+        self._json({"ok": True})
+    def _enc_end(self):
+        e = self._enc()
+        if not e: return self._deny(404, "No such encoder")
+        kill = "kill=1" in self.path
+        with e["lock"]:
+            try: e["proc"].stdin.close()
+            except Exception: pass
+            if kill:
+                try: e["proc"].kill()
+                except Exception: pass
+        try: code = e["proc"].wait(timeout=900)
+        except Exception:
+            e["proc"].kill(); code = -9
+        e["th"].join(timeout=5)
+        with self.st.lock:
+            self.st.procs.discard(e["proc"]); self.st.encs = {k: v for k, v in self.st.encs.items() if v is not e}
+        self._json({"code": code, "log": e["log"][-40:]})
+
     def do_POST(self):
         if not self._api_ok(): return self._deny()
         if self.path == "/api/kill": self.st.kill(); return self._json({"ok": True})
+        if self.path == "/api/enc-start": return self._enc_start()
+        if self.path.startswith("/api/enc-frame?"): return self._enc_frame()
+        if self.path.startswith("/api/enc-end?"): return self._enc_end()
         if self.path == "/api/v2x-exec": return self._v2x_exec()
         if self.path != "/api/exec": return self._deny(404, "Not found")
         if not self.st.ff.get("ok"): return self._deny(503, "ffmpeg is not available")

@@ -40,6 +40,16 @@ AI UPSCALING AND SLOW MOTION (optional)
   in ~/Applications, ~/Downloads or ~/.local/bin. Otherwise put its full path on one line in ~/.config/spektronautilus/video2x.txt,
   or start with SPEKTRO_VIDEO2X=/path/to/Video2X.AppImage. The tools "AI upscale" and "AI slow motion" then work.
 
+THE LOOP HOSPITAL: HOW THE WORK IS SHARED
+  * The picture work (turn, crop, new frames with Smooth motion, Life, Ken Burns, loops) is done on the graphics card, in the browser.
+    The browser reads the clip with the video chip, and this program writes the result with ffmpeg (x264) on all processor cores.
+  * With Video2X: on a separate graphics card (NVIDIA, AMD, Intel Arc) AI is the default for Frame rate and Slow motion. On the
+    graphics built into the processor (Intel Iris and the like) RIFE is slow, so Smooth motion stays the default there. AI can
+    always be chosen by hand; it then does only its own step, and the rest is done as above.
+  * Looks and keeping the sound are still done by ffmpeg alone.
+  * Each result ends with a line like [time: reading 2 s, to the graphics card 1 s, picture 9 s, writing 4 s, 3 decoder starts]:
+    where the time went. Handy when something is slower than it should be.
+
 LOOKING AFTER YOUR COMPUTER
   * Hot graphics card: with an NVIDIA card (nvidia-smi comes with the driver) the AI tools wait between clips while the card is
     at 80 degrees C or more, and show "Cooling down". Use "Rest between clips" under Advanced for a fixed pause as well.

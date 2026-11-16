@@ -132,6 +132,18 @@ export class NativeEngine {
     if (!out) throw new Error('The local engine stopped. If you pressed Stop this is normal.');
     return { code: out.code, log: out.log };
   }
+  // A video encoder on this computer that is fed finished frames (raw I420), used by the fast way of the Loop Hospital: the picture
+  // work is done on the graphics card in the browser, and the computer's ffmpeg writes the video on all processor cores.
+  get canEncode() { return !!(this.info && this.info.enc); }
+  async encOpen(o) {
+    const r = await fetch('/api/enc-start', { method: 'POST', headers: { 'X-Spk': '1', 'Content-Type': 'application/json' }, body: JSON.stringify(o) });
+    const j = r.ok ? await r.json() : { ok: false, log: ['' + r.status] }; if (!j.ok) throw new Error('The local encoder did not start (' + (j.log || []).slice(-1)[0] + ').'); return j.id;
+  }
+  async encFrame(id, u8) {
+    const r = await fetch('/api/enc-frame?id=' + id, { method: 'POST', headers: { 'X-Spk': '1', 'Content-Type': 'application/octet-stream' }, body: u8 });
+    const j = r.ok ? await r.json() : { ok: false, log: ['' + r.status] }; if (!j.ok) throw new Error('The local encoder stopped (' + (j.log || []).slice(-1)[0] + ').');
+  }
+  async encClose(id, kill = false) { const r = await fetch('/api/enc-end?id=' + id + (kill ? '&kill=1' : ''), { method: 'POST', headers: { 'X-Spk': '1' } }); return r.ok ? r.json() : { code: -1, log: ['' + r.status] }; }
   async write(path, data) { await this._put(path, data); }
   async read(path) { const r = await fetch('/api/fs/' + encodeURI(path), { headers: { 'X-Spk': '1' } }); if (!r.ok) throw new Error('Could not read ' + path + ' from the local engine.'); return new Uint8Array(await r.arrayBuffer()); }
   async readBlob(path, type) { const r = await fetch('/api/fs/' + encodeURI(path), { headers: { 'X-Spk': '1' } }); if (!r.ok) throw new Error('Could not read ' + path + ' from the local engine.'); return new Blob([await r.blob()], { type }); }      // the browser keeps it on disk, not in script memory
@@ -163,6 +175,10 @@ class AutoEngine {
   async comfyInfo() { const e = await this.pick(); return e.comfyInfo ? e.comfyInfo() : { ok: false }; }
   async comfySet(u) { const e = await this.pick(); return e.comfySet ? e.comfySet(u) : { ok: false }; }
   async comfyRun(o, x) { const e = await this.pick(); if (!e.comfyRun) throw new Error('AI video upscaling needs the Linux (local) version.'); return e.comfyRun(o, x); }
+  get canEncode() { return !!(this.impl && this.impl.canEncode); }
+  async encOpen(o) { return (await this.pick()).encOpen(o); }
+  async encFrame(i, d) { return (await this.pick()).encFrame(i, d); }
+  async encClose(i, k) { return (await this.pick()).encClose(i, k); }
   async write(p, d) { return (await this.pick()).write(p, d); }
   async read(p) { return (await this.pick()).read(p); }
   async readBlob(p, t) { return (await this.pick()).readBlob(p, t); }

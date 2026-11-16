@@ -1124,6 +1124,7 @@ window.SPK_DICT=window.SPK_DICT||{};SPK_DICT.no={
 "This browser cannot share sound. Use Chrome or Edge.": "Denne nettleseren kan ikke dele lyd. Bruk Chrome eller Edge.",
 "This browser cannot tell if a second screen is connected. Open the output window and see.": "Denne nettleseren kan ikke si om en andre skjerm er tilkoblet. Åpne utgangsvinduet og se.",
 "This browser cannot use sound input.": "Denne nettleseren kan ikke bruke lydinngang.",
+"This browser does not use the graphics card (it draws with the processor), so the fast way is slow here. Turn on hardware acceleration in the browser settings and restart the browser. In Chrome, the page chrome://gpu shows what is used.": "Denne nettleseren bruker ikke grafikkortet (den tegner med prosessoren), så den raske veien er treg her. Slå på maskinvareakselerasjon i nettleserinnstillingene og start nettleseren på nytt. I Chrome viser siden chrome://gpu hva som brukes.",
 "This browser has no MIDI support. Use Chrome or Edge on a computer.": "Denne nettleseren har ikke MIDI-støtte. Bruk Chrome eller Edge på en datamaskin.",
 "This browser has no MIDI. Use Chrome or Edge if you want to use a controller.": "Denne nettleseren har ikke MIDI. Bruk Chrome eller Edge hvis du vil bruke en kontroller.",
 "This browser plays mp4 (H.264), the format the mixers like best.": "Denne nettleseren spiller mp4 (H.264), formatet mikserne liker best.",
