@@ -176,8 +176,9 @@ placeAfter();
 
 async function ensurePicked() { if (engine.pick) { try { await engine.pick(); } catch (e) { /* the web engine loads later */ } } aiDefaults(); }
 async function ensureEngine() { await ensurePicked(); await engine.load(status); status(''); if (engine.kind === 'native' && engine.comfyInfo && !engine.comfy) await engine.comfyInfo(); aiAvail(); }
-// The fast way (the browser, not the local Linux version): the device's own video chip and graphics card, no ffmpeg (see app/wc.js).
-const wcOpen = async file => { await ensurePicked(); if (engine.kind === 'native') return null; try { return await WC.open(file); } catch (e) { return null; } };
+// The fast way: the device's own video chip and graphics card, no ffmpeg (see app/wc.js). Also in the local Linux version, where it is
+// faster than ffmpeg on the processor; the local ffmpeg then does only what the fast way cannot (AI, Looks, sound, files it cannot read).
+const wcOpen = async file => { await ensurePicked(); try { return await WC.open(file); } catch (e) { return null; } };
 const fastNote = on => { const el = $('#fastway'); if (el) { el.textContent = on ? T('Fast way: this device does the work with its own video chip and graphics card.') : ''; el.classList.toggle('hide', !on); } };
 const openInput = async file => engine.mount(new File([file], 'src' + (extOf(file.name) || '.mp4'), { type: file.type }));
 const okFile = f => OK_EXT.has(extOf(f.name));

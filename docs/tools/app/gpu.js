@@ -217,7 +217,15 @@ export class Gpu {
       gl.bindFramebuffer(gl.FRAMEBUFFER, this.fb); gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t.t, 0);
       gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, this.yuvBuf, off);
     }
-    return { data: this.yuvBuf, layout: [{ offset: 0, stride: ys }, { offset: oU, stride: cs }, { offset: oV, stride: cs }], w: W, h: H };
+    if (ys === W && cs === W / 2) return { data: this.yuvBuf, layout: [{ offset: 0, stride: ys }, { offset: oU, stride: cs }, { offset: oV, stride: cs }], w: W, h: H };
+    // A width that is not a multiple of 8 leaves a few spare bytes at the end of each row. Some encoders ignore the row length they are
+    // given (the picture then comes out slanted in stripes), so the rows are packed tight here.
+    const cw2 = W / 2, h2 = H / 2, tY = W * H, size2 = tY + 2 * cw2 * h2;
+    if (!this.tight || this.tight.length !== size2) this.tight = new Uint8Array(size2);
+    const s = this.yuvBuf, d = this.tight;
+    for (let y = 0; y < H; y++) d.set(s.subarray(y * ys, y * ys + W), y * W);
+    for (let y = 0; y < h2; y++) { d.set(s.subarray(oU + y * cs, oU + y * cs + cw2), tY + y * cw2); d.set(s.subarray(oV + y * cs, oV + y * cs + cw2), tY + cw2 * h2 + y * cw2); }
+    return { data: d, layout: [{ offset: 0, stride: W }, { offset: tY, stride: cw2 }, { offset: tY + cw2 * h2, stride: cw2 }], w: W, h: H };
   }
   // copy a picture to the canvas (turned over for it), so a VideoFrame can be made from it
   show(src) { this.size(src.w, src.h); this.fx(null, src, {}); }

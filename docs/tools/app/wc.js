@@ -305,7 +305,8 @@ function friendly(e) {
 
 const clone = o => JSON.parse(JSON.stringify(o));
 async function runOnce(h0, R, baseProf, ctl, onProgress) {
-  const gpu = new Gpu(), notes = [], info0 = h0.info, v0 = h0.dm.video, srcs = [];
+  const gpu = new Gpu(), notes = [], info0 = h0.info, v0 = h0.dm.video, srcs = [], stats = { passes: [] };
+  const timed = async (kind, frames, fn) => { const t = performance.now(), r = await fn(); stats.passes.push({ kind, frames, ms: performance.now() - t }); return r; };
   try {
     const doS = !!(R.smooth && R.smooth.on), doF = !!(R.fps && R.fps.on && R.fps.engine !== 'ai');
     // the work, in passes; weights for one progress bar
@@ -327,8 +328,7 @@ async function runOnce(h0, R, baseProf, ctl, onProgress) {
       const src = new Source(h, gpu, { cache: 6 }); srcs.push(src);
       const p = build(gm); if (!p) { src.close(); return false; }
       const enc = await new Encoder(gm.w, gm.h, p.fps, { inter: true, gop: 8 }).init();
-      const r = await pass(gpu, src, { w: gm.w, h: gm.h, fps: p.fps, count: p.count, at: n => ({ ...p.at(n), H: gm.m, clip: null }), enc, gray: true, ctl, report: p.report, tag: kind });
-      const out = await enc.finish(); src.close();
+      const [r, out] = await timed(kind, p.count, async () => { const r = await pass(gpu, src, { w: gm.w, h: gm.h, fps: p.fps, count: p.count, at: n => ({ ...p.at(n), H: gm.m, clip: null }), enc, gray: true, ctl, report: p.report, tag: kind }); return [r, await enc.finish()]; }); src.close();
       h = await reopen(out); inInfo = { ...h.info }; G = I3(); g = { data: r.grays, n: p.count };
       if (first) { first = false; range = { k0: 0, n: h.dm.video.count, F: p.fps }; }
       notes.push(p.note); return true;
@@ -412,11 +412,11 @@ async function runOnce(h0, R, baseProf, ctl, onProgress) {
     };
     const encMain = await new Encoder(TW, TH, OF, loopOn ? { inter: true, gop: 8 } : { crf: P.prof.crf, gop: P.prof.gop || 30, cap }).init();
     const rep = part(mode === 'motion' ? W.motion : W.pass);
-    const r = await pass(gpu, srcMain, { w: TW, h: TH, fps: OF, count: renderCount, at: atMain, enc: encMain, gray: loopOn, ctl, report: rep, tag: 'mn' });
-    const out = await encMain.finish(); srcMain.close();
+    const [r, out] = await timed('mn', renderCount, async () => { const r = await pass(gpu, srcMain, { w: TW, h: TH, fps: OF, count: renderCount, at: atMain, enc: encMain, gray: loopOn, ctl, report: rep, tag: 'mn' }); return [r, await encMain.finish()]; }); srcMain.close();
+    Object.assign(stats, { OF, Drep, nRep, reps, perFrame });
     if (!loopOn) {
       const note = notes.filter(Boolean).join(', ');
-      return { data: toMp4(out, perFrame ? 1 : reps), note };
+      return { data: toMp4(out, perFrame ? 1 : reps), note, stats };
     }
     // ---- Make it loop (what makeLoop does in loops.js)
     const N = nRep, rp = analyzeFrames(r.grays, N, OF);
@@ -445,33 +445,39 @@ async function runOnce(h0, R, baseProf, ctl, onProgress) {
       }
     }
     const encL = await new Encoder(TW, TH, OF, { crf: R.out.crf, gop: P.prof.gop || 30, cap }).init();
-    await pass(gpu, srcL, { w: TW, h: TH, fps: OF, count: frames, at: atL, enc: encL, ctl, report: part(W.loop), tag: 'lp' });
-    const outL = await encL.finish(); srcL.close();
+    const outL = await timed('lp', frames, async () => { await pass(gpu, srcL, { w: TW, h: TH, fps: OF, count: frames, at: atL, enc: encL, ctl, report: part(W.loop), tag: 'lp' }); return encL.finish(); }); srcL.close();
     const weak = method === 'trim' && rp.bestRatio > 1.25;
     const what = { asis: rp.isLoop ? 'already loops' : 'kept as is', trim: `trimmed to the best loop point (frame ${rp.bestCut})` + (weak ? ' - no really good point exists, a small jump may remain' : ''), pingpong: 'played forward then backward', crossfade: `end crossfaded into the start (${R.loop.fade} s)` }[method];
     const reps2 = repeatsNeeded(frames / OF, P.prof.minSeconds);
     const note = [notes.filter(Boolean).join(', '), `${what}; before: ${reportText(rp)}`].filter(Boolean).join('; ');
-    return { data: toMp4(outL, reps2), note };
+    return { data: toMp4(outL, reps2), note, stats };
   } finally { for (const s of srcs) s.close(); gpu.destroy(); }
 }
 
 // ---------------------------------------------------------------------------------------------- how long will it take?
-// Runs the recipe for real on the first second or so of the clip and scales up by the number of frames each pass will make.
+// The recipe runs for real on the first second of the clip (without the loop step). Each pass reports how many frames it made and how
+// long that took, so the estimate is: the fixed start-up cost, plus the cost of one frame of each pass times the frames that pass will
+// make for the whole clip. Repeats that are copies cost nothing; repeats that change (Life, Ken Burns) are made frame by frame.
 export async function estimate(h, R, baseProf, ctl) {
   const t0 = performance.now();
   try {
     const short = clone(R), D = h.info.duration, start = R.cut.on ? +R.cut.start || 0 : 0, avail = Math.max(0.2, Math.min(D - start, R.cut.on && +R.cut.len > 0 ? +R.cut.len : Infinity));
-    const piece = Math.min(avail, 1.0); short.cut = { on: true, start, len: piece }; short.out.minSeconds = 0; short.life.minSeconds = 0; short.kb.minSeconds = 0; short.loop.on = false;
+    const piece = Math.min(avail, 1.0), k = avail / piece; short.cut = { on: true, start, len: piece };
+    // the loop step is timed too, with the method the whole clip will most likely get (on a short piece Auto could choose another one)
+    const lm = R.loop.on ? loopForecast(h.loopRep || null, R.loop, 1).method : null;
+    short.loop = R.loop.on ? { ...R.loop, on: true, mode: lm === 'trim' ? 'none' : lm } : { ...R.loop, on: false };
     if (!h.grays && ((R.smooth && R.smooth.on) || (R.fps && R.fps.on))) await grays(h, ctl);
-    const t1 = performance.now(); await run(h, short, baseProf, { ctl }); const tp = (performance.now() - t1) / 1000;
-    const P = ST.planRecipe({ ...h.info, duration: avail }, { ...clone(R), cut: { on: false, start: 0, len: 0 }, look: { ...R.look, on: false } }, baseProf);
     const M = Math.max(+R.out.minSeconds || 0, R.life.on ? +R.life.minSeconds || 0 : 0, R.kb.on ? +R.kb.minSeconds || 0 : 0);
-    const perFrame = (R.kb && R.kb.on) || (R.life && R.life.on && (R.life.breathe > 0 || R.life.drift > 0 || R.life.sway > 0 || R.life.glow > 0 || R.life.trails));
-    let one = tp * avail / piece;   // the passes over the real content
-    // Make it loop: one more pass over the loop (reading and writing only, most of the work of the main pass per second)
-    if (R.loop.on) one += 0.8 * tp / piece * loopForecast(h.loopRep || null, R.loop, P.duration).len / Math.max(0.1, P.duration / avail);
-    // repeats are copies, except when the movement (Life, Ken Burns) changes from one round to the next: then every round is made
-    else if (perFrame && M > P.duration) one *= repeatsNeeded(P.duration, M);
-    return { one: one * 1.1 + 0.5, took: (performance.now() - t0) / 1000 };   // a little on the safe side: too low is worse than too high
+    short.out.minSeconds = 0; short.life.minSeconds = 0; short.kb.minSeconds = 0;   // one round is enough to time; the repeats are counted below
+    const t1 = performance.now(), r = await run(h, short, baseProf, { ctl }), total = (performance.now() - t1) / 1000, st = r.stats || { passes: [] };
+    const per = kind => { const p = st.passes.filter(x => x.kind === kind); const f = p.reduce((a, x) => a + x.frames, 0), ms = p.reduce((a, x) => a + x.ms, 0); return f ? ms / 1000 / f : 0; };
+    const inPasses = st.passes.reduce((a, x) => a + x.ms, 0) / 1000, fixed = Math.max(0, total - inPasses);
+    let one = fixed;
+    for (const kind of ['sm', 'fr']) { const p = st.passes.find(x => x.kind === kind); if (p) one += per(kind) * p.frames * k; }
+    const OF = st.OF || 30, Drep = (st.Drep || piece) * k, nRep = Math.round(Drep * OF), reps = R.loop.on ? 1 : repeatsNeeded(Drep, M);
+    const mainFrames = st.perFrame && !R.loop.on ? nRep * reps : nRep;
+    one += per('mn') * mainFrames;
+    if (R.loop.on) one += (per('lp') || per('mn')) * loopForecast(h.loopRep || null, R.loop, Drep).len * OF;   // the loop pass, at its own measured cost per frame
+    return { one: one * 1.12 + 0.3, took: (performance.now() - t0) / 1000 };
   } catch (e) { if (e.message === 'cancelled') throw e; return null; }
 }

@@ -116,7 +116,8 @@ export function loopForecast(rep, { mode = 'auto', fade = 1.5, fallback = 'pingp
   if (m === 'auto') m = rep && rep.isLoop ? 'asis' : rep && rep.bestCut >= 0 && rep.bestRatio <= 1.25 && rep.bestKeeps >= 0.6 ? 'trim' : fallback;
   if (m === 'none') m = 'asis';
   if (m === 'trim' && !(rep && rep.bestCut >= 0)) m = fallback;
-  const out = m === 'pingpong' ? 2 * len : m === 'crossfade' ? Math.max(len * 0.5, len - (+fade || 0)) : m === 'trim' ? len * Math.max(0.3, (rep && rep.bestKeeps) || 1) : len;
+  // back and forth: twice as long, plus the eased turns (about 0.6 s each, a quarter circle longer than a straight run)
+  const out = m === 'pingpong' ? 2 * len + 2 * (Math.PI - 2) * Math.min(0.6, len / 3) : m === 'crossfade' ? Math.max(len * 0.5, len - (+fade || 0)) : m === 'trim' ? len * Math.max(0.3, (rep && rep.bestKeeps) || 1) : len;
   return { method: m, len: out };
 }
 export async function makeLoop(engine, src, dst, prof, info, { mode = 'auto', fade = 1.5, fallback = 'pingpong', ctl = { check() {} }, onProgress } = {}) {
