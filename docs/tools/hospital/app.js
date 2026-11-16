@@ -3,6 +3,7 @@ import { FILTERS } from '../app/filters.js';
 import { getEngine } from '../app/engine.js';
 import * as L from '../app/loops.js';
 import * as ST from '../app/steps.js';
+import * as WC from '../app/wc.js';
 import { makeZip } from '../app/zip.js';
 import { injectCSS, clamp01, fmtDur, fitCost, leftFrom } from '../../shared/progress.js';
 injectCSS();
@@ -173,7 +174,11 @@ function showAfter() {
 }
 placeAfter();
 
-async function ensureEngine() { if (engine.pick) { try { await engine.pick(); } catch (e) { /* the web engine loads below */ } } await engine.load(status); status(''); aiDefaults(); if (engine.kind === 'native' && engine.comfyInfo && !engine.comfy) await engine.comfyInfo(); aiAvail(); }
+async function ensurePicked() { if (engine.pick) { try { await engine.pick(); } catch (e) { /* the web engine loads later */ } } aiDefaults(); }
+async function ensureEngine() { await ensurePicked(); await engine.load(status); status(''); if (engine.kind === 'native' && engine.comfyInfo && !engine.comfy) await engine.comfyInfo(); aiAvail(); }
+// The fast way (the browser, not the local Linux version): the device's own video chip and graphics card, no ffmpeg (see app/wc.js).
+const wcOpen = async file => { await ensurePicked(); if (engine.kind === 'native') return null; try { return await WC.open(file); } catch (e) { return null; } };
+const fastNote = on => { const el = $('#fastway'); if (el) { el.textContent = on ? T('Fast way: this device does the work with its own video chip and graphics card.') : ''; el.classList.toggle('hide', !on); } };
 const openInput = async file => engine.mount(new File([file], 'src' + (extOf(file.name) || '.mp4'), { type: file.type }));
 const okFile = f => OK_EXT.has(extOf(f.name));
 
@@ -188,6 +193,13 @@ async function choose(file, converted) {
   $('#facts').innerHTML = `<span class="muted">Examining…</span>`; $('#findings').innerHTML = ''; $('#healall').classList.add('hide');
   let path;
   try {
+    const h = await wcOpen(file);
+    if (h) {   // the fast way can read it: no ffmpeg needed for looking at it either
+      if (g0 !== gen || !patient) return; patient.wc = h; patient.info = h.info; fastNote(true);
+      if (h.info.duration > 0 && h.info.duration <= 60) { try { patient.loop = await WC.analyze(h); } catch (e) { patient.loop = null; } }
+      if (g0 !== gen || !patient) return; examine(); return;
+    }
+    fastNote(false);
     await ensureEngine(); path = await openInput(file);
     const inf = await L.probe(engine, path, file.name); if (!inf.width) throw new Error('No picture found in this file');
     if (g0 !== gen || !patient) return; patient.info = inf;
@@ -213,7 +225,7 @@ function examine() {
   const i = patient.info, lp = patient.loop;
   const verdict = lp ? (lp.verdict === 'seamless' ? '<span class="chip good">loops ✓</span>' : lp.verdict === 'almost' ? '<span class="chip bad">almost loops</span>' : '<span class="chip bad">jumps</span>') : '';
   $('#facts').innerHTML = `<span>${i.width}×${i.height}</span><span>${Math.round(i.fps * 100) / 100} fps</span><span>${Math.round(i.duration * 10) / 10} s</span><span>${fmtSize(patient.file.size)}</span><span>${esc(i.codec || '')}</span>${verdict}`;
-  const d = ST.diagnose(i, lp, { slowEngine: engine.kind !== 'native', ai: aiFrames() });
+  const d = ST.diagnose(i, lp, { slowEngine: engine.kind !== 'native' && !patient.wc, ai: aiFrames() });
   $('#findings').innerHTML = d.length ? d.map((x, n) => `<li><span>${esc(x.text)}</span>${Object.keys(x.fix).length ? `<button class="sm" data-fix="${n}" type="button">Add this treatment</button>` : ''}</li>`).join('')
     : '<li class="ok"><span>Nothing wrong found. This clip is ready for the mixers.</span></li>';
   $('#gifbar').classList.toggle('hide', !i.isGif);
@@ -253,7 +265,13 @@ async function waitPause() {   // pause takes effect between clips/looks: a pass
 let pausedMs = 0;
 async function treat(file, out, rec, label, base) {
   let path; ctl = ctl || { cancel: false, check() { if (this.cancel) throw new Error('cancelled'); } };
+  const h = patient && patient.file === file && patient.wc ? patient.wc : await wcOpen(file);
+  if (h && WC.canRun(h, rec)) {
+    try { const r = await WC.run(h, rec, base || baseProf(), { ctl, onProgress: prog }); return { data: r.data, note: r.note }; }
+    catch (e) { if (!e.fallback) throw e; $('#msg').textContent = T('The fast way could not finish this clip, so the slower way is used.') + ' (' + e.message + ')'; }
+  }
   try {
+    await ensureEngine();
     path = await openInput(file);
     const inf = await L.probe(engine, path, file.name); if (!inf.width) throw new Error('No picture found in this file');
     const r = await ST.runRecipe(engine, L, path, out, inf, rec, base || baseProf(), { ctl, onProgress: prog, tmp: 'hosp_tmp_' + nextId + '.mp4',
@@ -274,7 +292,7 @@ async function run(fn) {
     const left = best >= 1 ? '' : lf != null ? ' · ' + T('about {a} left').replace('{a}', fmtDur(lf)) : plan ? ' · ' + T('a little longer than estimated') : '';
     $('#cur').textContent = curLabel + (best > 0 ? ' · ' + Math.floor(best * 100) + '%' : '') + ' · ' + Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0') + left + (s >= 60 && best < 0.5 ? ' — ' + T('Still working. Slow motion and loop fixes are heavy for a browser, especially on a phone. Short clips finish sooner.') : '');
   }, 1000);
-  try { await ensureEngine(); await fn(); } catch (e) { if (g !== gen) return clearInterval(tick); $('#msg').textContent = (c.cancel || e.message === 'cancelled') ? T('Stopped.') : e.message; }
+  try { await ensurePicked(); await fn(); } catch (e) { if (g !== gen) return clearInterval(tick); $('#msg').textContent = (c.cancel || e.message === 'cancelled') ? T('Stopped.') : e.message; }
   clearInterval(tick); if (g !== gen) return;   // "Start over" was pressed while this ran: it has already cleaned up
   setBusy(false); ctl = null; setCur('');
 }
@@ -343,7 +361,13 @@ async function treatClip(file, label) {
 // time = a + b × seconds of result, which is then worked out for the whole clip. Costs a few seconds, and is skipped for short jobs.
 async function measure(file, rec0, loopRep) {
   let path; const g = gen, t00 = performance.now();
+  if (patient && patient.file === file && patient.wc && WC.canRun(patient.wc, rec0)) {   // the fast way: one real second of the clip, scaled up
+    const D = patient.info.duration, M = Math.max(+rec0.out.minSeconds || 0, rec0.life.on ? +rec0.life.minSeconds || 0 : 0, rec0.kb.on ? +rec0.kb.minSeconds || 0 : 0);
+    if (!(D > 0.8) || (Math.max(D, M) < 5 && !rec0.loop.on)) return null;
+    const r = await WC.estimate(patient.wc, rec0, baseProf(), ctl); if (g !== gen) throw new Error('cancelled'); return r;
+  }
   try {
+    await ensureEngine();
     path = await openInput(file);
     const inf = await L.probe(engine, path, file.name), start = rec0.cut.on ? Math.max(0, +rec0.cut.start || 0) : 0;
     const D = Math.max(0, Math.min(inf.duration - start, rec0.cut.on && +rec0.cut.len > 0 ? +rec0.cut.len : Infinity));

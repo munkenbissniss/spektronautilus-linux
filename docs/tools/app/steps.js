@@ -86,7 +86,7 @@ export function smoothPlan(data, n, fps, { strength = 0.7, dropOdd = true } = {}
     const mid = (lo + hi) >> 1; return `if(lt(T,${T(knots[mid])}),${build(lo, mid)},${build(mid, hi)})`;
   };
   const expr = build(0, knots.length - 1);
-  return { drop, expr: `setpts='(${expr})/TB'`, frames: m, outFrames: Math.round(u[E]) + 1, before: spread(ds), after: spread(out), changed: drop.length > 0 || k > 0 };
+  return { drop, expr: `setpts='(${expr})/TB'`, frames: m, outFrames: Math.round(u[E]) + 1, before: spread(ds), after: spread(out), changed: drop.length > 0 || k > 0, keep: idx, u };
 }
 export const smoothChain = (plan, fps) => [
   plan.drop.length ? `select='not(${plan.drop.map(i => `eq(n,${i})`).join('+')})',setpts=N/${fps}/TB` : '',
@@ -155,6 +155,40 @@ export function lifePlan(info, L, { minSeconds = 0, repeatAfter = false, outFps 
   if (glow > 0) { extra.push(`eq=brightness='${f(0.05 * glow)}*sin(2*PI*t/${f(P)})':saturation='1+${f(0.25 * glow)}*sin(2*PI*t/${f(P)}+1.1)':eval=frame`); notes.push('light breathing'); }
   if (L.trails) { extra.push(`tmix=frames=4:weights='4 3 2 1'`); notes.push('soft trails'); }
   return { pre, extra: extra.join(','), notes, period: P, total: T };
+}
+
+// The same movement as numbers, frame by frame, for the fast path on the graphics card (which does not read ffmpeg expressions).
+// at(n, W, H) gives { S, cx, cy, t } for output frame n (as perspFilter takes them) and the colour breathing { bright, sat }.
+export function lifeMotion(info, L, { minSeconds = 0, repeatAfter = false, outFps = 0 } = {}) {
+  const D = info.duration || 0, F = info.fps || 25, OF = outFps || F, c = v => Math.max(0, Math.min(100, +v || 0)) / 100, { P } = lifePeriod(D, minSeconds, repeatAfter);
+  const ease = c(L.ease), breathe = c(L.breathe), drift = c(L.drift), sway = c(L.sway), glow = c(L.glow);
+  const A = ease > 0 && D > 0 ? ease * 0.45 * D / (2 * Math.PI) : 0;   // setpts PTS + A·sin(2πPTS/D)
+  const zA = breathe * 0.10, dA = drift * 0.03, th = sway * 0.015, marg = Math.min(0.35, 2 * dA + 3.6 * th + 0.006), s0 = 1 / (1 - marg), move = breathe > 0 || drift > 0 || sway > 0;
+  return { A, D, period: P, move, glow: glow > 0, trails: !!L.trails, blendTime: F <= 31,
+    at(n, W, H) {
+      const p1 = 2 * Math.PI * n / (P * OF), t = n / OF;
+      const m = move ? { S: s0 + zA * (0.5 - 0.5 * Math.cos(p1)), cx: W / 2 + W * dA * (Math.sin(p1 + 0.7) + 0.5 * Math.sin(2 * p1 + 2.1)) / 1.5,
+        cy: H / 2 + H * dA * 0.7 * (Math.cos(p1 + 1.3) + 0.5 * Math.sin(2 * p1 + 0.4)) / 1.5, t: th * Math.sin(p1 + 2) } : null;
+      return { ...m, bright: glow > 0 ? 0.05 * glow * Math.sin(2 * Math.PI * t / P) : 0, sat: glow > 0 ? 1 + 0.25 * glow * Math.sin(2 * Math.PI * t / P + 1.1) : 1 };
+    },
+    // the source time (on the slowed clip) that output time tau shows: the inverse of the slow-in-and-out remap
+    source(tau) { if (!A) return tau; let x = tau; for (let i = 0; i < 30; i++) { const f = x + A * Math.sin(2 * Math.PI * x / D) - tau, d = 1 + A * 2 * Math.PI / D * Math.cos(2 * Math.PI * x / D); const nx = x - f / d; if (Math.abs(nx - x) < 1e-9) { x = nx; break; } x = nx; } return x; } };
+}
+export function kenMotion(info, K, { minSeconds = 0, repeatAfter = false, outFps = 0 } = {}) {
+  const D = info.duration || 0, OF = outFps || info.fps || 25, { T } = lifePeriod(D, minSeconds, repeatAfter);
+  const amt = Math.max(0, Math.min(100, +K.amount || 0)) / 100;
+  if (!(T > 0) || amt <= 0) return null;
+  const N = Math.max(1, T * OF), z = amt * 0.3, a = amt * 0.12, mode = K.mode;
+  return { at(n, W, H) {
+    const u = n / N, p = K.ret === false ? u * u * (3 - 2 * u) : 0.5 - 0.5 * Math.cos(2 * Math.PI * u);
+    let S = 1, cx = W / 2, cy = H / 2;
+    if (mode === 'zoomin') S = 1 + z * p;
+    else if (mode === 'zoomout') S = 1 + z * (1 - p);
+    else if (mode === 'panlr' || mode === 'panrl') { S = 1 / (1 - 2 * a); cx = W * (0.5 + (mode === 'panlr' ? -1 : 1) * a * (1 - 2 * p)); }
+    else if (mode === 'panup' || mode === 'pandown') { S = 1 / (1 - 2 * a); cy = H * (0.5 + (mode === 'panup' ? 1 : -1) * a * (1 - 2 * p)); }
+    else { const room = 0.5 - 1 / (2 * (1 + z)); S = 1 + z * p; cx = W * (0.5 + 0.8 * room * p); cy = H * (0.5 - 0.6 * room * p); }
+    return { S, cx, cy, t: 0 };
+  } };
 }
 
 // ---------------------------------------------------------------------------------------------- Ken Burns: a slow zoom or pan over the whole clip
