@@ -270,7 +270,7 @@ const mdiff = (d, a, b) => { let s = 0; const oa = a * 2304, ob = b * 2304; for 
 // The small grey pictures of every frame (for the loop check, Smooth out and Frame rate), worked out once per clip.
 export async function grays(h, ctl, report) {
   if (h.grays) return h.grays;
-  const gpu = new Gpu(), src = new Source(h, gpu, { cache: 3, mips: true }), n = src.n, data = new Uint8Array(n * 2304);
+  const gpu = new Gpu(), src = new Source(h, gpu, { cache: 3 }), n = src.n, data = new Uint8Array(n * 2304);
   try { for (let k = 0; k < n; k++) { if (ctl) ctl.check(); const t = await src.get(k); data.set(gpu.gray(t), k * 2304); if (report && k % 8 === 0) report(k / n); } }
   finally { src.close(); gpu.destroy(); }
   return (h.grays = { data, n });

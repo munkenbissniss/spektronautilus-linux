@@ -236,7 +236,9 @@ export class Gpu {
     gl.readPixels(0, 0, src.w, src.h, gl.RGBA, gl.UNSIGNED_BYTE, out); return out;
   }
   // the 64 x 36 grey picture used to study a clip (like ffmpeg's scale=64:36:flags=area,format=gray)
-  gray(src) { const g = this.tmp('gray', 64, 36); this.down(g, src, 2); const px = this.read(g), out = new Uint8Array(64 * 36); for (let i = 0; i < out.length; i++) out[i] = px[i * 4]; return out; }
+  // A big picture is first shrunk to 512 x 288 (8 x 8 taps per pixel there), then to 64 x 36: no picture levels (mipmaps) need to be
+  // made for every frame, which is what made looking at a big clip slow.
+  gray(src) { const g = this.tmp('gray', 64, 36); let s = src; if (src.w > 1024 || src.h > 576) { s = this.tmp('gray2', 512, 288); this.down(s, src, 0); } this.down(g, s, 2); const px = this.read(g), out = new Uint8Array(64 * 36); for (let i = 0; i < out.length; i++) out[i] = px[i * 4]; return out; }
 
   // ------------------------------------------------------------------------------------------ Smooth motion
   // The motion field between two pictures is worked out once and reused for every frame made between them.
