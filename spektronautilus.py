@@ -324,6 +324,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                                     cwd=self.st.work, stdin=subprocess.PIPE, stderr=subprocess.PIPE, stdout=subprocess.DEVNULL, **PRIO)
         except Exception as e:
             return self._json({"ok": False, "log": [str(e)]})
+        try:          # a roomier pipe (Linux): a whole frame goes in with a few writes instead of hundreds
+            import fcntl; fcntl.fcntl(proc.stdin.fileno(), 1031, 1 << 20)          # F_SETPIPE_SZ
+        except Exception: pass
         log = []
         def drain():          # ffmpeg reports on stderr all the time; if nobody reads it, it stops
             buf = b""
