@@ -212,6 +212,19 @@ async function readEntries(entries) {
 }
 
 // ---------------------------------------------------------------------------------------------- naming preview
+// What the finished file will most likely be (size, frame rate, length), for the name preview: the tokens describe the result.
+function predictOut(meta, c) {
+  if (!meta || !meta.width) return meta;
+  const p = c.profile, ex = c.ex || {}, src = { ...meta, fps: meta.fps || 0 };
+  let w = meta.width, h = meta.height, fps = p.fps > 0 ? p.fps : (meta.fps ? chooseFps(src, p) : 0), dur = meta.duration || 0;
+  if (tool === 'ai') { const sc = ex.upEngine === 'ai' && ex.aiModel === 'realesrgan-plus' ? 4 : (+ex.aiScale || 2); w = ST.even(w * sc); h = ST.even(h * sc); }
+  else if (tool === 'slowmo') { const m = Math.round(+ex.slowFactor) || 2; if (ex.slowMode === 'smooth') fps = meta.fps ? Math.min(60, meta.fps * m) : 0; else dur *= m; }
+  else if (tool === 'crop') { const cr = cropFor(meta, ex.cropShape === 'none' ? '' : ex.cropShape, ex.cropPos); w = cr.width; h = cr.height; }
+  else if (tool === 'sizes') { const z = SIZE_STEPS.find(s => SSEL.has(s[0])) || SIZE_STEPS[1]; [w, h] = targetSize(meta, { ...p, size: `${z[1]}x${z[2]}`, fit: 'keep', upscale: false }); }
+  else [w, h] = targetSize(meta, p);
+  if (p.minSeconds > 0 && dur > 0) dur *= repeatsNeeded(dur, p.minSeconds);
+  return { ...meta, width: w, height: h, fps, duration: dur };
+}
 let npT;
 function namePrev() {
   clearTimeout(npT);
@@ -223,7 +236,7 @@ function namePrev() {
     const { naming } = collect(), taken = new Set();
     const fl0 = tool === 'filters' ? (FILTERS.find(x => FSEL.has(x.id)) || FILTERS[0]).id : null, v0 = tool === 'sizes' ? ((SIZE_STEPS.find(z => SSEL.has(z[0])) || SIZE_STEPS[1])[0] + 'p') : isAi(tool) ? aiVariant(collect().ex, tool) : null;
     const ext = tool === 'pro' ? (PRO_FORMATS[$('#o_proFormat').value] || PRO_FORMATS.hap).ext : '.mp4';
-    const rows = sel.map((f, i) => `${f.name}  →  ${makeName(f.name, i, fl0 ? withFilterTemplate(naming) : v0 ? withVariantTemplate(naming) : naming, f.meta, taken, f.folder, fl0 ? { filter: fl0 } : v0 ? { variant: v0 } : {})}${ext}`);
+    const c0 = collect(), rows = sel.map((f, i) => `${f.name}  →  ${makeName(f.name, i, fl0 ? withFilterTemplate(naming) : v0 ? withVariantTemplate(naming) : naming, predictOut(f.meta, c0), taken, f.folder, fl0 ? { filter: fl0 } : v0 ? { variant: v0 } : {})}${ext}`);
     el.textContent = rows.slice(0, 12).join('\n') + (rows.length > 12 ? `\n… and ${rows.length - 12} more` : '');
   }, 200);
 }
@@ -381,7 +394,8 @@ async function processOne(job, src, idx, srcName, folder, c, flt, v) {
         const nat = await SPK_IOS.probe(src);
         if (nat.width) {
           const [tw, th] = targetSize(nat, c.profile), fps = chooseFps(nat, c.profile);
-          const base = makeName(srcName, idx, c.naming, { ...nat }, job.taken, folder, {}), prog = r => setItemProg(job, r);
+          // the name tokens ({res} {fps} {w} {h} {dur}) describe the finished file, not the original
+          const base = makeName(srcName, idx, c.naming, { ...nat, width: tw, height: th, fps }, job.taken, folder, {}), prog = r => setItemProg(job, r);
           job.abort && job.abort.signal.addEventListener('abort', () => SPK_IOS.cancelConvert(), { once: true });
           const cap = maxMBps(c.profile) * 8e6, bpp = Math.min(0.2 * Math.pow(0.92, c.profile.crf - 17), cap > 0 ? cap / (tw * th * fps) : 9);
           const blob = await SPK_IOS.convert(src, { width: tw, height: th, fit: c.profile.fit, fps, codec: 'h264', bpp, keepAudio: !!c.profile.keepAudio, gop: c.profile.gop, onProgress: prog });
@@ -400,7 +414,7 @@ async function processOne(job, src, idx, srcName, folder, c, flt, v) {
     }
     const aiv = isAi(job.tool) ? aiVariant(c.ex, job.tool) : null;
     const nm = flt ? withFilterTemplate(c.naming) : (v || aiv) ? withVariantTemplate(c.naming) : c.naming;
-    const base = makeName(srcName, idx, nm, { ...info }, job.taken, folder, flt ? { filter: flt } : v ? { variant: v.id + 'p' } : aiv ? { variant: aiv } : {}), out = `o_${job.id}_${idx}${ext}`;
+    const out = `o_${job.id}_${idx}${ext}`;
     const prog = r => setItemProg(job, r);
     let note;
     if (job.tool === 'ai' && c.ex.upEngine === 'ai') {
@@ -472,6 +486,9 @@ async function processOne(job, src, idx, srcName, folder, c, flt, v) {
       note = `${info.width}x${info.height} ${info.codec} -> h264`;
     }
     ctl.check();
+    // the name is made last: its tokens ({res} {fps} {w} {h} {dur}) describe the finished file, so it is looked at first
+    let oi = null; try { oi = await L.probe(engine, out, srcName); } catch (e) { oi = null; }
+    const base = makeName(srcName, idx, nm, oi && oi.width ? { ...oi } : { ...info }, job.taken, folder, flt ? { filter: flt } : v ? { variant: v.id + 'p' } : aiv ? { variant: aiv } : {});
     const type = PF ? 'video/quicktime' : 'video/mp4', blob = engine.readBlob ? await engine.readBlob(out, type) : new Blob([await engine.read(out)], { type }); await engine.remove(out);
     return { name: base + ext, blob, size: blob.size, note };
   } finally { if (path) await engine.unmount(path); }
