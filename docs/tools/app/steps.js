@@ -245,7 +245,7 @@ export const defaultRecipe = () => ({
   look: { on: false, id: 'sepia', ids: ['sepia'], keepOriginal: false, amount: 50 },
   life: { on: false, style: 'calm', ...LIFE_STYLES.calm, minSeconds: 16 },
   kb: { on: false, mode: 'zoomin', amount: 50, ret: true, minSeconds: 24 },
-  loop: { on: false, mode: 'auto', fade: 1.5, fallback: 'pingpong' },
+  loop: { on: false, mode: 'auto', fade: 1.5, fadeAuto: true, turn: 'gentle', fallback: 'pingpong' },
   out: { fps: 0, crf: 18, minSeconds: 0, keepAudio: false },
 });
 export const mergeRecipe = (R, patch) => { for (const k of Object.keys(patch)) { R[k] = { ...R[k], ...patch[k] }; if (k !== 'out') R[k].on = true; } return R; };
@@ -569,7 +569,7 @@ export async function runRecipe(engine, loops, src, dst, info, R, baseProf, { ct
     try {
       const li = await loops.probe(engine, tmp);
       const lp = { ...p.prof, size: `${p.size[0]}x${p.size[1]}`, fit: 'keep', upscale: false, fps: 0, crf: R.out.crf, minSeconds: p.prof.minSeconds };   // includes the length Life and Ken Burns ask for
-      const lr = await loops.makeLoop(engine, tmp, dst, lp, li, { mode: R.loop.mode, fade: R.loop.fade, fallback: R.loop.fallback || 'pingpong', ctl, onProgress: prog(1, onProgress) });
+      const lr = await loops.makeLoop(engine, tmp, dst, lp, li, { mode: R.loop.mode, fade: R.loop.fade, fadeAuto: R.loop.fadeAuto !== false, turn: R.loop.turn || 'gentle', fallback: R.loop.fallback || 'pingpong', ctl, onProgress: prog(1, onProgress) });
       note += (note ? '; ' : '') + lr.note;
     } finally { await engine.remove(tmp); }
   }

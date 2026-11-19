@@ -74,8 +74,10 @@ const STEPS = [
     { k: 'ids', t: 'looks' }, { k: 'amount', t: 'range', l: 'Strength', min: 0, max: 100, step: 1 },
     { k: 'keepOriginal', t: 'bool', l: 'Also save the clip without a look' }] },
   { s: 'loop', ic: '♾️', title: 'Make it loop', hint: 'Hide the jump where the clip starts over.', f: [
-    seg('mode', 'Method', [['auto', 'Auto'], ['pingpong', 'Back and forth'], ['crossfade', 'Crossfade'], ['trim', 'Trim']], 0, 'Auto keeps good loops and fixes the rest. Back and forth plays forward, then backward. Crossfade blends the end into the start. Trim cuts at the best loop point.'),
-    { k: 'fade', t: 'range', l: 'Crossfade length (s)', min: 0.3, max: 8, step: 0.1 }] },
+    seg('mode', 'Method', [['auto', 'Auto'], ['crossfade', 'Crossfade'], ['trim', 'Trim'], ['pingpong', 'Back and forth']], 0, 'Auto looks for the way that keeps the movement going in one direction for as long as possible: a clean cut, otherwise a crossfade, and back and forth only when nothing else works. Crossfade blends the end into the start. Trim cuts at the latest clean loop point. Back and forth plays forward, then backward.'),
+    { k: 'fadeAuto', t: 'bool', l: 'Find the best crossfade length and place automatically', h: 'The cut and the length of the blend are chosen together, so the two blended moments look as much alike as possible.' },
+    { k: 'fade', t: 'range', l: 'Crossfade length (s)', min: 0.3, max: 8, step: 0.1, h: 'Used when the automatic length is off.' },
+    seg('turn', 'Back and forth: the turns', [['gentle', 'Gentle'], ['quick', 'Quick']], 0, 'Gentle slows down over about a second before it turns, which looks more natural. Quick turns in about half a second.')] },
 ];
 const OUT = [sel('fps', 'Frames per second', [['0', 'Keep (snapped to 24/25/30/50/60)'], ['24', '24'], ['25', '25'], ['30', '30'], ['50', '50'], ['60', '60']], 1),
   { k: 'crf', t: 'range', l: 'Quality (lower = better, larger)', min: 12, max: 28, step: 1 },
@@ -198,7 +200,7 @@ async function nativeLoop(file, h) {
   await ensureEngine(); const path = await openInput(file);
   try {
     const g = await L.grayFrames(engine, path, 0); if (g.n === h.dm.video.count) h.grays = g;
-    return (h.loopRep = L.analyzeFrames(g.data, g.n, chooseFps(h.info, { fps: 0, maxFps: 60 })));
+    return (h.loopRep = L.analyzeWithPlan(g.data, g.n, chooseFps(h.info, { fps: 0, maxFps: 60 })));
   } finally { await engine.unmount(path); }
 }
 const fastNote = on => {

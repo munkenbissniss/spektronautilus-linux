@@ -9,7 +9,7 @@
 import { demux, sampleData, muxMp4, fpsRational } from './mp4.js';
 import { Gpu } from './gpu.js';
 import { chooseFps, repeatsNeeded, cropFor, targetSize, maxMBps, codecArgs } from './core.js';
-import { analyzeFrames, reportText, loopForecast } from './loops.js';
+import { analyzeFrames, analyzeWithPlan, reportText, loopForecast, planLoop, planNote } from './loops.js';
 import * as ST from './steps.js';
 
 const TEST = () => (typeof window !== 'undefined' && window.SPK_WC_TEST) || null;   // tests: { codec: 'vp09...' } where H.264 is missing
@@ -79,7 +79,10 @@ export function canRun(h, R) {
 // (about 20 ms each was measured), while frames decoded by the processor go in quickly. So the time is measured on the first frames:
 // when it is slow, the processor's decoder is tried for a few frames and kept if its frames arrive clearly faster. Decided once per
 // page; phones, where the chip's frames go in fast, never try.
-const DEC = { pref: undefined, trial: null, asked: false, hw: { n: 0, ms: 0, mp: 0 }, sw: { n: 0, ms: 0, mp: 0 } };
+// Only on desktop Linux, where the slow hand-over was seen. Elsewhere (phones above all) the chip's own decoder stays: the measure here
+// is only the hand-over, not the decoding itself, which the processor does much more slowly on a phone.
+const DESKTOP_LINUX = typeof navigator !== 'undefined' && /Linux/.test(navigator.userAgent || '') && !/Android|CrOS/.test(navigator.userAgent || '');
+const DEC = { pref: DESKTOP_LINUX ? undefined : '', trial: null, asked: false, hw: { n: 0, ms: 0, mp: 0 }, sw: { n: 0, ms: 0, mp: 0 } };
 const decMode = () => (DEC.pref !== undefined ? DEC.pref : DEC.trial || '');
 function noteUpload(mode, ms, mp, cfg, name) {
   if (DEC.pref !== undefined) return;
@@ -374,7 +377,7 @@ export async function grays(h, ctl, report) {
   finally { src.close(); gpu.destroy(); }
   return (h.grays = { data, n });
 }
-export async function analyze(h) { const g = await grays(h); return (h.loopRep = analyzeFrames(g.data, g.n, chooseFps(h.info, { fps: 0, maxFps: 60 }))); }
+export async function analyze(h) { const g = await grays(h); return (h.loopRep = analyzeWithPlan(g.data, g.n, chooseFps(h.info, { fps: 0, maxFps: 60 }))); }
 
 // ---------------------------------------------------------------------------------------------- the recipe
 // Returns { data (an mp4 file), note }. Same order and the same numbers as runRecipe in steps.js.
@@ -529,22 +532,20 @@ async function runOnce(h0, R, baseProf, ctl, onProgress, native) {
       return { data: toMp4(out, perFrame ? 1 : reps), note: note + timesNote(), stats };
     }
     // ---- Make it loop (what makeLoop does in loops.js)
-    const N = nRep, rp = analyzeFrames(r.grays, N, OF);
-    let method = R.loop.mode || 'auto';
-    if (method === 'auto') method = rp.isLoop ? 'asis' : rp.bestCut >= 0 && rp.bestRatio <= 1.25 && rp.bestKeeps >= 0.6 ? 'trim' : (R.loop.fallback || 'pingpong');
-    if (method === 'none') method = 'asis'; if (method === 'trim' && rp.bestCut < 0) method = R.loop.fallback || 'pingpong';
+    const N = nRep, pl = planLoop(r.grays, N, OF, { mode: R.loop.mode || 'auto', fade: R.loop.fade, fadeAuto: R.loop.fadeAuto !== false, fallback: R.loop.fallback || 'pingpong', turn: R.loop.turn || 'gentle' });
+    const rp = pl.rep, method = pl.method;
     const hl = await reopen(out), srcL = new Source(hl, gpu, { cache: 12 }); srcs.push(srcL);
     let frames, atL;
     const near = k => ({ layers: [{ a: k, b: null, w: 0 }], H: I3(), clip: null });
     if (method === 'asis') { frames = N; atL = near; }
-    else if (method === 'trim') { frames = rp.bestCut + 1; atL = near; }
-    else if (method === 'crossfade') {
-      const xf = Math.min(Math.round((+R.loop.fade || 1.5) * OF), Math.floor(N / 3)); if (xf < 2) throw new Error('Clip is too short for a crossfaded loop');
-      frames = N - xf; atL = k => { if (k >= xf) return near(k); const x = (k + 1) / (xf + 1), wv = x * x * x * (x * (x * 6 - 15) + 10);
-        return { layers: [{ a: N - xf + k, b: null, w: 0, s2: true }, { a: k, b: null, w: 0, alpha: wv }], H: I3(), clip: null }; };   // the end of the clip comes from a reader of its own (s2)
+    else if (method === 'trim') { frames = pl.cut; atL = near; }
+    else if (method === 'crossfade') {   // the part from cut - xf to cut is blended over the start; the loop is cut - xf frames long
+      const xf = pl.xf, C = pl.cut; if (xf < 2) throw new Error('Clip is too short for a crossfaded loop');
+      frames = C - xf; atL = k => { if (k >= xf) return near(k); const x = (k + 1) / (xf + 1), wv = x * x * x * (x * (x * 6 - 15) + 10);
+        return { layers: [{ a: C - xf + k, b: null, w: 0, s2: true }, { a: k, b: null, w: 0, alpha: wv }], H: I3(), clip: null }; };   // the end of the clip comes from a reader of its own (s2)
     } else {
       if (N < 3) throw new Error('Clip is too short to make a loop of');
-      const A = N - 1, E = Math.min(Math.round(0.6 * OF), Math.floor(A / 3)), S = j => (j <= A ? j : 2 * A - j);
+      const A = N - 1, E = pl.E, S = j => (j <= A ? j : 2 * A - j);
       if (E < 3) { frames = 2 * N - 2; atL = k => near(S(k)); }
       else {
         const seg = A - 2 * E + Math.PI * E, tf = J => J < E ? E * Math.acos(1 - J / E) : J > A - E ? seg - E * Math.acos(1 - (A - J) / E) : (E * Math.PI / 2 - E) + J;
@@ -557,8 +558,7 @@ async function runOnce(h0, R, baseProf, ctl, onProgress, native) {
     const encL = await mkEnc(TW, TH, OF, { crf: R.out.crf, gop: P.prof.gop || 30, cap, prof: P.prof });
     const srcL2 = method === 'crossfade' ? new Source(hl, gpu, { cache: 4 }) : null; if (srcL2) srcs.push(srcL2);   // the fade reads two places at once
     const outL = await timed('lp', frames, async () => { await pass(gpu, srcL, { w: TW, h: TH, fps: OF, count: frames, at: atL, enc: encL, ctl, report: part(W.loop), tag: 'lp', src2: srcL2 }); return encL.finish(); }); srcL.close();
-    const weak = method === 'trim' && rp.bestRatio > 1.25;
-    const what = { asis: rp.isLoop ? 'already loops' : 'kept as is', trim: `trimmed to the best loop point (frame ${rp.bestCut})` + (weak ? ' - no really good point exists, a small jump may remain' : ''), pingpong: 'played forward then backward', crossfade: `end crossfaded into the start (${R.loop.fade} s)` }[method];
+    const what = planNote(pl, OF) + (method === 'trim' && pl.ratio > 1.25 ? ' - no really clean point exists, a small jump may remain' : '');
     const reps2 = repeatsNeeded(frames / OF, P.prof.minSeconds);
     const note = [notes.filter(Boolean).join(', '), `${what}; before: ${reportText(rp)}`].filter(Boolean).join('; ');
     return { data: toMp4(outL, reps2), note: note + timesNote(), stats };

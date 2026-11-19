@@ -22,7 +22,10 @@ export async function grayFrames(engine, path, fps, maxFrames = 20000, onProgres
 const meanDiff = (a, ia, b, ib) => { let s = 0; const oa = ia * S, ob = ib * S; for (let i = 0; i < S; i++) s += Math.abs(a[oa + i] - b[ob + i]); return s / S / 255; };
 function percentile(sorted, q) { const p = (sorted.length - 1) * q / 100, lo = Math.floor(p), hi = Math.ceil(p); return sorted[lo] + (sorted[hi] - sorted[lo]) * (p - lo); }
 
-export function analyzeFrames(data, n, fps) {
+export function analyzeFrames(data, n, fps) { return analyzeCore(data, n, fps); }
+// the loop report, with the plan Auto would make (for the time estimate); planLoop calls analyzeCore itself
+export function analyzeWithPlan(data, n, fps) { const r = analyzeCore(data, n, fps); try { const p = planLoop(data, n, fps, { fadeAuto: true }); r.plan = { method: p.method, len: p.len, n }; } catch (e) { /* no plan */ } return r; }
+function analyzeCore(data, n, fps) {
   if (n < 4) return { frames: n, fps, wrap: 0, stepTyp: 0, ratio: 0, isLoop: false, verdict: 'jump', bestCut: -1, bestRatio: 9e9, bestKeeps: 0 };
   const steps = new Float64Array(n - 1);
   for (let i = 0; i < n - 1; i++) steps[i] = meanDiff(data, i, data, i + 1);
@@ -46,7 +49,79 @@ export function reportText(r) {
 export async function analyze(engine, path, info) {
   const fps = chooseFps(info, { fps: 0, maxFps: 60 });
   const { data, n } = await grayFrames(engine, path, fps);
-  return analyzeFrames(data, n, fps);
+  return analyzeWithPlan(data, n, fps);
+}
+
+// ---------------------------------------------------------------------------------------------- choosing how to make it loop
+// planLoop looks at the grey pictures of the finished clip and decides how to close the loop, preferring ways that keep the movement
+// going in one direction for as long as possible:
+//   asis       the clip already loops
+//   trim       cut at the LATEST frame that joins the start cleanly (the longest clean loop, not just the best point)
+//   crossfade  cut and blend the end into the start; with fadeAuto the cut AND the length of the blend are chosen together, so the
+//              two blended moments look as much alike as possible (little ghosting), still keeping the loop long
+//   pingpong   forward and back, the last resort: it cannot move further than the clip is long. Turns are gentle (about 1.2 s of
+//              slowing down and speeding up) unless turn = 'quick' (0.6 s, the old way)
+// Returns { method, cut (frames kept), xf (frames blended), E (frames of each eased turn), len (frames out), ghost, ratio, why }.
+const S16 = 16 * 9;
+function small(data, n) {   // 64 x 36 -> 16 x 9, averaged: enough to compare, sixteen times less work
+  const o = new Float32Array(n * S16);
+  for (let f = 0; f < n; f++) for (let y = 0; y < 36; y++) for (let x = 0; x < 64; x++) o[f * S16 + (y >> 2) * 16 + (x >> 2)] += data[f * S + y * 64 + x] / 16;
+  return o;
+}
+const d16 = (a, i, j) => { let s = 0; const oi = i * S16, oj = j * S16; for (let k = 0; k < S16; k++) s += Math.abs(a[oi + k] - a[oj + k]); return s / S16 / 255; };
+// the same, but with each picture's overall brightness taken out: blending two moments that differ only in brightness shows no ghost
+const mean16 = (a, i) => { let s = 0; const o = i * S16; for (let k = 0; k < S16; k++) s += a[o + k]; return s / S16; };
+const g16 = (a, m, i, j) => { let s = 0; const oi = i * S16, oj = j * S16, dm = m[i] - m[j]; for (let k = 0; k < S16; k++) s += Math.abs(a[oi + k] - a[oj + k] - dm); return s / S16 / 255; };
+export const TURN = { gentle: 1.2, quick: 0.6 };
+export function turnFrames(n, fps, turn = 'gentle') { const A = n - 1; return Math.min(Math.round((TURN[turn] || TURN.gentle) * fps), Math.floor(A / 3)); }
+export function planLoop(data, n, fps, { mode = 'auto', fade = 1.5, fadeAuto = false, fallback = 'pingpong', turn = 'gentle' } = {}) {
+  const rep = analyzeCore(data, n, fps), E = turnFrames(n, fps, turn);
+  const ping = why => ({ method: 'pingpong', cut: n, xf: 0, E, len: E >= 3 ? Math.round(2 * ((n - 1) - 2 * E + Math.PI * E)) : 2 * n - 2, rep, why });
+  if (n < 6) return { method: 'asis', cut: n, xf: 0, E, len: n, rep, why: 'too short to change' };
+  const g = small(data, n), ref = Math.max(rep.stepTyp, 0.004), mu = Float32Array.from({ length: n }, (_, i) => mean16(g, i));
+  // trim: the latest cut (at least 60 % kept) whose join is clean, or nearly as clean as the best one
+  const lo = Math.max(2, Math.floor(n * 0.6)), joins = [];
+  for (let c = lo; c <= n - 1; c++) joins.push([c, d16(g, c, 0) / ref]);   // keep frames 0..c-1, frame c would be the next: compare it with frame 0
+  const bestJ = joins.reduce((a, b) => (b[1] < a[1] ? b : a), [n, 9e9]);
+  const okJ = joins.filter(j => j[1] <= Math.max(1.25, bestJ[1] * 1.1)), trim = okJ.length ? okJ.reduce((a, b) => (b[0] > a[0] ? b : a)) : bestJ;
+  // crossfade: the tail that starts at k is blended over the head (frames 0..xf-1); the result is k frames long
+  const cross = fixedXf => {
+    const maxXf = Math.max(2, Math.min(Math.round(4 * fps), Math.floor(n / 3))), minXf = Math.max(2, Math.round(0.3 * fps));
+    const xfs = fixedXf ? [Math.max(2, Math.min(fixedXf, Math.floor(n / 3)))] : Array.from({ length: Math.max(1, Math.floor((maxXf - minXf) / Math.max(1, Math.round(fps / 10))) + 1) }, (_, i) => Math.min(maxXf, minXf + i * Math.max(1, Math.round(fps / 10))));
+    let best = null;
+    for (const xf of xfs) {
+      const w = Array.from({ length: xf }, (_, i) => { const x = (i + 1) / (xf + 1), s = x * x * x * (x * (x * 6 - 15) + 10); return 4 * s * (1 - s); }), ws = w.reduce((a, b) => a + b, 0) || 1;
+      for (let k = Math.max(xf, Math.floor(n * 0.6)); k + xf <= n; k++) {
+        let s = 0; for (let i = 0; i < xf; i += 1) s += w[i] * g16(g, mu, k + i, i);
+        const ghost = s / ws / ref, len = k;
+        // little ghosting first, then the longer loop. Where the two moments differ more, a short blend shows as a jump with a ghost,
+        // while a long one reads as a slow morph: so the more they differ, the more a long blend is wanted
+        const sec = xf / Math.max(1, fps), score = ghost + 3 * (1 - len / n) - 0.05 * sec + Math.max(0, ghost - 1.2) * Math.max(0, 1.2 - sec);
+        if (!best || score < best.score) best = { method: 'crossfade', cut: k + xf, xf, E, len, ghost, score, rep };
+      }
+    }
+    return best;
+  };
+  const fadeF = Math.max(2, Math.round((+fade || 1.5) * fps));
+  if (mode === 'asis' || mode === 'none') return { method: 'asis', cut: n, xf: 0, E, len: n, rep, why: 'as asked' };
+  if (mode === 'pingpong') return ping('as asked');
+  if (mode === 'trim') return { method: 'trim', cut: trim[0], xf: 0, E, len: trim[0], ratio: trim[1], rep, why: 'as asked' };
+  if (mode === 'crossfade') { const c = cross(fadeAuto ? 0 : fadeF); return c ? { ...c, why: 'as asked' } : ping('too short to crossfade'); }
+  // auto: the cleanest way that keeps the movement going one way, and the longest of the good ones
+  if (rep.isLoop) return { method: 'asis', cut: n, xf: 0, E, len: n, rep, why: 'already loops' };
+  const c = cross(0), cands = [];
+  if (trim[1] <= 1.25) cands.push({ method: 'trim', cut: trim[0], xf: 0, E, len: trim[0], ratio: trim[1], rep, bad: 0 });
+  if (c && c.ghost <= 3.5) cands.push({ ...c, bad: c.ghost / 3.5 });
+  if (!cands.length) return fallback === 'crossfade' && c ? { ...c, why: 'no clean join; blended' } : ping('no clean join and no good blend');
+  // a clean cut wins unless a blend keeps clearly more of the clip
+  cands.sort((a, b) => (b.len * (1 - 0.15 * b.bad)) - (a.len * (1 - 0.15 * a.bad)));
+  return { ...cands[0], why: cands[0].method === 'trim' ? 'clean join' : 'blend with little ghosting' };
+}
+// a short note on what was done
+export function planNote(p, fps) {
+  const s = f => Math.round(f / fps * 10) / 10;
+  return { asis: p.rep && p.rep.isLoop ? 'already loops' : 'kept as is', trim: `trimmed to the longest clean loop (${s(p.cut)} s)`,
+    crossfade: `end crossfaded into the start (${s(p.xf)} s blend, ${s(p.len)} s loop)`, pingpong: `played forward then backward (${s(p.E)} s turns)` }[p.method];
 }
 
 const normProfile = prof => ({ ...prof, crf: 12, preset: 'ultrafast', gop: 15, minSeconds: 0, keepAudio: false });
@@ -56,7 +131,7 @@ let uid = 0;
 const part = (report, a, b) => report ? x => report(a + (b - a) * Math.max(0, Math.min(1, +x || 0))) : undefined;
 const tmpName = (tag, ext = 'mp4') => `t${Date.now().toString(36)}${++uid}_${tag}.${ext}`;
 
-async function makePingpong(engine, inter, out, fps, ctl, budget = 200e6, report) {
+async function makePingpong(engine, inter, out, fps, ctl, budget = 200e6, report, turn = 'gentle') {
   const { n: N } = await grayFrames(engine, inter, fps, 20000, part(report, 0, 0.08));
   if (N < 3) throw new Error('Clip is too short to make a loop of');
   const info = await probe(engine, inter);
@@ -77,7 +152,7 @@ async function makePingpong(engine, inter, out, fps, ctl, budget = 200e6, report
   // Organic turnaround: speed is constant everywhere, but eases to a stop and back over ~0.6 s at each
   // reversal (cosine speed ramp), instead of flipping direction in one frame. Retimed with setpts and
   // blended with `framerate`, so there are no repeated frames in the slow part.
-  const A = N - 1, E = Math.min(Math.round(0.6 * fps), Math.floor(A / 3));
+  const A = N - 1, E = turnFrames(N, fps, turn);
   let vf = [];
   let total = 2 * N - 2;
   if (E < 3) await engine.write(list, new TextEncoder().encode([inter, ...parts].map(p => `file '${p}'\n`).join('')));
@@ -94,9 +169,9 @@ async function makePingpong(engine, inter, out, fps, ctl, budget = 200e6, report
   return total;
 }
 
-async function makeCrossfade(engine, inter, out, fps, fadeS, report) {
+async function makeCrossfade(engine, inter, out, fps, xfFrames, report) {
   const { n: N } = await grayFrames(engine, inter, fps, 20000, part(report, 0, 0.15));
-  const xf = Math.min(Math.round(fadeS * fps), Math.floor(N / 3));
+  const xf = Math.min(xfFrames, Math.floor(N / 3));
   if (xf < 2) throw new Error('Clip is too short for a crossfaded loop');
   const w = `st(0,(N+1)/${xf + 1});st(1,ld(0)*ld(0)*ld(0)*(ld(0)*(ld(0)*6-15)+10))`;
   const fg = `[0:v]split=2[h0][r0];[h0]trim=end_frame=${xf},setpts=PTS-STARTPTS[head];` +
@@ -112,28 +187,22 @@ async function makeCrossfade(engine, inter, out, fps, fadeS, report) {
 // Make dstName a VJ-friendly clip that loops without a visible jump. Returns { note, method }.
 // What makeLoop will most likely do with a clip whose loop report is rep, and how long the result gets (len = seconds going in).
 // Used for the time estimate, before the work is done.
-export function loopForecast(rep, { mode = 'auto', fade = 1.5, fallback = 'pingpong' } = {}, len = 0) {
-  let m = mode;
-  if (m === 'auto') m = rep && rep.isLoop ? 'asis' : rep && rep.bestCut >= 0 && rep.bestRatio <= 1.25 && rep.bestKeeps >= 0.6 ? 'trim' : fallback;
+export function loopForecast(rep, { mode = 'auto', fade = 1.5, fadeAuto = false, fallback = 'pingpong', turn = 'gentle' } = {}, len = 0) {
+  // the plan worked out on the original clip (rep.plan) shows what Auto will most likely do and how much of the clip it keeps
+  const pl = rep && rep.plan;
+  let m = mode, keep = 1;
+  if (m === 'auto') { if (pl) { m = pl.method; keep = pl.len / Math.max(1, pl.n); } else m = rep && rep.isLoop ? 'asis' : rep && rep.bestCut >= 0 && rep.bestRatio <= 1.25 && rep.bestKeeps >= 0.6 ? 'trim' : fallback; }
   if (m === 'none') m = 'asis';
-  if (m === 'trim' && !(rep && rep.bestCut >= 0)) m = fallback;
-  // back and forth: twice as long, plus the eased turns (about 0.6 s each, a quarter circle longer than a straight run)
-  const out = m === 'pingpong' ? 2 * len + 2 * (Math.PI - 2) * Math.min(0.6, len / 3) : m === 'crossfade' ? Math.max(len * 0.5, len - (+fade || 0)) : m === 'trim' ? len * Math.max(0.3, (rep && rep.bestKeeps) || 1) : len;
+  if (m === 'trim' && !(rep && rep.bestCut >= 0) && !pl) m = fallback;
+  const T = TURN[turn] || TURN.gentle;
+  // back and forth: twice as long, plus the eased turns (a quarter circle longer than a straight run)
+  const out = m === 'pingpong' ? 2 * len + 2 * (Math.PI - 2) * Math.min(T, len / 3) : m === 'crossfade' ? (mode === 'auto' && pl ? len * keep : Math.max(len * 0.5, len - (fadeAuto ? 1.5 : (+fade || 0)))) : m === 'trim' ? len * (mode === 'auto' && pl ? keep : Math.max(0.3, (rep && rep.bestKeeps) || 1)) : len;
   return { method: m, len: out };
 }
-export async function makeLoop(engine, src, dst, prof, info, { mode = 'auto', fade = 1.5, fallback = 'pingpong', ctl = { check() {} }, onProgress } = {}) {
+export async function makeLoop(engine, src, dst, prof, info, { mode = 'auto', fade = 1.5, fadeAuto = false, fallback = 'pingpong', turn = 'gentle', ctl = { check() {} }, onProgress } = {}) {
   const fps = chooseFps(info, prof), R = (a, b) => part(onProgress, a, b);
   const g = await grayFrames(engine, src, fps, 20000, R(0, 0.06));
-  const rep = analyzeFrames(g.data, g.n, fps);
-  let method = mode;
-  if (mode === 'auto') {
-    if (rep.isLoop) method = 'asis';
-    else if (rep.bestCut >= 0 && rep.bestRatio <= 1.25 && rep.bestKeeps >= 0.6) method = 'trim';
-    else method = fallback;
-  }
-  if (method === 'none') method = 'asis';
-  if (method === 'trim' && rep.bestCut < 0) method = fallback;
-  const weak = method === 'trim' && rep.bestRatio > 1.25;
+  const pl = planLoop(g.data, g.n, fps, { mode, fade, fadeAuto, fallback, turn }), rep = pl.rep, method = pl.method;
   const finish = async (from, finfo, frames) => {
     const dur = frames / fps;
     const r = await engine.exec(encodeArgs(from, dst, prof, finfo, { repeat: repeatsNeeded(dur, prof.minSeconds) }), { onProgress: R(0.7, 1) });
@@ -142,23 +211,22 @@ export async function makeLoop(engine, src, dst, prof, info, { mode = 'auto', fa
   if (method === 'asis') {
     const r = await engine.exec(encodeArgs(src, dst, prof, info, { repeat: repeatsNeeded(info.duration, prof.minSeconds) }), { onProgress: R(0.06, 1) });
     if (r.code !== 0) throw new Error('Encoding failed');
-    return { note: rep.isLoop ? `already loops (${reportText(rep)})` : `kept as is (${reportText(rep)})`, method: 'asis' };
+    return { note: `${planNote(pl, fps)} (${reportText(rep)})`, method: 'asis' };
   }
   const tmps = [];
   try {
     ctl.check();
     const inter = tmpName('norm'); tmps.push(inter);
-    const ir = await engine.exec(encodeArgs(src, inter, normProfile(prof), info, { trimFrames: method === 'trim' ? rep.bestCut + 1 : 0 }), { onProgress: R(0.06, 0.3) });
+    const ir = await engine.exec(encodeArgs(src, inter, normProfile(prof), info, { trimFrames: method === 'trim' || method === 'crossfade' ? pl.cut : 0 }), { onProgress: R(0.06, 0.3) });
     if (ir.code !== 0) throw new Error('Encoding failed');
     let frames, from;
-    if (method === 'trim') { frames = rep.bestCut + 1; from = inter; }
+    if (method === 'trim') { frames = pl.cut; from = inter; }
     else {
       from = tmpName('loop'); tmps.push(from);
-      frames = method === 'pingpong' ? await makePingpong(engine, inter, from, fps, ctl, undefined, R(0.3, 0.7)) : method === 'crossfade' ? await makeCrossfade(engine, inter, from, fps, fade, R(0.3, 0.7)) : (() => { throw new Error('Unknown loop mode ' + mode); })();
+      frames = method === 'pingpong' ? await makePingpong(engine, inter, from, fps, ctl, undefined, R(0.3, 0.7), turn) : await makeCrossfade(engine, inter, from, fps, pl.xf, R(0.3, 0.7));
     }
     ctl.check();
     await finish(from, await probe(engine, from), frames);
   } finally { for (const t of tmps) await engine.remove(t); }
-  const what = { trim: `trimmed to the best loop point (frame ${rep.bestCut})` + (weak ? ' - no really good point exists, a small jump may remain' : ''), pingpong: 'played forward then backward', crossfade: `end crossfaded into the start (${fade} s)` }[method];
-  return { note: `${what}; before: ${reportText(rep)}`, method };
+  return { note: `${planNote(pl, fps)}; before: ${reportText(rep)}`, method };
 }
