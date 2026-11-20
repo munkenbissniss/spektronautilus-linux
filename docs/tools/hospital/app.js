@@ -4,11 +4,22 @@ import { getEngine } from '../app/engine.js';
 import * as L from '../app/loops.js';
 import * as ST from '../app/steps.js';
 import * as WC from '../app/wc.js';
+import * as CLN from '../app/clean.js';
 import { makeZip } from '../app/zip.js';
 import { injectCSS, clamp01, fmtDur, fitCost, leftFrom } from '../../shared/progress.js';
 injectCSS();
 
 const $ = s => document.querySelector(s);
+// the message under the buttons: red for trouble, green when something is done
+function say(t, good = false) { const m = $('#msg'); m.textContent = t; m.classList.toggle('warn', !good); m.classList.toggle('good', !!good); }
+// Videos on this page play once and stop (many clips looping at once wear out a phone and can freeze the picture).
+// Press play yourself after that, and the clip loops.
+(() => {
+  const isV = e => e.target && e.target.tagName === 'VIDEO';
+  document.addEventListener('loadstart', e => { if (isV(e)) { e.target.loop = false; delete e.target.dataset.played; } }, true);
+  document.addEventListener('ended', e => { if (isV(e)) e.target.dataset.played = '1'; }, true);
+  document.addEventListener('play', e => { if (isV(e) && e.target.dataset.played) e.target.loop = true; }, true);
+})();
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const engine = getEngine(), T = s => (window.SPK_T ? window.SPK_T(s) : s);
 const R = ST.defaultRecipe();
@@ -22,6 +33,7 @@ const KB_MODES_UI = ST.KB_MODES;
 const seg = (k, l, o, n, h) => ({ k, t: 'seg', l, o, n, h });
 const fill = (s, a) => T(s).replace(/\{(\w)\}/g, (m, k) => a[k]);
 const STEPS = [
+  { s: 'clean', ic: '🧽', title: 'Remove logos and text', hint: 'Takes away logos, watermarks and text that sit on top of the picture. The boxes it finds are suggestions: tap a box to use it or not, or drag across the picture to mark something yourself. The box is filled in from the picture around it, which works best on calm or dark backgrounds.', f: [{ k: 'boxes', t: 'boxes' }] },
   { s: 'cut', ic: '✂️', title: 'Cut', hint: 'Remove the start or the end of the clip.', f: [num('start', 'Start at (seconds)', 'Cuts this much off the beginning.'), num('len', 'Length (seconds)', '0 = until the end of the clip.')] },
   { s: 'rotate', ic: '🔄', title: 'Rotate', hint: 'Turn the picture, or mirror it.', f: [
     seg('turn', 'Turn', [['0', 'No turn'], ['90', '↻ 90° right'], ['270', '↺ 90° left'], ['180', '180°']]),
@@ -86,6 +98,10 @@ const OUT = [sel('fps', 'Frames per second', [['0', 'Keep (snapped to 24/25/30/5
 function field(s, f) {
   const id = `h_${s}_${f.k}`, v = R[s][f.k];
   const hint = f.h ? `<div class="h">${esc(f.h)}</div>` : '';
+  if (f.t === 'boxes') {
+    return `<div class="f wide"><div class="cleanpick"><canvas id="cleancv" width="16" height="9" aria-label="${esc(T('A still from the clip. Marked boxes will be removed.'))}"></canvas></div>
+      <div class="rr"><button class="sm" id="cleanfind" type="button">${esc(T('Find them again'))}</button><button class="sm" id="cleanclear" type="button">${esc(T('Clear all'))}</button><span class="muted" id="cleanmsg" style="font-size:.85rem"></span></div></div>`;
+  }
   if (f.t === 'looks') {
     return `<div class="f wide"><label>Looks</label><div class="chips" id="looks">${FILTERS.map(x => `<label title="${esc(x.desc || '')}"><input type="checkbox" data-look="${x.id}"${R.look.ids.includes(x.id) ? ' checked' : ''}><span>${esc(x.name)}</span></label>`).join('')}</div><div class="h" id="lookcount" role="status"></div></div>`;
   }
@@ -106,6 +122,7 @@ function buildSteps() {
 }
 function setOn(s, on) {
   R[s].on = on;
+  if (s === 'clean' && on) cleanStart();
   const tile = document.querySelector(`[data-tile="${s}"]`); if (tile) tile.setAttribute('aria-pressed', String(on));
   const st = document.querySelector(`[data-step="${s}"]`); if (st) st.classList.toggle('hide', !on);
   info();
@@ -153,6 +170,53 @@ function onField(e) {
 }
 document.addEventListener('input', onField); document.addEventListener('change', onField);
 
+// ---------------------------------------------------------------------------------------------- logos and text
+// A still of the clip with the boxes: found ones are suggestions (dashed until chosen), drawn ones are chosen at once.
+let CLEAN = { cands: [], frame: null, W: 0, H: 0, for: null, busy: null };
+const cleanSync = () => { R.clean.boxes = CLEAN.cands.filter(c => c.sel).map(c => c.box.map(v => Math.round(v * 10000) / 10000)); };
+function cleanMsg(s) { const m = $('#cleanmsg'); if (m) m.textContent = s; }
+function cleanDraw(drag) {
+  const cv = $('#cleancv'); if (!cv) return;
+  if (!CLEAN.frame) { cv.width = 16; cv.height = 9; cv.getContext('2d').clearRect(0, 0, 16, 9); return; }
+  const { W, H } = CLEAN; if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
+  const g = cv.getContext('2d'); g.putImageData(new ImageData(new Uint8ClampedArray(CLEAN.frame), W, H), 0, 0);
+  const rect = (b, sel) => { const [x, y, w, h] = [b[0] * W, b[1] * H, b[2] * W, b[3] * H];
+    g.setLineDash(sel ? [] : [5, 4]); g.lineWidth = 2; g.strokeStyle = sel ? '#ff5ccf' : 'rgba(255,255,255,.85)';
+    if (sel) { g.fillStyle = 'rgba(255,92,207,.35)'; g.fillRect(x, y, w, h); } g.strokeRect(x + 1, y + 1, Math.max(1, w - 2), Math.max(1, h - 2)); };
+  CLEAN.cands.forEach(c => rect(c.box, c.sel)); if (drag) rect(drag, true); g.setLineDash([]);
+  const n = CLEAN.cands.filter(c => c.sel).length, m = CLEAN.cands.length - n;
+  cleanMsg(n ? fill(n === 1 ? '{a} box will be removed.' : '{a} boxes will be removed.', { a: n }) + (m ? ' ' + T('Dashed boxes are left alone.') : '') : CLEAN.cands.length ? T('Tap a box to remove it.') : T('Nothing found. Drag across the picture to mark a logo.'));
+}
+async function cleanStart(again = false) {
+  if (!patient || CLEAN.busy || (!again && CLEAN.for === patient)) { cleanDraw(); return; }
+  const me = patient; CLEAN.for = me; cleanMsg(T('Looking for logos and text…'));
+  CLEAN.busy = CLN.findOverlays(me.url, { onProgress: x => cleanMsg(T('Looking for logos and text…') + ' ' + Math.round(x * 100) + '%') });
+  try {
+    const r = await CLEAN.busy; if (patient !== me) return;
+    const own = CLEAN.cands.filter(c => c.own);
+    Object.assign(CLEAN, { W: r.W, H: r.H, frame: r.frame, cands: [...r.found.map(f => ({ box: f.box, sel: f.sure, score: f.score })), ...own] });
+    cleanSync(); cleanDraw();
+  } catch (e) { if (patient === me) { CLEAN.for = null; cleanMsg(T('Could not look at the clip:') + ' ' + e.message); } }
+  finally { CLEAN.busy = null; }
+}
+(() => {
+  const at = (cv, e) => { const r = cv.getBoundingClientRect(); return [Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)), Math.max(0, Math.min(1, (e.clientY - r.top) / r.height))]; };
+  let down = null;
+  document.addEventListener('pointerdown', e => { const cv = e.target.closest && e.target.closest('#cleancv'); if (!cv || !CLEAN.frame) return; down = { p: at(cv, e), cv }; try { cv.setPointerCapture(e.pointerId); } catch (x) { /* ignore */ } e.preventDefault(); });
+  document.addEventListener('pointermove', e => { if (!down) return; const q = at(down.cv, e), p = down.p; if (Math.hypot(q[0] - p[0], q[1] - p[1]) > 0.02) { down.box = [Math.min(p[0], q[0]), Math.min(p[1], q[1]), Math.abs(q[0] - p[0]), Math.abs(q[1] - p[1])]; cleanDraw(down.box); } });
+  document.addEventListener('pointerup', e => {
+    if (!down) return; const d = down; down = null;
+    if (d.box && d.box[2] > 0.01 && d.box[3] > 0.01) CLEAN.cands.push({ box: d.box, sel: true, own: true });
+    else { const [x, y] = d.p, hit = CLEAN.cands.filter(c => x >= c.box[0] && x <= c.box[0] + c.box[2] && y >= c.box[1] && y <= c.box[1] + c.box[3]).sort((a, b) => a.box[2] * a.box[3] - b.box[2] * b.box[3])[0];
+      if (hit) { if (hit.own && hit.sel) CLEAN.cands.splice(CLEAN.cands.indexOf(hit), 1); else hit.sel = !hit.sel; } }
+    cleanSync(); cleanDraw();
+  });
+  document.addEventListener('click', e => {
+    if (e.target.closest('#cleanfind')) cleanStart(true);
+    if (e.target.closest('#cleanclear')) { CLEAN.cands = []; cleanSync(); cleanDraw(); }
+  });
+})();
+
 // ---------------------------------------------------------------------------------------------- engine and files
 const status = t => { $('#engine').textContent = t || ''; };
 function aiAvail() {   // the AI choices only work with the local Linux version and Video2X
@@ -168,7 +232,7 @@ function aiAvail() {   // the AI choices only work with the local Linux version 
 function placeAfter() {
   const f = $('#fafter'), c4 = $('#c4'); if (!f || !c4) return;
   if (f.parentElement !== c4) c4.insertBefore(f, c4.firstElementChild);
-  const v = $('#vafter'); if (v && v.src && v.paused) v.play().catch(() => {});
+  const v = $('#vafter'); if (v && v.src && v.paused && !v.ended && !v.dataset.played) v.play().catch(() => {});
 }
 function showAfter() {
   placeAfter();
@@ -215,11 +279,12 @@ const okFile = f => OK_EXT.has(extOf(f.name));
 async function choose(file, converted) {
   if (!file) return; const g0 = gen;
   $('#gifbar').classList.add('hide'); if (!converted) $('#gifdone').classList.add('hide');
-  if (!okFile(file)) { $('#msg').textContent = 'That is not a video type I know.'; return; }
+  if (!okFile(file)) { say('That is not a video type I know.'); return; }
   if (patient) URL.revokeObjectURL(patient.url);
   patient = { file, url: URL.createObjectURL(file), info: null, loop: null };
+  CLEAN = { cands: [], frame: null, W: 0, H: 0, for: null, busy: null }; R.clean.boxes = []; cleanDraw(); if (R.clean.on) cleanStart();
   $('#vbefore').src = patient.url; $('#patient').classList.remove('hide'); $('#fafter').classList.add('hide'); $('#vafter').removeAttribute('src');
-  ['c3', 'c4'].forEach(i => $('#' + i).classList.remove('hide')); RESULTS.forEach(r => URL.revokeObjectURL(r.url)); $('#res').innerHTML = ''; RESULTS = []; $('#more').classList.add('hide'); $('#msg').textContent = '';
+  ['c3', 'c4'].forEach(i => $('#' + i).classList.remove('hide')); RESULTS.forEach(r => URL.revokeObjectURL(r.url)); $('#res').innerHTML = ''; RESULTS = []; $('#more').classList.add('hide'); say('');
   $('#facts').innerHTML = `<span class="muted">Examining…</span>`; $('#findings').innerHTML = ''; $('#healall').classList.add('hide');
   let path;
   try {
@@ -238,7 +303,7 @@ async function choose(file, converted) {
     if (g0 !== gen || !patient) return; patient.info = inf;
     if (inf.duration > 0 && inf.duration <= 60) { try { patient.loop = await L.analyze(engine, path, inf); } catch (e) { patient.loop = null; } }
     examine();
-  } catch (e) { $('#facts').innerHTML = ''; $('#msg').textContent = e.message; }
+  } catch (e) { $('#facts').innerHTML = ''; say(e.message); }
   finally { if (path) await engine.unmount(path); }
 }
 let gifUrl = null;
@@ -251,7 +316,7 @@ $('#gif2mp4').onclick = () => run(async () => {   // GIF -> MP4 first, then the 
   if (gifUrl) URL.revokeObjectURL(gifUrl); gifUrl = URL.createObjectURL(f);
   await choose(f, true);
   const a = $('#gifdl'); a.href = gifUrl; a.download = f.name; $('#gifdone').classList.remove('hide');
-  $('#msg').textContent = T('Done. This is now an MP4. Choose your treatments below.');
+  say(T('Done. This is now an MP4. Choose your treatments below.'), true);
 });
 
 function examine() {
@@ -303,7 +368,7 @@ async function treat(file, out, rec, label, base) {
   const h = patient && patient.file === file && patient.wc ? patient.wc : await wcOpen(file);
   if (h && WC.canRun(h, rec)) {
     try { const r = await WC.run(h, rec, base, { ctl, onProgress: prog, native: natEnc() }); return { data: r.data, note: r.note }; }
-    catch (e) { if (!e.fallback) throw e; $('#msg').textContent = T('The fast way could not finish this clip, so the slower way is used.') + ' (' + e.message + ')'; }
+    catch (e) { if (!e.fallback) throw e; say(T('The fast way could not finish this clip, so the slower way is used.') + ' (' + e.message + ')'); }
   }
   try {
     await ensureEngine();
@@ -334,7 +399,7 @@ async function treat(file, out, rec, label, base) {
 let curLabel = '';
 const setCur = s => { curLabel = s; $('#cur').textContent = s; };
 async function run(fn) {   // units are reset first: those of the last run would put the bar at 100 % at once
-  if (busy) return; $('#msg').textContent = ''; plan = null; best = 0; bestAt = Date.now(); pausedMs = 0; pauseReq = false; units = { done: 0, total: 1 }; setBusy(true); prog(0); ctl = { cancel: false, check() { if (this.cancel) throw new Error('cancelled'); } };
+  if (busy) return; say(''); ['#vbefore', '#vafter'].forEach(s => { const v = $(s); if (v && !v.paused) v.pause(); });   /* the players rest while the clip is treated: the work needs the video chip and the memory */ plan = null; best = 0; bestAt = Date.now(); pausedMs = 0; pauseReq = false; units = { done: 0, total: 1 }; setBusy(true); prog(0); ctl = { cancel: false, check() { if (this.cancel) throw new Error('cancelled'); } };
   const c = ctl, g = gen, t0 = Date.now(), started = t0;   // a clock, so you can see that it is working even when the browser reports no progress
   const tick = runTick = setInterval(() => {
     if (pauseReq && $('#bar').classList.contains('pz')) return;
@@ -343,7 +408,7 @@ async function run(fn) {   // units are reset first: those of the last run would
     const left = best >= 1 ? '' : lf != null ? ' · ' + T('about {a} left').replace('{a}', fmtDur(lf)) : plan ? ' · ' + T('a little longer than estimated') : '';
     $('#cur').textContent = curLabel + (best > 0 ? ' · ' + Math.floor(best * 100) + '%' : '') + ' · ' + Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0') + left + (s >= 60 && best < 0.5 ? ' — ' + T('Still working. Slow motion and loop fixes are heavy for a browser, especially on a phone. Short clips finish sooner.') : '');
   }, 1000);
-  try { await ensurePicked(); await fn(); } catch (e) { if (g !== gen) return clearInterval(tick); $('#msg').textContent = (c.cancel || e.message === 'cancelled') ? T('Stopped.') : e.message; }
+  try { await ensurePicked(); await fn(); } catch (e) { if (g !== gen) return clearInterval(tick); say((c.cancel || e.message === 'cancelled') ? T('Stopped.') : e.message); }
   clearInterval(tick); if (g !== gen) return;   // "Start over" was pressed while this ran: it has already cleaned up
   setBusy(false); ctl = null; setCur('');
 }
@@ -355,7 +420,7 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') { hidAt = Date.now(); hidBest = best; return; }
   if (!hidAt) return;
   const away = Date.now() - hidAt; hidAt = 0;
-  if (best <= hidBest + 1e-4 && away > 3000) { pausedMs += away; $('#msg').textContent = T('Welcome back. The work waited while the app was in the background, and goes on from where it was.'); setTimeout(() => { if ($('#msg').textContent.startsWith(T('Welcome back.'))) $('#msg').textContent = ''; }, 8000); }
+  if (best <= hidBest + 1e-4 && away > 3000) { pausedMs += away; say(T('Welcome back. The work waited while the app was in the background, and goes on from where it was.'), true); setTimeout(() => { if ($('#msg').textContent.startsWith(T('Welcome back.'))) say(''); }, 8000); }
 });
 $('#pausebtn').onclick = () => { pauseReq = !pauseReq; $('#pausebtn').textContent = pauseReq ? T('Resume') : T('Pause after this clip'); };
 $('#stop').onclick = () => { if (ctl) ctl.cancel = true; engine.terminate(); setCur(T('Stopping…')); };
@@ -373,7 +438,7 @@ $('#prev').onclick = () => run(async () => {
   setCur('Making a preview…');
   const r = await treat(patient.file, 'hosp_prev.mp4', rec, 'preview', { ...baseProf(), preset: 'ultrafast' });
   const v = $('#vafter'); if (v.src) URL.revokeObjectURL(v.src); v.src = URL.createObjectURL(new Blob([r.data], { type: 'video/mp4' })); $('#fafter').classList.remove('hide'); showAfter();
-  $('#msg').textContent = T(notUp ? 'Preview done. It is small and low quality, but shows the loop and life effects. It does not show the upscale.' : 'Preview done. It is small and low quality, but shows the loop and life effects. The saved file uses your chosen size.') + (aiSlow ? ' ' + T('The preview makes new frames the fast way, so movement can look a little softer. The saved clip uses the method you chose.') : '');
+  say(T(notUp ? 'Preview done. It is small and low quality, but shows the loop and life effects. It does not show the upscale.' : 'Preview done. It is small and low quality, but shows the loop and life effects. The saved file uses your chosen size.') + (aiSlow ? ' ' + T('The preview makes new frames the fast way, so movement can look a little softer. The saved clip uses the method you chose.') : ''), true);
 });
 
 $('#aiprev').onclick = () => run(async () => {   // the real AI on a couple of seconds: shows the quality and how long the whole clip will take
@@ -385,7 +450,7 @@ $('#aiprev').onclick = () => run(async () => {   // the real AI on a couple of s
   const r = await treat(patient.file, 'hosp_prev.mp4', rec, 'preview', { ...baseProf(), preset: 'ultrafast' });
   const took = (Date.now() - t0) / 1000, whole = Math.max(1, (patient.info.duration || cap) - st) / cap;
   const v = $('#vafter'); if (v.src) URL.revokeObjectURL(v.src); v.src = URL.createObjectURL(new Blob([r.data], { type: 'video/mp4' })); $('#fafter').classList.remove('hide'); showAfter();
-  $('#msg').textContent = T('AI sample done in {a}. The whole clip would take about {b}, plus the other steps.').replace('{a}', fmtDur(took)).replace('{b}', fmtDur(took * whole));
+  say(T('AI sample done in {a}. The whole clip would take about {b}, plus the other steps.').replace('{a}', fmtDur(took)).replace('{b}', fmtDur(took * whole)), true);
 });
 
 function addResult(name, data, note) {
@@ -471,7 +536,7 @@ $('#go').onclick = () => run(async () => {
   const m = await measure(patient.file, vs[0].rec, patient.loop), t1 = Date.now();
   if (m) plan = { total: m.one * vs.length, at: t1 - pausedMs };
   await treatClip(patient.file, short(patient.file.name));
-  if (plan) $('#msg').textContent = T('Done in {a} (estimated {b}).').replace('{a}', fmtDur((Date.now() - t1) / 1000)).replace('{b}', fmtDur(plan.total));
+  if (plan) say(T('Done in {a} (estimated {b}).').replace('{a}', fmtDur((Date.now() - t1) / 1000)).replace('{b}', fmtDur(plan.total)), true);
   const v = $('#vafter'); if (v.src) URL.revokeObjectURL(v.src); v.src = URL.createObjectURL(RESULTS[RESULTS.length - 1].blob); $('#fafter').classList.remove('hide'); showAfter(); $('#fafter figcaption').textContent = 'After';
 });
 $('#res').onclick = e => { const b = e.target.closest('[data-up]'); const r = b && RESULTS.find(x => x.id === +b.dataset.up); if (r && window.SPK_UP) SPK_UP.open(new File([r.blob], r.name, { type: 'video/mp4' }), { title: stemOf(r.name).replace(/_healed$/, ''), name: r.name }); };
@@ -483,14 +548,14 @@ $('#pickermore').onchange = e => {
     for (const f of files) {
       ctl.check();
       try { await treatClip(f, `${short(f.name)} (${++n}/${files.length})`); }
-      catch (er) { if (er.message === 'cancelled') throw er; bad++; units.done = Math.min(units.total, n * per); prog(0); $('#msg').textContent = `${short(f.name, 40)}: ${er.message}`; }
+      catch (er) { if (er.message === 'cancelled') throw er; bad++; units.done = Math.min(units.total, n * per); prog(0); say(`${short(f.name, 40)}: ${er.message}`); }
     }
-    if (!bad) $('#msg').textContent = '';
+    if (!bad) say('');
   });
 };
 $('#zipall').onclick = async () => {
   try { const z = await makeZip(RESULTS.map(r => ({ name: r.name, blob: r.blob }))), u = URL.createObjectURL(z), a = document.createElement('a'); a.href = u; a.download = 'healed-loops.zip'; a.click(); setTimeout(() => URL.revokeObjectURL(u), 60000); }
-  catch (e) { $('#msg').textContent = e.message; }
+  catch (e) { say(e.message); }
 };
 
 // Start over = a fresh page. Asks first when there is something to lose; stops the work, then reloads. Kept this simple on purpose:

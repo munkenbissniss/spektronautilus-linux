@@ -40,6 +40,8 @@ function analyzeCore(data, n, fps) {
   return { frames: n, fps, wrap, stepTyp: ref, ratio, isLoop, verdict, bestCut: k, bestRatio: raw / ref, bestKeeps: (k + 1) / n };
 }
 
+// the state before, in plain words, for the notes on a finished clip
+export function beforeText(r) { return r.isLoop || r.verdict === 'seamless' ? 'already seamless' : r.verdict === 'almost' ? 'a small jump at the loop point' : 'a clear jump at the loop point'; }
 export function reportText(r) {
   let s = `${r.verdict} (loop jump ${r.ratio.toFixed(1)}x a normal frame step)`;
   if (!r.isLoop && r.bestCut >= 0 && r.bestRatio <= 1.25) s += `; a better loop point exists after frame ${r.bestCut} (keeps ${Math.round(r.bestKeeps * 100)} %)`;
@@ -86,7 +88,7 @@ export function planLoop(data, n, fps, { mode = 'auto', fade = 1.5, fadeAuto = f
   const okJ = joins.filter(j => j[1] <= Math.max(1.25, bestJ[1] * 1.1)), trim = okJ.length ? okJ.reduce((a, b) => (b[0] > a[0] ? b : a)) : bestJ;
   // crossfade: the tail that starts at k is blended over the head (frames 0..xf-1); the result is k frames long
   const cross = fixedXf => {
-    const maxXf = Math.max(2, Math.min(Math.round(4 * fps), Math.floor(n / 3))), minXf = Math.max(2, Math.round(0.3 * fps));
+    const maxXf = Math.max(2, Math.min(Math.round(4 * fps), Math.floor(n / 3))), minXf = Math.max(2, Math.min(Math.round(0.8 * fps), Math.floor(n / 4)));   // shorter than ~0.8 s reads as a jump with a ghost
     const xfs = fixedXf ? [Math.max(2, Math.min(fixedXf, Math.floor(n / 3)))] : Array.from({ length: Math.max(1, Math.floor((maxXf - minXf) / Math.max(1, Math.round(fps / 10))) + 1) }, (_, i) => Math.min(maxXf, minXf + i * Math.max(1, Math.round(fps / 10))));
     let best = null;
     for (const xf of xfs) {
@@ -96,7 +98,7 @@ export function planLoop(data, n, fps, { mode = 'auto', fade = 1.5, fadeAuto = f
         const ghost = s / ws / ref, len = k;
         // little ghosting first, then the longer loop. Where the two moments differ more, a short blend shows as a jump with a ghost,
         // while a long one reads as a slow morph: so the more they differ, the more a long blend is wanted
-        const sec = xf / Math.max(1, fps), score = ghost + 3 * (1 - len / n) - 0.05 * sec + Math.max(0, ghost - 1.2) * Math.max(0, 1.2 - sec);
+        const sec = xf / Math.max(1, fps), score = ghost + 3 * (1 - len / n) - 0.15 * Math.min(sec, 2.5) + Math.max(0, ghost - 1.2) * Math.max(0, 1.2 - sec);
         if (!best || score < best.score) best = { method: 'crossfade', cut: k + xf, xf, E, len, ghost, score, rep };
       }
     }
@@ -211,7 +213,7 @@ export async function makeLoop(engine, src, dst, prof, info, { mode = 'auto', fa
   if (method === 'asis') {
     const r = await engine.exec(encodeArgs(src, dst, prof, info, { repeat: repeatsNeeded(info.duration, prof.minSeconds) }), { onProgress: R(0.06, 1) });
     if (r.code !== 0) throw new Error('Encoding failed');
-    return { note: `${planNote(pl, fps)} (${reportText(rep)})`, method: 'asis' };
+    return { note: `${planNote(pl, fps)} (before: ${beforeText(rep)})`, method: 'asis' };
   }
   const tmps = [];
   try {
@@ -228,5 +230,5 @@ export async function makeLoop(engine, src, dst, prof, info, { mode = 'auto', fa
     ctl.check();
     await finish(from, await probe(engine, from), frames);
   } finally { for (const t of tmps) await engine.remove(t); }
-  return { note: `${planNote(pl, fps)}; before: ${reportText(rep)}`, method };
+  return { note: `${planNote(pl, fps)}; before: ${beforeText(rep)}`, method };
 }

@@ -234,6 +234,7 @@ export function diagnose(info, loop, { slowEngine = false, ai = false } = {}) {
 }
 
 export const defaultRecipe = () => ({
+  clean: { on: false, boxes: [] },   // boxes: [x, y, w, h] as parts (0..1) of the shown picture of the original clip
   cut: { on: false, start: 0, len: 0 },
   crop: { on: false, shape: '169', pos: 'c' },
   rotate: { on: false, turn: '90', flip: 'none' },
@@ -250,6 +251,24 @@ export const defaultRecipe = () => ({
 });
 export const mergeRecipe = (R, patch) => { for (const k of Object.keys(patch)) { R[k] = { ...R[k], ...patch[k] }; if (k !== 'out') R[k].on = true; } return R; };
 
+// Logos and text on top of the picture: each box is filled in from the picture around it (ffmpeg delogo; the fast way does the same
+// on the graphics card). Boxes are parts of the shown picture; delogo needs one pixel of picture around the box, so a box that touches
+// the edge stops one pixel short of it.
+export function cleanPx(info, boxes) {
+  const W = info.width, H = info.height, out = [];
+  for (const b of boxes || []) {
+    if (!Array.isArray(b) || b.length < 4) continue;
+    const x0 = Math.max(1, Math.floor(b[0] * W)), y0 = Math.max(1, Math.floor(b[1] * H)), x1 = Math.min(W - 1, Math.ceil((b[0] + b[2]) * W)), y1 = Math.min(H - 1, Math.ceil((b[1] + b[3]) * H));
+    if (x1 - x0 >= 2 && y1 - y0 >= 2) out.push([x0, y0, x1, y1]);
+  }
+  return out;
+}
+export function cleanPlan(info, boxes) {
+  const px = info.width && info.height ? cleanPx(info, boxes) : [];
+  if (!px.length) return { filter: '', note: '' };
+  return { filter: px.map(([x0, y0, x1, y1]) => `delogo=x=${x0}:y=${y0}:w=${x1 - x0}:h=${y1 - y0}`).join(','), note: px.length === 1 ? 'logo removed' : `${px.length} logos removed` };
+}
+
 // The full plan for one clip: filters in order cut → rotate → crop → slow → upscale → resize → look, then encode, then optional loop smoothing.
 export function planRecipe(info, R, baseProf) {
   const pre = [], notes = [];
@@ -258,6 +277,10 @@ export function planRecipe(info, R, baseProf) {
   if (R.cut.on) {
     if (dur && seek >= dur - 0.05) throw new Error('The start time is after the end of this clip');
     dur = Math.min(dur - seek, limit || Infinity); notes.push(`cut ${seek ? 'from ' + seek + ' s' : ''}${limit ? ' ' + limit + ' s' : ''}`.trim());
+  }
+  if (R.clean && R.clean.on) {
+    const cl = cleanPlan(info, R.clean.boxes);
+    if (cl.filter) { pre.push(cl.filter); notes.push(cl.note); }
   }
   if (R.rotate.on) {
     const ro = rotatePlan({ width: w, height: h }, R.rotate);
@@ -311,7 +334,7 @@ async function aiStages(engine, loops, src, info, R, baseProf, ctl, report, onSt
   const tmps = [], notes = [], v = (engine.info && engine.info.v2x) || {}, aiSlow = R.slow.on && R.slow.engine === 'ai', aiUp = R.up.on && R.up.engine === 'ai', reUp = R.up.on && R.up.engine === 'recavsr', aiFps = !!(R.fps && R.fps.on && R.fps.engine === 'ai');
   const R3 = clone(R), pre = clone(R);
   let path = src, cur = info, done = 0;
-  const W = { a: 1, ai: 6, fin: 2 }, usesA = R.cut.on || R.rotate.on || R.crop.on || (R.slow.on && !aiSlow);
+  const W = { a: 1, ai: 6, fin: 2 }, usesA = R.cut.on || R.rotate.on || R.crop.on || !!(R.clean && R.clean.on && R.clean.boxes.length) || (R.slow.on && !aiSlow);
   const total = (usesA ? W.a : 0) + (aiSlow ? W.ai : 0) + (aiFps ? W.ai : 0) + (aiUp || reUp ? W.ai : 0) + W.fin;
   const rep = (w, x) => { lastP = Math.min(1, x); report && report((done + w * Math.min(1, x)) / total); };
   const finish = w => { done += w; };
@@ -327,7 +350,7 @@ async function aiStages(engine, loops, src, info, R, baseProf, ctl, report, onSt
     const r = await engine.exec(encodeArgs(src, out, { ...pa.prof, crf: 12, minSeconds: 0, maxMBps: 0, preset: 'veryfast' }, pa.cur, { pre: pa.pre, seek: pa.seek, limit: pa.limit, repeat: 1 }), { onProgress: x => rep(W.a, x) });
     if (r.code !== 0) throw new Error('Could not prepare this clip (' + errLine(r, /error|invalid|not supported|unknown|no such/i) + ')');
     finish(W.a); path = out; cur = await loops.probe(engine, out);
-    R3.cut.on = false; R3.rotate.on = false; R3.crop.on = false; if (R.slow.on && !aiSlow) R3.slow.on = false;
+    R3.cut.on = false; R3.rotate.on = false; R3.crop.on = false; if (R3.clean) R3.clean.on = false; if (R.slow.on && !aiSlow) R3.slow.on = false;
   }
   if (aiSlow) {
     const m = Math.min(8, Math.max(2, Math.round(+R.slow.factor) || 2)), smooth = R.slow.mode === 'smooth', fps = cur.fps || 25;
@@ -478,7 +501,7 @@ async function timeStage(engine, loops, src, info, R, baseProf, ctl, report, tag
   if (lowMem && (doS || doF) && info.width && info.height) { try { const [tw, th] = planRecipe(info, R, baseProf).size; shrink = tw * th < info.width * info.height * 0.8; } catch (e) { shrink = false; } }
   const doSlowM = needsBandedSlow(engine, info, R);
   if (lowMem && doSlowM && !shrink && info.width && info.height) { try { const [tw, th] = planRecipe(info, R, baseProf).size; shrink = tw * th < info.width * info.height * 0.8; } catch (e) { /* keep */ } }
-  const usesCut = !!R.cut.on || shrink;
+  const usesCut = !!R.cut.on || shrink || !!(R.clean && R.clean.on && R.clean.boxes.length);   // logos are removed in the first pass, where the picture still has its own shape
   const tmps = [], W = { cut: 1, look: 1, enc: 6, fin: 3 }, total = (usesCut ? W.cut : 0) + (doS ? W.look + W.enc : 0) + (doF ? W.look + W.enc : 0) + (doSlowM ? W.enc : 0) + W.fin, notes = [];
   const drop = async old => { if (lowMem && old !== src && tmps.includes(old)) { try { await engine.remove(old); } catch (e) { /* ignore */ } tmps.splice(tmps.indexOf(old), 1); } };
   let done = 0, path = src, cur = info;
@@ -492,7 +515,7 @@ async function timeStage(engine, loops, src, info, R, baseProf, ctl, report, tag
     const pa = planRecipe(info, pre, { ...baseProf, maxMBps: 0, preset: 'veryfast' }), out = `${tag}_c.mp4`; tmps.push(out); ctl.check();
     const r = await engine.exec(encodeArgs(src, out, { ...pa.prof, crf: ICRF, minSeconds: 0, maxMBps: 0, preset: 'veryfast' }, pa.cur, { pre: pa.pre, seek: pa.seek, limit: pa.limit, repeat: 1 }), { onProgress: x => rep(W.cut, x) });
     if (r.code !== 0) throw fail('prepare this clip', r);
-    done += W.cut; path = out; cur = await loops.probe(engine, out); R3.cut.on = false;
+    done += W.cut; path = out; cur = await loops.probe(engine, out); R3.cut.on = false; if (R3.clean) R3.clean.on = false;
     if (shrink) { R3.crop.on = false; R3.rotate.on = false; notes.push('made smaller first'); }
   }
   if (doS) {

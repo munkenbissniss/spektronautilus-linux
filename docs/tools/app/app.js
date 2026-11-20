@@ -4,11 +4,18 @@ import { FILTERS, filterChain } from './filters.js';
 import { getEngine } from './engine.js';
 import * as Q from '../../shared/queue.js';
 import * as L from './loops.js';
-import * as SR from './search.js';
 import { makeZip } from './zip.js';
 import * as ST from './steps.js';
 
 const $ = s => document.querySelector(s);
+// Videos on this page play once and stop (many clips looping at once wear out a phone and can freeze the picture).
+// Press play yourself after that, and the clip loops.
+(() => {
+  const isV = e => e.target && e.target.tagName === 'VIDEO';
+  document.addEventListener('loadstart', e => { if (isV(e)) { e.target.loop = false; delete e.target.dataset.played; } }, true);
+  document.addEventListener('ended', e => { if (isV(e)) e.target.dataset.played = '1'; }, true);
+  document.addEventListener('play', e => { if (isV(e) && e.target.dataset.played) e.target.loop = true; }, true);
+})();
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const engine = getEngine();
 class Cancelled extends Error {}
@@ -26,21 +33,20 @@ const TOOLS = {
   slowmo: { label: 'Slow motion', sub: 'Make clips slower, or smoother. The blend and motion methods work everywhere, even in the browser. AI (Video2X with RIFE) gives the best result, but needs the local version (Linux or Windows).', go: 'Make slow motion', gif: false },
   catalog: { label: 'Catalogue', sub: 'A list of all your loops with picture, length, size and loop quality, as a web page and a spreadsheet file.', go: 'Make catalogue', gif: false },
   pack: { label: 'Loop pack', sub: 'Bundle loops into one zip that is ready to share: preview picture, info file, credits and licence.', go: 'Build pack', gif: false },
-  search: { label: 'Find loops', sub: 'Search free sources for loops, download them and convert them to VJ-friendly clips.', go: 'Download and convert selected', gif: false },
 };
 let tool = 'convert'; try { tool = localStorage.getItem('vj_tool') || 'convert'; } catch (e) { /* ignore */ }
 const HASH = { upscale: 'ai', slow: 'slowmo' };
 if (TOOLS[HASH[location.hash.slice(1)] || location.hash.slice(1)]) tool = HASH[location.hash.slice(1)] || location.hash.slice(1);
 if (!TOOLS[tool]) tool = 'convert';
-const FILE_TOOLS = Object.keys(TOOLS).filter(k => k !== 'search'), FILES = {}, SEL = {};
+const FILE_TOOLS = Object.keys(TOOLS), FILES = {}, SEL = {};
 FILE_TOOLS.forEach(k => { FILES[k] = []; SEL[k] = new Set(); });
 const SSEL = new Set(['720', '1080']);   // chosen sizes in the Sizes tool
 const FSEL = new Set(), FIMG = {};
-let RES = [], RSEL = new Set(), SRCSEL = new Set(), nextId = 1;
+let nextId = 1;
 const JOBS = [];
 
 const GROUPS = [
-  { g: 'VJ-friendly output', open: true, tools: 'convert gif2mp4 loop filters search crop sizes pro', f: [
+  { g: 'VJ-friendly output', open: true, tools: 'convert gif2mp4 loop filters crop sizes pro', f: [
     { k: 'size', hf: 'sizes', t: 'select', o: ['1280x720', '1920x1080', '2560x1440', '3840x2160'], h: 'The size box. Portrait material is turned automatically. In the browser, 1920×1080 or smaller is wise.' },
     { k: 'fit', hf: 'sizes', t: 'select', o: [['keep', 'Keep shape, only shrink'], ['fit', 'Letterbox to exactly the box'], ['fill', 'Crop to exactly the box']] },
     { k: 'upscale', hf: 'sizes', t: 'bool', l: 'Enlarge small videos up to the box', h: 'Only with “Keep shape”. Good for tiny GIFs.' },
@@ -86,16 +92,15 @@ const GROUPS = [
     { k: 'mode', t: 'select', lp: 1, o: [['auto', 'Auto: keep good loops, otherwise fix them'], ['pingpong', 'Forward, then backward'], ['crossfade', 'Crossfade end into start'], ['trim', 'Trim to the best loop point'], ['none', 'Do nothing (just convert)']], h: 'Auto: a clip that already loops is left alone; if cutting a bit off the end gives a clean loop it does that; otherwise it uses the fallback.' },
     { k: 'fallback', t: 'select', lp: 1, o: [['pingpong', 'Forward, then backward'], ['crossfade', 'Crossfade']], l: 'Auto fallback' },
     { k: 'fade', t: 'range', lp: 1, min: 0.3, max: 8, step: 0.1, l: 'Crossfade length (s)' }] },
-  { g: 'Naming', open: true, naming: true, tools: 'convert gif2mp4 loop filters search crop sizes pro ai slowmo', f: [
+  { g: 'Naming', open: true, naming: true, tools: 'convert gif2mp4 loop filters crop sizes pro ai slowmo', f: [
     { k: 'template', t: 'text', n: 1, l: 'Name template', h: 'Tokens: {name} {n} {n2} {n3} {n4} {w} {h} {res} {fps} {dur} {date}' },
     { k: 'prefix', t: 'text', n: 1 }, { k: 'suffix', t: 'text', n: 1 },
     { k: 'start', t: 'number', n: 1, l: 'First number' },
     { k: 'case', t: 'select', n: 1, o: [['keep', 'Keep'], ['lower', 'lowercase'], ['upper', 'UPPERCASE']] },
     { k: 'spaces', t: 'select', n: 1, o: [['_', 'Underscore _'], ['-', 'Dash -'], ['keep', 'Keep spaces']] },
     { k: 'ascii', t: 'bool', n: 1, l: 'Plain letters only (æøå → ae o a)' }] },
-  { g: 'Saving', open: true, tools: 'convert gif2mp4 loop filters search crop sizes pro ai slowmo', f: [
-    { k: 'saveDirect', t: 'bool', x: 1, l: 'Save each file straight into a folder I choose', h: 'Chrome and Edge only. Saves memory with many or big files. Otherwise results stay in the page until you download them.' },
-    { k: 'loopify', t: 'select', x: 1, srch: 1, o: [['none', 'Just convert'], ['auto', 'Make them seamless loops (auto)'], ['pingpong', 'Forward, then backward'], ['crossfade', 'Crossfade']], l: 'Downloaded clips' }] },
+  { g: 'Saving', open: true, tools: 'convert gif2mp4 loop filters crop sizes pro ai slowmo', f: [
+    { k: 'saveDirect', t: 'bool', x: 1, l: 'Save each file straight into a folder I choose', h: 'Chrome and Edge only. Saves memory with many or big files. Otherwise results stay in the page until you download them.' }] },
 ];
 const LABEL = k => k.replace(/([A-Z])/g, ' $1').replace(/^./, c => c.toUpperCase());
 const HAS_DIR = typeof window.showDirectoryPicker === 'function';
@@ -107,11 +112,11 @@ function fld(f) {
   else if (f.t === 'select') c = `<select id="${id}">${f.o.map(o => Array.isArray(o) ? `<option value="${esc(o[0])}">${esc(o[1])}</option>` : `<option>${esc(o)}</option>`).join('')}</select>`;
   else if (f.t === 'bool') c = `<label class="chips"><input id="${id}" type="checkbox"> <span style="font-size:.9rem">${esc(l)}</span></label>`;
   else c = `<input id="${id}" type="${f.t === 'number' ? 'number' : 'text'}">`;
-  return `<div class="f${f.srch ? ' srch' : ''}"${f.hf ? ` data-hf="${f.hf}"` : ''}${f.w ? ` data-w="${f.w}"` : ''}><label for="${id}" ${f.t === 'bool' ? 'class="hide"' : ''}>${esc(l)}</label>${c}${f.h ? `<div class="h">${esc(f.h)}</div>` : ''}</div>`;
+  return `<div class="f"${f.hf ? ` data-hf="${f.hf}"` : ''}${f.w ? ` data-w="${f.w}"` : ''}><label for="${id}" ${f.t === 'bool' ? 'class="hide"' : ''}>${esc(l)}</label>${c}${f.h ? `<div class="h">${esc(f.h)}</div>` : ''}</div>`;
 }
 function buildSettings() {
   $('#groups').innerHTML = GROUPS.map(g => `<details data-g="${g.g}" data-tools="${g.tools || ''}"${g.aiOnly ? ' data-aionly="1"' : ''} ${g.open ? 'open' : ''} class="${g.loop ? 'loopg' : ''}"><summary>${g.g}</summary><div class="fields">${g.f.map(fld).join('')}${g.naming ? '<div class="f" style="grid-column:1/-1"><label>Preview</label><div class="prev" id="nprev">Add files to see the new names.</div></div>' : ''}</div></details>`).join('');
-  const P = { ...defaultProfile(), preset: 'veryfast' }, N = defaultNaming(), X = { saveDirect: false, loopify: 'none', mode: 'auto', fallback: 'pingpong', fade: 1.5, cropShape: '169', cropPos: 'c', trimStart: 0, trimLen: 0, proFormat: 'hap', aiModel: 'realesr-animevideov3', aiScale: 2, aiCrf: 17, aiGpu: 0, aiPause: 0, upEngine: 'sharp', upSharp: 50, slowEngine: 'motion', slowFactor: 2, slowMode: 'slow', slowModel: 'rife-v4.6', catTitle: 'My loop catalogue', checkLoop: true, packName: 'My loop pack', packAuthor: '', packLicence: 'ccby', packNotes: '', packLoop: true };
+  const P = { ...defaultProfile(), preset: 'veryfast' }, N = defaultNaming(), X = { saveDirect: false, mode: 'auto', fallback: 'pingpong', fade: 1.5, cropShape: '169', cropPos: 'c', trimStart: 0, trimLen: 0, proFormat: 'hap', aiModel: 'realesr-animevideov3', aiScale: 2, aiCrf: 17, aiGpu: 0, aiPause: 0, upEngine: 'sharp', upSharp: 50, slowEngine: 'motion', slowFactor: 2, slowMode: 'slow', slowModel: 'rife-v4.6', catTitle: 'My loop catalogue', checkLoop: true, packName: 'My loop pack', packAuthor: '', packLicence: 'ccby', packNotes: '', packLoop: true };
   GROUPS.forEach(g => g.f.forEach(f => {
     const e = $('#o_' + f.k); if (!e) return;
     const v = f.n ? N[f.k] : (f.x || f.lp) ? X[f.k] : P[f.k];
@@ -126,7 +131,6 @@ function collect() {
   const profile = {}, naming = {}, loop = {}, ex = {};
   GROUPS.forEach(g => g.f.forEach(f => { const v = val(f); if (v === undefined) return; if (f.n) naming[f.k] = v; else if (f.lp) loop[f.k] = v; else if (f.x) ex[f.k] = v; else profile[f.k] = v; }));
   profile.maxFps = 60;
-  if (tool === 'search') loop.mode = ex.loopify;
   return { profile, naming, loop, ex };
 }
 
@@ -143,7 +147,6 @@ function setTool(t) {
   document.querySelectorAll('#groups details[data-tools]').forEach(e => e.classList.toggle('hide', !!e.dataset.tools && !e.dataset.tools.split(' ').includes(t)));
   document.querySelectorAll('#groups [data-hf]').forEach(e => e.classList.toggle('hide', e.dataset.hf.split(' ').includes(t)));
   applyWhen(); proNote();
-  document.querySelectorAll('.srch').forEach(e => e.classList.toggle('hide', t !== 'search'));
   $('#looptools').classList.toggle('hide', t !== 'loop');
   $('#droptxt').textContent = TOOLS[t].gif ? 'Drop GIF files here' : 'Drop videos here';
   renderFiles(); namePrev(); runInfo(); if (t === 'filters') renderFilters();
@@ -151,7 +154,7 @@ function setTool(t) {
 function runInfo() {
   if (tool === 'filters') { const n = SEL.filters.size; $('#runinfo').textContent = n && FSEL.size ? `${n} file(s) × ${FSEL.size} look(s) = ${n * FSEL.size} new clip(s)` : 'Select files above and pick at least one look'; return; }
   if (tool === 'sizes') { const n = SEL.sizes.size; $('#runinfo').textContent = n && SSEL.size ? `${n} file(s) × ${SSEL.size} size(s)` : 'Select files above and pick at least one size'; return; }
-  $('#runinfo').textContent = tool === 'search' ? (RSEL.size ? `${RSEL.size} clip(s) selected` : 'Select search results above') : (SEL[tool].size ? `${SEL[tool].size} of ${FILES[tool].length} file(s) selected` : 'Select files above');
+  $('#runinfo').textContent = (SEL[tool].size ? `${SEL[tool].size} of ${FILES[tool].length} file(s) selected` : 'Select files above');
 }
 
 // ---------------------------------------------------------------------------------------------- files
@@ -170,7 +173,6 @@ function addFiles(list, t = tool) {
   $('#msg').textContent = skipped ? `${skipped} file(s) skipped (${TOOLS[t].gif ? 'only GIF files here' : 'not a video type I know'}).` : '';
 }
 function renderFiles() {
-  if (tool === 'search') return;
   const Ls = FILES[tool];
   $('#fcount').textContent = Ls.length ? `(${SEL[tool].size} selected of ${Ls.length})` : '';
   $('#files').innerHTML = Ls.map(f => `<div class="vt ${SEL[tool].has(f.id) ? 'sel' : ''}" data-id="${f.id}">${f.name.toLowerCase().endsWith('.gif') ? `<img alt="" src="${f.url}">` : `<video muted preload="metadata" playsinline src="${f.url}#t=0.3"></video>`}${f.tag ? `<span class="tag ${f.tag.cls}" title="${esc(f.tag.text)}">${esc(f.tag.short)}</span>` : ''}<button class="x" data-rm="${f.id}" title="Remove from list">✕</button><div class="cap"><span title="${esc(f.name)}">${esc(f.name)}</span><span>${fmtSize(f.size)}</span></div></div>`).join('') || '<span class="muted">No files yet.</span>';
@@ -230,7 +232,6 @@ function namePrev() {
   clearTimeout(npT);
   npT = setTimeout(() => {
     const el = $('#nprev'); if (!el) return;
-    if (tool === 'search') { el.textContent = 'Downloaded clips are named “provider_id” unless you change the template.'; return; }
     const sel = FILES[tool].filter(f => SEL[tool].has(f.id));
     if (!sel.length) { el.textContent = 'Add files to see the new names.'; return; }
     const { naming } = collect(), taken = new Set();
@@ -316,38 +317,6 @@ function renderSizes() {
   $('#sgrid').innerHTML = SIZE_STEPS.map(z => `<label class="srcchip ${SSEL.has(z[0]) ? 'sel' : ''}"><input type="checkbox" data-z="${z[0]}" ${SSEL.has(z[0]) ? 'checked' : ''}>${esc(z[3])}${z[0] === '480' ? '' : ` <small class="muted">${z[1]}×${z[2]}</small>`}</label>`).join('');
 }
 $('#sgrid').onchange = e => { const z = e.target.dataset.z; if (!z) return; e.target.checked ? SSEL.add(z) : SSEL.delete(z); renderSizes(); namePrev(); runInfo(); };
-
-// ---------------------------------------------------------------------------------------------- search
-function renderSrcs() {
-  $('#srcs').innerHTML = SR.status().map(s => `<label class="srcchip ${SRCSEL.has(s.name) ? 'sel' : ''} ${s.ready ? '' : 'off'}" title="${s.ready ? '' : 'Needs a free API key – see below'}"><input type="checkbox" data-s="${s.name}" ${SRCSEL.has(s.name) ? 'checked' : ''} ${s.ready ? '' : 'disabled'}>${esc(s.label)}${s.ready ? '' : ' 🔑'}</label>`).join('');
-}
-$('#srcs').onchange = e => { const s = e.target.dataset.s; if (!s) return; e.target.checked ? SRCSEL.add(s) : SRCSEL.delete(s); renderSrcs(); };
-$('#savekeys').onclick = () => { SR.setKey('pexels', $('#k_pexels').value); SR.setKey('pixabay', $('#k_pixabay').value); SR.defaultSources().forEach(n => SRCSEL.add(n)); renderSrcs(); $('#keymsg').textContent = 'Saved in this browser.'; };
-let SQ = null;   // the search that "Load more" continues
-async function doSearch(more = false) {
-  const q = more && SQ ? SQ.q : $('#q').value.trim(); if (!q) { $('#smsg').textContent = 'Type what you are looking for.'; return; }
-  const page = more && SQ ? SQ.page + 1 : 1;
-  $('#smsg').textContent = 'Searching…'; $('#dosearch').disabled = true; $('#more').disabled = true;
-  try {
-    const caps = [+$('#maxs').value || 0, $('#short').checked ? 60 : 0].filter(Boolean);
-    const o = { loopWord: $('#loopword').checked, minHeight: +$('#minh').value, minSeconds: +$('#mins').value || 0, maxSeconds: caps.length ? Math.min(...caps) : 0, hideGov: $('#hidegov').checked, loopsFirst: $('#loopsfirst').checked, orientation: $('#orient').value, pixabayType: $('#ptype').value, page };
-    const r = await SR.search(q, [...SRCSEL], o);
-    const have = new Set(more ? RES.map(x => x.provider + ':' + x.id) : []), fresh = r.results.filter(x => !have.has(x.provider + ':' + x.id));
-    if (more) RES = RES.concat(fresh); else { RES = fresh; RSEL = new Set(); }
-    SQ = { q, page }; renderResults();
-    const er = Object.entries(r.errors).map(([k, v]) => `${k}: ${v}`).join(' · ');
-    $('#smsg').innerHTML = (RES.length ? `${RES.length} clips found${more && !fresh.length ? ' (nothing new on this page)' : ''}.` : 'Nothing found. Try other words.') + (r.hidden ? ` <span class="muted">${r.hidden} hidden by your filters</span>` : '') + (er ? ` <span class="warn">${esc(er)}</span>` : '');
-  } catch (e) { $('#smsg').textContent = e.message; }
-  $('#dosearch').disabled = false; $('#more').disabled = false; runInfo();
-}
-function renderResults() {
-  $('#rtools').classList.toggle('hide', !RES.length); $('#moretools').classList.toggle('hide', !RES.length); $('#rcount').textContent = RES.length ? `${RSEL.size} selected` : '';
-  $('#results').innerHTML = RES.map((r, i) => `<div class="rc ${RSEL.has(i) ? 'sel' : ''}" data-i="${i}">${r.thumb ? `<img loading="lazy" referrerpolicy="no-referrer" alt="" src="${esc(r.thumb)}" onerror="this.style.visibility='hidden'">` : '<img alt="">'}<div class="b"><span class="t" title="${esc(r.title)}">${esc(r.title)}</span><span class="muted">${esc(r.provider)} · ${r.height ? r.width + '×' + r.height : 'size ?'} · ${r.duration ? Math.round(r.duration) + ' s' : (r.kind === 'gif' ? 'GIF' : '? s')}</span>${r.loops ? '<span class="loopb">🔁 loops</span>' : ''}<span class="muted" title="${esc(r.author)}">${esc(r.license || 'licence ?')}${r.author ? ' · ' + esc(r.author) : ''}</span>${r.page ? `<a href="${esc(r.page)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="font-size:.78rem">Open page ↗</a>` : ''}</div></div>`).join('');
-}
-$('#results').onclick = e => { const c = e.target.closest('.rc'); if (!c) return; const i = +c.dataset.i; RSEL.has(i) ? RSEL.delete(i) : RSEL.add(i); c.classList.toggle('sel'); $('#rcount').textContent = `${RSEL.size} selected`; runInfo(); };
-$('#rall').onclick = () => { RES.forEach((_, i) => RSEL.add(i)); renderResults(); runInfo(); };
-$('#rnone').onclick = () => { RSEL.clear(); renderResults(); runInfo(); };
-$('#dosearch').onclick = () => doSearch(false); $('#more').onclick = () => doSearch(true); $('#q').onkeydown = e => { if (e.key === 'Enter') doSearch(false); };
 
 // ---------------------------------------------------------------------------------------------- filters
 function renderFilters() {
@@ -536,18 +505,15 @@ async function runJob(job) {
   try {
     if (!(window.SPK_IOS && SPK_IOS.features && SPK_IOS.features.transcode && job.tool === "convert")) await ensureEngine();   // iPhone app: plain conversions never need ffmpeg.wasm (it loads by itself if the fallback is used)
     if (job.dir) job.taken = await stems(job.dir);
-    const credits = [];
     for (let i = 0; i < job.items.length; i++) {
       job.ctl.check(); await waitIfPaused(job); job.ctl.check(); const it = job.items[i]; job.current = (job.total > 1 ? `${i + 1}/${job.total} · ` : '') + it.label; job.dl = false; job.lastChange = Date.now(); render();
       try {
         let file = it.file, srcName = it.name, folder = it.folder || '';
-        if (it.result) { job.current = T_('Downloading') + ' ' + it.label; job.lastChange = Date.now(); render(); job.dl = true; file = await SR.download(it.result, p => { const f = (job.finished + clamp01(p) * .5) / job.total; if (f > job.progress) { job.progress = f; job.lastChange = Date.now(); } job.dirty = true; }, job.abort.signal); srcName = file.name; }
         if (job.tool === 'catalog' || job.tool === 'pack') { const row = await inspectOne(job, file, i, srcName, folder, c); job.rows.push(row); job.log.push(`OK  ${it.label}  ${row.info.width}x${row.info.height}, ${Math.round(row.info.duration * 10) / 10} s${row.loop ? ', ' + row.loop.verdict : ''}`); job.finished++; job.progress = job.finished / job.total; render(); continue; }
         const r = await processOne(job, file, i, srcName, folder, c, it.filter, it.v);
         if (r.skip) { job.log.push(`--  ${it.label}  ${r.skip}`); job.finished++; job.progress = job.finished / job.total; render(); continue; }
         if (job.dir) { const fh = await job.dir.getFileHandle(r.name, { create: true }), w = await fh.createWritable(); await w.write(r.blob); await w.close(); r.saved = true; r.blob = null; }
         job.results.push(r);
-        if (it.result) credits.push([r.name, it.result.title, it.result.author, it.result.license, it.result.licenseUrl, it.result.page, new Date().toISOString().slice(0, 10)]);
         job.log.push(`OK  ${it.label}  ${r.note}`);
       } catch (e) {
         if (e instanceof Cancelled || job.ctl.cancel) throw new Cancelled();
@@ -568,11 +534,6 @@ async function runJob(job) {
       }
     }
     if (job.rows && job.rows.length) { job.current = 'Building the files…'; render(); await buildInspectOutputs(job); }
-    if (credits.length) {
-      const blob = new Blob([SR.creditsCsv(credits)], { type: 'text/csv' });
-      if (job.dir) { const fh = await job.dir.getFileHandle('credits.csv', { create: true }), w = await fh.createWritable(); await w.write(blob); await w.close(); }
-      else job.results.push({ name: 'credits.csv', blob, size: blob.size, note: 'who made the clips and under which licence' });
-    }
     job.status = job.failed && job.failed === job.items.length ? 'failed' : 'done';
   } catch (e) {
     job.status = (e instanceof Cancelled || job.ctl.cancel) ? 'cancelled' : 'failed';
@@ -591,7 +552,7 @@ async function pump() {
 let aiAsked = 0;
 async function start(kind, items) {
   $('#msg').textContent = '';
-  if (!items.length) { $('#msg').textContent = kind === 'search' ? 'Select search results first.' : kind === 'fetch' ? 'Paste at least one link.' : 'Add and select some files first.'; return; }
+  if (!items.length) { $('#msg').textContent = 'Add and select some files first.'; return; }
   if (kind === 'pro') {
     try { if (engine.pick) await engine.pick(); } catch (e) { /* the engine decides below */ }
     if (engine.kind !== 'native') { $('#msg').textContent = 'HAP and ProRes need the Linux (local) version of Spektronautilus, because the web version cannot make them. Everything else on this page works in the browser.'; return; }
@@ -613,7 +574,6 @@ async function start(kind, items) {
   JOBS.unshift(job); render(); pump();
 }
 $('#go').onclick = () => {
-  if (tool === 'search') return start('search', [...RSEL].map(i => ({ result: { ...RES[i] }, label: RES[i].title, name: RES[i].id })));
   if (tool === 'filters') {
     if (!FSEL.size) { $('#msg').textContent = 'Pick at least one look first.'; return; }
     const out = []; for (const f of FILES.filters.filter(f => SEL.filters.has(f.id))) for (const fl of FILTERS.filter(x => FSEL.has(x.id))) out.push({ file: f.file, name: f.name, folder: f.folder, label: `${f.name} · ${fl.name}`, filter: fl.id });
@@ -625,10 +585,6 @@ $('#go').onclick = () => {
     return start('sizes', out);
   }
   start(tool, FILES[tool].filter(f => SEL[tool].has(f.id)).map(f => ({ file: f.file, name: f.name, folder: f.folder, label: f.name })));
-};
-$('#fetchgo').onclick = () => {
-  const urls = $('#urls').value.split(/\s+/).filter(Boolean);
-  start('search', urls.map(u => ({ result: { provider: 'url', id: u.split('/').pop().split('?')[0] || 'clip', url: u, title: u, author: '', license: 'unknown - check the source', licenseUrl: '', page: u }, label: u, name: u })));
 };
 
 // ---- progress rules (see shared/progress.js): never backwards, never outside 0..1, a download counts as the first half of its file
@@ -644,7 +600,7 @@ async function waitIfPaused(job) {
   finally { job.pausedMs = (job.pausedMs || 0) + (Date.now() - job.pauseStart); job.paused = false; job.lastChange = Date.now(); job.dirty = true; render(); }
 }
 function setPause(j, on) { if (!j || j.status !== 'running') return; j.pauseReq = !!on; j.dirty = true; render(); }
-const NAMES = { convert: 'Convert', gif2mp4: 'GIF → MP4', loop: 'Make loops', filters: 'Filters', search: 'Find loops', crop: 'Crop & trim', sizes: 'Sizes', pro: 'HAP / ProRes', ai: 'Upscale', slowmo: 'Slow motion', catalog: 'Catalogue', pack: 'Loop pack' };
+const NAMES = { convert: 'Convert', gif2mp4: 'GIF → MP4', loop: 'Make loops', filters: 'Filters', crop: 'Crop & trim', sizes: 'Sizes', pro: 'HAP / ProRes', ai: 'Upscale', slowmo: 'Slow motion', catalog: 'Catalogue', pack: 'Loop pack' };
 let rT;
 function render() { clearTimeout(rT); rT = setTimeout(draw, 60); }
 function cancelJob(j) {
@@ -653,7 +609,7 @@ function cancelJob(j) {
   if (j.status === 'queued') { j.status = 'cancelled'; render(); } else { engineStatus('Stopping…'); engine.terminate(); engineStatus(''); }
 }
 // the shared queue: every job is reported so the Queue page can show it, and stop requests from there come back here
-const TOOL_LABEL = { ...NAMES, fetch: 'Find loops' };
+const TOOL_LABEL = { ...NAMES };
 function qsync(j, force) {
   const now = Date.now(), act = j.status === 'queued' || j.status === 'running';
   if (!force && j.qT && now - j.qT < 700 && j.qS === j.status) return;
@@ -669,13 +625,13 @@ function draw() {
   JOBS.forEach(j => qsync(j));
   if (!JOBS.length) { $('#jobs').innerHTML = '<p class="muted">No jobs yet.</p>'; return; }
   $('#jobs').innerHTML = JOBS.map(j => {
-    const run = j.status === 'running' || j.status === 'queued', fl = j.results.filter(r => r.name !== 'credits.csv' || !j.dir);
+    const run = j.status === 'running' || j.status === 'queued', fl = j.results;
     return `<div class="card job" data-id="${j.id}"><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><b>${NAMES[j.tool]}</b><span class="chip ${j.status}">${j.status}</span><span class="muted">${new Date(j.created).toLocaleTimeString()}</span><span class="muted">${j.finished}/${j.total}</span>${j.failed ? `<span class="warn">${j.failed} failed</span>` : ''}</div>
  ${run ? `${barHTML({ frac: j.progress, running: j.status === 'running', paused: !!j.paused })}<div class="ptime">${j.paused ? esc(T_('Paused')) + ' · ' : j.pauseReq ? esc(T_('Pausing after this file…')) + ' · ' : ''}${esc(timeLine(j))}</div><div class="cur">${esc(j.current)}${j.status === 'queued' ? T_('Waiting in line…') : ''}</div><div class="muted qn" style="font-size:.8rem">${j.paused ? '' : esc(quietNote(j.lastChange))}</div>` : ''}
  ${j.error ? `<div class="warn">${esc(j.error)}</div>` : ''}
  ${j.dir ? `<div class="muted" style="font-size:.85rem">Saved into the folder you chose.</div>` : ''}
  <div class="res">${fl.slice(0, 8).map(r => r.blob ? `<div class="rr"><a href="${blobUrl(r)}" download="${esc(r.name)}">${esc(r.name)} <small class="muted">${fmtSize(r.size)}</small></a>${/\.(mp4|mov|webm)$/i.test(r.name) ? `<button class="sm" data-a="up" data-rn="${esc(r.name)}">Upload…</button>` : ''}</div>` : `<div class="rr"><a style="pointer-events:none">${esc(r.name)} <small class="muted">${fmtSize(r.size)} · saved</small></a></div>`).join('')}${fl.length > 8 ? `<span class="muted">… and ${fl.length - 8} more</span>` : ''}</div>
- ${j.open && fl[0] && fl[0].blob ? `<video controls loop muted autoplay src="${blobUrl(fl[0])}"></video>` : ''}
+ ${j.open && fl[0] && fl[0].blob ? `<video controls muted autoplay playsinline src="${blobUrl(fl[0])}"></video>` : ''}
  ${j.log.length ? `<details><summary>Log (${j.log.length})</summary><pre>${esc(j.log.slice(-60).join('\n'))}</pre></details>` : ''}
  <div class="acts">${run ? `${j.status === 'running' && (j.total - j.finished) > 1 ? `<button class="sm" data-a="pause">${j.pauseReq ? T_('Resume') : T_('Pause after this file')}</button>` : ''}<button class="sm" data-a="cancel">Stop</button>` : `${fl.some(r => r.blob) ? `<button class="sm" data-a="prev">${j.open ? 'Hide preview' : 'Preview first'}</button><button class="sm" data-a="zip">Download all (zip)</button>${HAS_DIR ? '<button class="sm" data-a="save">Save all to a folder</button>' : ''}` : ''}<button class="sm" data-a="del">Remove from list</button>`}</div></div>`;
   }).join('');
@@ -699,11 +655,10 @@ $('#jobs').onclick = async e => {
 
 // ---------------------------------------------------------------------------------------------- start
 function init() {
-  const TG = [['Find', ['search']], ['Fix up', ['convert', 'gif2mp4', 'loop', 'crop', 'sizes', 'slowmo', 'ai']], ['Look', ['filters']], ['Share and export', ['pro', 'catalog', 'pack']]];
+  const TG = [['Fix up', ['convert', 'gif2mp4', 'loop', 'crop', 'sizes', 'slowmo', 'ai']], ['Look', ['filters']], ['Share and export', ['pro', 'catalog', 'pack']]];
   $('#tabs').innerHTML = TG.map(([g, ks]) => `<div class="tg" role="group" aria-label="${g}"><small>${g}</small><div class="tb">${ks.map(k => `<button data-t="${k}">${TOOLS[k].label}</button>`).join('')}</div></div>`).join('')
     + '<a class="tg hosp" href="../hospital/"><small>New</small><span class="hb">🏥 Loop Hospital</span></a>';
   $('#tabs').onclick = e => { const b = e.target.closest('[data-t]'); b && setTool(b.dataset.t); };
-  SR.defaultSources().forEach(n => SRCSEL.add(n)); renderSrcs();
   buildSettings(); renderSizes(); setTool(tool); draw();
   window.VJ = { JOBS, FILES, SEL, addFiles, start };   // handy for tests and for poking around in the console
 }

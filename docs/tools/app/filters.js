@@ -1,4 +1,4 @@
-// Twenty looks for VJ loops (twelve effects and eight colour styles). Each one is a piece of an ffmpeg filter graph that is added after the picture has been
+// Twenty-one looks for VJ loops (twelve effects and nine colour styles). Each one is a piece of an ffmpeg filter graph that is added after the picture has been
 // scaled to its final size. `amount` is 0..1. `w`/`h` are the final picture size, `dur` is the clip length in seconds.
 // The pieces are written so a clip that loops keeps looping: the colour cycle goes round exactly once per clip, and
 // nothing else depends on how long the clip has been playing.
@@ -58,6 +58,8 @@ const STYLES = [
     chain: grade({ keep: .7, grain: 12, contrast: .95, stops: [[0, .04, .07, .11], [.09, .05, .09, .12], [.3, .2, .27, .36], [.55, .56, .52, .49], [.8, .92, .79, .66], [1, 1, .93, .82]] }) },
   { id: 'coal', name: 'Coal', desc: 'Dark, cool and matte, like a night-time film still.',
     chain: grade({ keep: .15, stops: [[0, .02, .02, .03], [.02, .03, .03, .04], [.07, .07, .07, .07], [.15, .15, .15, .16], [.275, .28, .29, .33], [.425, .4, .38, .4], [.575, .55, .54, .52], [.725, .66, .65, .63], [.85, .72, .71, .69], [1, .78, .77, .75]] }) },
+  { id: 'cozynight', name: 'Cozy Night', desc: 'A storybook night: deep indigo and blue, ink-dark lines, and only the brightest spots glow as warm yellow windows.',
+    chain: grade({ keep: 0, grain: 7, contrast: 1.05, stops: [[0, .05, .05, .13], [.08, .09, .08, .22], [.25, .13, .12, .32], [.45, .16, .16, .42], [.62, .2, .22, .56], [.76, .22, .32, .62], [.83, .4, .44, .52], [.885, .8, .73, .32], [.95, .96, .88, .38], [1, 1, .96, .66]] }) },
 ];
 FILTERS.push(...STYLES);
 export const filterById = id => FILTERS.find(f => f.id === id);

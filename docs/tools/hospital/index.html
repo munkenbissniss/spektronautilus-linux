@@ -32,7 +32,7 @@ ul.find li.ok{border-color:var(--ok);color:var(--ok)}
 .f .h{font-size:.78rem;color:var(--mute)}
 .run{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 .bar{height:8px;background:var(--line);border-radius:4px;overflow:hidden;margin:8px 0 2px}.bar i{display:block;height:100%;background:var(--b);transition:width .4s}
-.res a{font-size:.9rem;overflow-wrap:anywhere}.rr{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:2px 0}.warn{color:var(--bad)}
+.res a{font-size:.9rem;overflow-wrap:anywhere}.rr{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:2px 0}.warn{color:var(--bad)}.cleanpick canvas{display:block;width:100%;height:auto;border-radius:8px;background:#000;touch-action:none;cursor:crosshair;margin:4px 0 6px}.good{color:var(--ok)}
 .facts{display:flex;gap:6px 14px;flex-wrap:wrap;font-size:.9rem;margin-top:8px}
 .chip{border:1px solid currentColor;border-radius:999px;padding:0 9px;font-size:.8rem;font-weight:700}
 .chip.good{color:var(--ok)}.chip.bad{color:var(--bad)}
@@ -72,8 +72,8 @@ ul.find li.ok{border-color:var(--ok);color:var(--ok)}
   <div id="patient" class="hide">
     <div class="run hide" id="gifbar" style="margin-top:12px"><button class="sm" id="gif2mp4" type="button">🎞️ Convert GIF to MP4</button><span class="hint" style="margin:0">Makes a normal video of this GIF first, so you can fix it with the treatments below. The GIF itself is not changed.</span></div>
     <div class="hide" id="gifdone" style="margin-top:12px"><span class="muted">Converted to MP4. You can treat it below.</span> <a id="gifdl" class="sm" href="#" download="">Download the MP4</a></div>
-    <div class="pv"><figure><video id="vbefore" muted loop playsinline autoplay controls></video><figcaption>Before</figcaption></figure>
-    <figure id="fafter" class="hide"><video id="vafter" muted loop playsinline autoplay controls></video><figcaption>After (preview)</figcaption></figure></div>
+    <div class="pv"><figure><video id="vbefore" muted playsinline autoplay controls></video><figcaption>Before</figcaption></figure>
+    <figure id="fafter" class="hide"><video id="vafter" muted playsinline autoplay controls></video><figcaption>After (preview)</figcaption></figure></div>
     <div class="facts" id="facts"></div>
   </div>
 </div>

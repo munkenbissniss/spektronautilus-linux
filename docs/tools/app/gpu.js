@@ -126,6 +126,21 @@ void main() {
 
 // A picture as BT.709 video (limited range, 4:2:0) for the encoder, all three planes in ONE texture so that one read gets it all:
 // rows 0..H-1 hold the luma (four values in each RGBA pixel); below them H/2 rows with U in the left part and V from pixel cw on.
+// a logo or text box filled in from the picture around it, like ffmpeg delogo: each side of the box that has picture beyond it gives a
+// colour (a short average along the edge, so one noisy pixel does not make a stripe), weighted by how near that side is
+const FS_CLEAN = HEAD + `
+uniform sampler2D src; uniform vec2 ss; uniform vec4 box;
+vec3 at(int x, int y) { return texelFetch(src, clamp(ivec2(x, y), ivec2(0), ivec2(ss) - 1), 0).rgb; }
+vec3 side(int x, int y, int dx, int dy) { vec3 s = vec3(0.0); for (int i = -2; i <= 2; i++) s += at(x + i * dx, y + i * dy); return s / 5.0; }
+void main() {
+  ivec2 p = ivec2(gl_FragCoord.xy); int x0 = int(box.x), y0 = int(box.y), x1 = int(box.z), y1 = int(box.w), W = int(ss.x), H = int(ss.y);
+  vec3 acc = vec3(0.0); float ws = 0.0, d, w;
+  if (x0 > 0) { d = float(p.x - x0 + 1); w = 1.0 / (d * d); acc += w * side(x0 - 1, p.y, 0, 1); ws += w; }
+  if (x1 < W) { d = float(x1 - p.x); w = 1.0 / (d * d); acc += w * side(x1, p.y, 0, 1); ws += w; }
+  if (y0 > 0) { d = float(p.y - y0 + 1); w = 1.0 / (d * d); acc += w * side(p.x, y0 - 1, 1, 0); ws += w; }
+  if (y1 < H) { d = float(y1 - p.y); w = 1.0 / (d * d); acc += w * side(p.x, y1, 1, 0); ws += w; }
+  o = vec4(ws > 0.0 ? acc / ws : at(p.x, p.y), 1.0);
+}`;
 const FS_YUV = HEAD + `
 uniform sampler2D src; uniform int H; uniform int cw;
 float Y(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
@@ -161,7 +176,7 @@ export class Gpu {
     this.lost = false;
     if (this.canvas.addEventListener) this.canvas.addEventListener('webglcontextlost', e => { e.preventDefault(); this.lost = true; });
     this.vao = gl.createVertexArray(); this.fb = gl.createFramebuffer(); this.progs = {};
-    for (const [k, fs] of Object.entries({ yuv: FS_YUV, warp: FS_WARP, mix: FS_MIX, fx: FS_FX, trail: FS_TRAIL, down: FS_DOWN, match: FS_MATCH, med: FS_MED, conf: FS_CONF, interp: FS_INTERP })) this.progs[k] = this.prog(fs);
+    for (const [k, fs] of Object.entries({ yuv: FS_YUV, clean: FS_CLEAN, warp: FS_WARP, mix: FS_MIX, fx: FS_FX, trail: FS_TRAIL, down: FS_DOWN, match: FS_MATCH, med: FS_MED, conf: FS_CONF, interp: FS_INTERP })) this.progs[k] = this.prog(fs);
     this.scratch = new Map(); this.pool = []; this.pbos = [];
     this.issued = 0; this.done = 0;   // pictures asked back from the card, and how many of those have arrived
     this.asyncRead = !(Gpu.syncRead === true || (Gpu.syncRead !== false && WEBKIT));
@@ -227,6 +242,19 @@ export class Gpu {
     const lod = src.mips && sc > 1.6 ? Math.log2(sc) - 0.3 : 0;
     this.run('warp', dst, U => { U.tex('src', src); U.f('ss', src.w, src.h); U.m3('H', [H[0], H[3], H[6], H[1], H[4], H[7], H[2], H[5], H[8]]); U.i('flip', dst ? 0 : 1); U.f('outH', outH || oh); U.f('lod', lod); U.i('bg', bg ? 1 : 0);
       const C = clip ? clip.C : [1, 0, 0, 0, 1, 0, 0, 0, 1]; U.m3('C', [C[0], C[3], C[6], C[1], C[4], C[7], C[2], C[5], C[8]]); U.f('cs', clip ? clip.w : 1e9, clip ? clip.h : 1e9); });
+  }
+  // fill in boxes [x0, y0, x1, y1) (texture pixels) of a frame texture, in place
+  clean(T, boxes) {
+    if (!boxes || !boxes.length) return T;
+    const gl = this.gl, tmp = this.tmp('clean', T.w, T.h);
+    gl.enable(gl.SCISSOR_TEST);
+    try { for (const b of boxes) { gl.scissor(b[0], b[1], b[2] - b[0], b[3] - b[1]); this.run('clean', tmp, U => { U.tex('src', T); U.f('ss', T.w, T.h); U.f('box', b[0], b[1], b[2], b[3]); }); } }
+    finally { gl.disable(gl.SCISSOR_TEST); }
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.fb); gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tmp.t, 0);
+    gl.bindTexture(gl.TEXTURE_2D, T.t);
+    for (const b of boxes) gl.copyTexSubImage2D(gl.TEXTURE_2D, 0, b[0], b[1], b[0], b[1], b[2] - b[0], b[3] - b[1]);
+    if (T.mips) this.mipmap(T);
+    return T;
   }
   mix(dst, a, b, w) { this.run('mix', dst, U => { U.tex('a', a); U.tex('b', b); U.f('w', w); }); }
   fx(dst, src, { sharp = 0, bright = 0, sat = 1 } = {}) { this.run('fx', dst, U => { U.tex('src', src); U.f('sharp', sharp); U.f('bright', bright); U.f('sat', sat); U.i('flip', dst ? 0 : 1); U.f('outH', dst ? dst.h : this.canvas.height); }); }

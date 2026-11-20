@@ -81,40 +81,6 @@ button.on{background:var(--ink);color:var(--bg)}
 <div class="muted" id="engine" style="min-height:1.2em"></div>
 <div class="muted" id="ekind" style="font-size:.85rem"></div>
 
-<!-- search -->
-<div class="card" data-for="search">
-  <h2>1. Find loops</h2>
-  <div class="qs">
-    <input id="q" type="text" placeholder="e.g. neon tunnel, liquid, fire, abstract particles" aria-label="Search words">
-    <select id="orient" aria-label="Orientation"><option value="">Any shape</option><option>landscape</option><option>portrait</option><option>square</option></select>
-    <select id="minh" aria-label="Minimum height"><option value="0">Any size</option><option value="720">720p or more</option><option value="1080">1080p or more</option></select>
-    <select id="ptype" aria-label="Pixabay type"><option value="">Pixabay: films + animations</option><option value="animation">Pixabay: animations only</option><option value="film">Pixabay: films only</option></select>
-    <button class="main" id="dosearch">Search</button>
-  </div>
-  <div class="chips" style="margin-top:10px"><b>Sources:</b><span class="chips" id="srcs"></span></div>
-  <div class="presets" style="margin-top:8px"><label class="chips"><input type="checkbox" id="short" checked> Short clips only (under 60 seconds)</label>
-    <label class="chips"><input type="checkbox" id="loopsfirst" checked> Show loops and GIFs first</label>
-    <label class="chips"><input type="checkbox" id="hidegov" checked> Hide government and military footage</label></div>
-  <div class="presets" style="margin-top:4px"><label class="chips"><input type="checkbox" id="loopword" checked> Add the word "loop" to the search</label>
-    <label class="chips">Length <input type="number" id="mins" min="0" style="width:64px" placeholder="min s"> – <input type="number" id="maxs" min="0" style="width:64px" placeholder="max s"> s</label></div>
-  <details><summary>Free API keys (Pexels, Pixabay)</summary>
-    <p class="hint">Internet Archive and Wikimedia Commons work without an account. Pexels and Pixabay have a lot of ready-made loops and are free, but need a key (takes a minute): <a href="https://www.pexels.com/api/" target="_blank" rel="noopener">Pexels</a> · <a href="https://pixabay.com/api/docs/" target="_blank" rel="noopener">Pixabay</a>. Keys are saved in this browser only and are sent only to Pexels / Pixabay.</p>
-    <div class="fields"><div class="f"><label for="k_pexels">Pexels key</label><input id="k_pexels" type="text" autocomplete="off"></div>
-    <div class="f"><label for="k_pixabay">Pixabay key</label><input id="k_pixabay" type="text" autocomplete="off"></div></div>
-    <button class="sm" id="savekeys">Save keys</button> <span class="muted" id="keymsg"></span></details>
-  <div class="muted" id="smsg" style="margin-top:8px"></div>
-  <div class="presets"><span id="rtools" class="hide"><button class="sm" id="rall">Select all</button> <button class="sm" id="rnone">Select none</button> <span class="muted" id="rcount"></span></span></div>
-  <div class="rgrid" id="results"></div>
-  <div class="presets hide" id="moretools"><button id="more">Load more results</button></div>
-  <p class="hint">Licences differ per clip (Pexels and Pixabay are free to use; Commons and Archive clips may need credit). The author and licence of every download are saved in <b>credits.csv</b>, which comes with your downloaded files.</p>
-</div>
-<div class="card" data-for="search">
-  <h2>Or paste links</h2>
-  <textarea id="urls" placeholder="One direct video link per line (https://…/clip.mp4). If yt-dlp is installed, page links also work."></textarea>
-  <p class="hint">Only download things you have the right to use. Some sites do not allow a web page to download their files; then use “Open page”, download the clip yourself and drop it into the Convert tab.</p>
-  <button id="fetchgo">Download and convert pasted links</button>
-</div>
-
 <!-- files -->
 <div class="card" data-for="convert gif2mp4 loop filters crop sizes pro ai slowmo catalog pack">
   <h2 id="ftitle">1. Files <span class="muted" id="fcount"></span></h2>
