@@ -9,6 +9,7 @@
 //   engine.mount(file) / unmount(p)    let ffmpeg read a File from disk without copying it into memory
 //   engine.terminate()                 stop at once (used by "Stop"); the next call starts it again
 
+const LOG = (k, d) => { try { if (window.SPK_LOG) window.SPK_LOG.add(k, d); } catch (e) { /* never in the way */ } };   // the diagnostics log (shared/log.js)
 const VENDOR = new URL('./vendor/', import.meta.url);
 
 // A clock that stands still while the page is in the background. A phone freezes a page (and its engine) when you switch to
@@ -67,6 +68,7 @@ export class WasmEngine {
     const stalled = new Promise((_, rej) => { timer = setInterval(() => { if (activeNow() - this.last > this.stallMs) { clearInterval(timer); this.terminate(); rej(new Error(STALLED)); } }, Math.min(1000, Math.max(5, this.stallMs / 4))); });
     try { const run = this.ff.exec(args); run.catch && run.catch(() => {}); code = await Promise.race([run, stalled]); }
     finally { clearInterval(timer); if (this.cur === cur) this.cur = null; }
+    if (code !== 0) LOG('ffmpeg-fail', { engine: 'wasm', code, args: args.slice(0, 40).join(' ').slice(0, 600), log: cur.log.slice(-12) });
     return { code, log: cur.log };
   }
   async write(path, data) { await this.load(); await this.limit(this.ff.writeFile(path, data)); }
@@ -104,6 +106,7 @@ export class NativeEngine {
       let i; while ((i = buf.indexOf('\n')) >= 0) { const line = buf.slice(0, i); buf = buf.slice(i + 1); if (!line) continue; const m = JSON.parse(line); if (m.p != null) onProgress && onProgress(m.p); else out = m; }
     }
     if (!out) throw new Error('The local engine stopped. If you pressed Stop this is normal.');
+    if (out.code !== 0) LOG('ffmpeg-fail', { engine: 'native', code: out.code, args: args.slice(0, 40).join(' ').slice(0, 600), log: (out.log || []).slice(-12) });
     return { code: out.code, log: out.log };
   }
   // AI upscaling: runs the separate program Video2X on this computer (only when it is installed; see info.v2x)

@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+<script src="../../shared/log.js"></script>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="apple-touch-icon" href="../../apple-touch-icon.png"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="Spektro"><meta name="apple-mobile-web-app-status-bar-style" content="default">
@@ -92,7 +93,7 @@ ul.find li.ok{border-color:var(--ok);color:var(--ok)}
 </div>
 
 <div class="card hide" id="c4">
-  <div class="run"><button id="prev" type="button">Preview the treatment</button><button id="aiprev" class="hide" type="button" title="Runs the AI on 2 seconds and tells you how long the whole clip will take.">Try the AI on 2 seconds</button><button class="main" id="go" type="button">Treat and save</button><button id="stop" type="button" class="hide">Stop</button><button class="sm" id="reset2" data-reset type="button" title="Clears the clip, all your settings and the results, and stops anything that is running.">↺ Start over</button><button id="pausebtn" type="button" class="hide">Pause after this clip</button><span class="muted" id="info"></span></div>
+  <div class="run"><button id="prev" type="button">Preview the treatment</button><button id="aiprev" class="hide" type="button" title="Runs the AI on 2 seconds and tells you how long the whole clip will take.">Try the AI on 2 seconds</button><button class="main" id="go" type="button">Treat and save</button><button class="sm" id="asis" type="button" title="Saves the clip unchanged, named like the treated clips, so it can go in the same folder.">Save as it is</button><button id="stop" type="button" class="hide">Stop</button><button class="sm" id="reset2" data-reset type="button" title="Clears the clip, all your settings and the results, and stops anything that is running.">↺ Start over</button><button id="pausebtn" type="button" class="hide">Pause after this clip</button><span class="muted" id="info"></span></div>
   <div class="bar hide" id="bar"><i style="width:0"></i></div>
   <div class="muted" id="cur"></div>
   <div id="msg" class="warn" style="margin-top:6px"></div>

@@ -11,7 +11,9 @@ import { Gpu } from './gpu.js';
 import { chooseFps, repeatsNeeded, cropFor, targetSize, maxMBps, codecArgs } from './core.js';
 import { analyzeFrames, analyzeWithPlan, beforeText, loopForecast, planLoop, planNote } from './loops.js';
 import * as ST from './steps.js';
+import { lookSpec } from './filters.js';
 
+const LOG = (k, d) => { try { if (window.SPK_LOG) window.SPK_LOG.add(k, d); } catch (e) { /* never in the way */ } };   // the diagnostics log (shared/log.js)
 const TEST = () => (typeof window !== 'undefined' && window.SPK_WC_TEST) || null;   // tests: { codec: 'vp09...' } where H.264 is missing
 const EXT = /\.(mp4|m4v|mov)$/i;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -64,10 +66,9 @@ export async function open(file) {
   return { file, dm, cfg, info, grays: null };
 }
 
-// Can the fast path do this recipe? Everything except the Looks, keeping the sound and the AI methods.
+// Can the fast path do this recipe? Everything except keeping the sound and the AI methods.
 export function canRun(h, R) {
   if (!h) return false;
-  if (R.look && R.look.on) return false;
   if (R.out && R.out.keepAudio && h.info.hasAudio && !(R.slow && R.slow.on) && !(R.smooth && R.smooth.on)) return false;
   if (ST.wantsAi(R)) return false;
   if (R.up && R.up.on && R.up.engine !== 'sharp') return false;
@@ -365,6 +366,7 @@ async function pass(gpu, srcMainOf, { w, h, count, at, enc, gray = false, ctl, r
       const slot = gpu.tmp(`${tag}h${n % 4}`, w, h); gpu.mix(slot, cur, cur, 0); hist.push(slot); if (hist.length > 4) hist.shift();
       const ws = [4, 3, 2, 1].slice(0, hist.length); const t = gpu.tmp(`${tag}tr`, w, h); gpu.trail(t, hist, ws); cur = t;
     }
+    if (d.look) { const L = d.look; if (L.hueDur) L.hue = 2 * Math.PI * ((n % (L.nRep || count)) / (L.fps || 30)) / L.hueDur; cur = gpu.look(cur, L, n, `${tag}lk`); }
     const job = gpu.readBegin(cur, !!grays); TIMES.picture += (now() - tq) / 1000;
     if (!gpu.asyncRead) await deliver({ job, n });
     else { if (pend) await deliver(pend); pend = { job, n }; }
@@ -412,6 +414,7 @@ export async function run(h, R, baseProf, { ctl = { check() {} }, onProgress, na
 function friendly(e) {
   const m = e && e.message || String(e);
   if (/GPU_LOST/.test(m)) return new Error('The graphics card stopped (the phone may have needed it for something else). Try again.');
+  LOG('fastway-fail', { msg: String(m).slice(0, 300), gpu: GPU_INFO.renderer });
   if (/^DECODE/.test(m)) return Object.assign(new Error('This device could not read every frame of this clip (' + m.slice(8, 120) + ').'), { fallback: true });
   if (/^ENCODE/.test(m)) return Object.assign(new Error('This device could not write the result (' + m.slice(8, 120) + ').'), { fallback: true });
   return e;
@@ -419,6 +422,9 @@ function friendly(e) {
 
 const clone = o => JSON.parse(JSON.stringify(o));
 const fmtS = s => s >= 60 ? `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}` : `${Math.round(s)} s`;
+// what the diagnostics log keeps of one run: the passes and their times, the decoder and the graphics card
+const runLog = (stats, note) => ({ note: String(note).slice(0, 300), passes: (stats.passes || []).map(p => `${p.kind} ${p.frames}f ${Math.round(p.ms)}ms`), times: { ...TIMES },
+  decoder: DEC.pref === undefined ? 'trial' : DEC.pref || 'default', gpu: GPU_INFO.renderer, software: GPU_INFO.software });
 const timesNote = () => ` [time: reading ${fmtS(TIMES.read - TIMES.upload)}, to the graphics card ${fmtS(TIMES.upload)}, picture ${fmtS(TIMES.picture)}, writing ${fmtS(TIMES.write)}, ${TIMES.starts} decoder starts${TIMES.jumps ? `, ${TIMES.jumps} jumps back` : ''}${DEC.pref === 'prefer-software' ? ', frames decoded by the processor' : ''}]`;
 async function runOnce(h0, R, baseProf, ctl, onProgress, native) {
   const gpu = newGpu(), notes = [], info0 = h0.info, v0 = h0.dm.video, srcs = [], stats = { passes: [] };
@@ -528,6 +534,9 @@ async function runOnce(h0, R, baseProf, ctl, onProgress, native) {
     const count = nRep * reps, renderCount = perFrame ? count : nRep;
     const srcMain = new Source(h, gpu, { clean: h === h0 ? CL : null, cache: mode === 'motion' ? 6 : 4, mips: (w * hh) / (TW * TH) > 2.5 || (inInfo.width * inInfo.height) / (TW * TH) > 2.5 }); srcs.push(srcMain);
     const nIn = timeDone ? h.dm.video.count : range.n, k0m = timeDone ? 0 : range.k0, Fin = range.F;
+    // the Look goes on last, on the finished frame (as the ffmpeg way adds it at the end of its filters)
+    const LK = R.look && R.look.on ? lookSpec(R.look.id, +R.look.amount, { w: TW, h: TH, dur: Drep, fps: OF }) : null;
+    if (LK) { LK.nRep = nRep; LK.fps = OF; notes.push(`look ${R.look.id}`); }
     const atMain = n => {
       const c = (n % nRep) / OF, Pt = lifeM ? lifeM.source(c) : c, s = Pt / slowStretch;
       const x = Math.max(0, Math.min(nIn - 1, s * Fin)), a = Math.floor(x), b = Math.min(nIn - 1, a + 1), wv = x - a;
@@ -540,10 +549,11 @@ async function runOnce(h0, R, baseProf, ctl, onProgress, native) {
     };
     const encMain = await mkEnc(TW, TH, OF, loopOn ? { inter: true, gop: 8 } : { crf: P.prof.crf, gop: P.prof.gop || 30, cap, prof: P.prof });
     const rep = part(mode === 'motion' ? W.motion : W.pass);
-    const [r, out] = await timed('mn', renderCount, async () => { const r = await pass(gpu, srcMain, { w: TW, h: TH, fps: OF, count: renderCount, at: atMain, enc: encMain, gray: loopOn, ctl, report: rep, tag: 'mn' }); return [r, await encMain.finish()]; }); srcMain.close();
+    const [r, out] = await timed('mn', renderCount, async () => { const r = await pass(gpu, srcMain, { w: TW, h: TH, fps: OF, count: renderCount, at: LK ? n => ({ ...atMain(n), look: LK }) : atMain, enc: encMain, gray: loopOn, ctl, report: rep, tag: 'mn' }); return [r, await encMain.finish()]; }); srcMain.close();
     Object.assign(stats, { OF, Drep, nRep, reps, perFrame });
     if (!loopOn) {
       const note = notes.filter(Boolean).join(', ');
+      LOG('fastway', runLog(stats, note));
       return { data: toMp4(out, perFrame ? 1 : reps), note: note + timesNote(), stats };
     }
     // ---- Make it loop (what makeLoop does in loops.js)
@@ -576,6 +586,7 @@ async function runOnce(h0, R, baseProf, ctl, onProgress, native) {
     const what = planNote(pl, OF) + (method === 'trim' && pl.ratio > 1.25 ? ' - no really clean point exists, a small jump may remain' : '');
     const reps2 = repeatsNeeded(frames / OF, P.prof.minSeconds);
     const note = [notes.filter(Boolean).join(', '), `${what}; before: ${beforeText(rp)}`].filter(Boolean).join('; ');
+    LOG('fastway', runLog(stats, note));
     return { data: toMp4(outL, reps2), note: note + timesNote(), stats };
   } finally { for (const s of srcs) s.close(); for (const e of encs) e.close(); gpu.destroy(); }
 }
@@ -604,6 +615,6 @@ export async function estimate(h, R, baseProf, ctl, native = null) {
     const mainFrames = st.perFrame && !R.loop.on ? nRep * reps : nRep;
     one += per('mn') * mainFrames;
     if (R.loop.on) one += (per('lp') || per('mn')) * loopForecast(h.loopRep || null, R.loop, Drep).len * OF;   // the loop pass, at its own measured cost per frame
-    return { one: one * 1.12 + 0.3, took: (performance.now() - t0) / 1000 };
+    return { one: one + 0.3, took: (performance.now() - t0) / 1000 };   // no extra margin: measured on phones and laptops, the estimates came out 10-20 % too high with one
   } catch (e) { if (e.message === 'cancelled') throw e; return null; }
 }

@@ -209,9 +209,11 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         super().end_headers()
     def _deny(self, code=403, msg="Forbidden"):
         self.send_response(code); self.send_header("Content-Type", "text/plain"); self.end_headers(); self.wfile.write(msg.encode())
+    allowed = {"127.0.0.1", "localhost", "[::1]"}       # host names this server answers to (more with --allow-host, e.g. in Docker on a home network)
     def _host_ok(self):
-        h = (self.headers.get("Host") or "").lower()
-        return h in (f"127.0.0.1:{self.st.port}", f"localhost:{self.st.port}")           # stops DNS-rebinding tricks from other websites
+        h = (self.headers.get("Host") or "").strip().lower()
+        name = h.rsplit(":", 1)[0] if h.count(":") == 1 or h.startswith("[") and "]:" in h else h      # without the port: Docker may show the page on another port
+        return name in self.allowed                                                    # stops DNS-rebinding tricks from other websites
     def _api_ok(self):
         return self._host_ok() and self.headers.get("X-Spk") == "1"                       # a custom header can not be sent by other websites without a CORS check
     def _json(self, obj, code=200):
@@ -424,10 +426,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         finally:
             with self.st.lock: self.st.procs.discard(proc)
 
-def port_free(port):
+def port_free(port, host="127.0.0.1"):
     with socket.socket() as s:
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        try: s.bind(("127.0.0.1", port)); return True
+        try: s.bind((host, port)); return True
         except OSError: return False
 
 def already_running(port):
@@ -484,7 +486,11 @@ def main():
     ap.add_argument("--port", type=int, default=DEFAULT_PORT); ap.add_argument("--no-browser", action="store_true")
     ap.add_argument("--window", action="store_true", help="normal browser window instead of an app window")
     ap.add_argument("--docs", help="folder with the website (default: next to this script)"); ap.add_argument("--path", default="", help="page to open, e.g. live-dj/")
+    ap.add_argument("--host", default=os.environ.get("SPEKTRO_HOST", "127.0.0.1"), help="address to listen on (default 127.0.0.1 = only this computer; Docker uses 0.0.0.0)")
+    ap.add_argument("--allow-host", action="append", default=[h for h in os.environ.get("SPEKTRO_HOSTS", "").replace(",", " ").split() if h],
+                    help="also answer when the page is opened with this name or address, e.g. 192.168.1.20 or studio.local (can be given more than once)")
     a = ap.parse_args()
+    Handler.allowed = Handler.allowed | {h.strip().lower() for h in a.allow_host}
     if a.check: return run_check()
     docs = Path(a.docs).resolve() if a.docs else find_docs()
     port = a.port
@@ -492,16 +498,17 @@ def main():
         print(f"Spektronautilus is already running on port {port}. Opening a window for it.")
         if not a.no_browser: open_browser(port, a, docs)
         return
+    if a.host not in ("127.0.0.1", "localhost") and not port_free(port, a.host): sys.exit(f"Port {port} is busy on {a.host}.")
     if not port_free(port):
         print(f"Port {port} is busy, using a free one. (Your saved settings belong to port {port}, so close the other program if you can.)")
         s = socket.socket(); s.bind(("127.0.0.1", 0)); port = s.getsockname()[1]; s.close()
     gone = clean_stale()
     st = State(docs, port); Handler.st = st
     handler = lambda *x, **k: Handler(*x, directory=str(docs), **k)
-    srv = http.server.ThreadingHTTPServer(("127.0.0.1", port), handler); srv.daemon_threads = True
+    srv = http.server.ThreadingHTTPServer((a.host, port), handler); srv.daemon_threads = True
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     url = f"http://127.0.0.1:{port}/{a.path}"
-    print(f"Spektronautilus is running at {url}")
+    print(f"Spektronautilus is running at {url}" + (f"  (listening on {a.host}; also answers to: {', '.join(sorted(a.allow_host))})" if a.host != "127.0.0.1" else ""))
     print("AI upscaling with Video2X: " + (f"ON ({st.v2x['path']})" if st.v2x.get("ok") else "OFF (optional, see README-LINUX.txt)"))
     print("Fast converting with ffmpeg: " + (f"ON (ffmpeg {st.ff['version']}, {st.ff['cores']} cores)" if st.ff.get("ok") else f"OFF ({st.ff.get('why')}). Install ffmpeg to turn it on."))
     if gone: print(f"Removed {gone} old work folder(s) left by an earlier crash.")

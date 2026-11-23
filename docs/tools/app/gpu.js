@@ -126,6 +126,70 @@ void main() {
 
 // A picture as BT.709 video (limited range, 4:2:0) for the encoder, all three planes in ONE texture so that one read gets it all:
 // rows 0..H-1 hold the luma (four values in each RGBA pixel); below them H/2 rows with U in the left part and V from pixel cw on.
+// ---- the Looks (filters.js), done on the graphics card the way the ffmpeg filters do them
+// One pass for most of them: where to read (mirror, kaleidoscope, pixelate, red and blue shifted apart), then the colour work in
+// video colours (keep: how much colour stays, hue turn, contrast and brightness on the brightness, saturation), the colour curves
+// (a 256 x 1 table: red, green and blue), grain, negative, and at the end a mix with the picture before the colour work (op).
+const FS_LOOK = HEAD + `
+uniform sampler2D src; uniform sampler2D lut; uniform vec2 ss; uniform int geo; uniform float cell; uniform float shift;
+uniform float keep; uniform float hue; uniform float contrast; uniform float bright; uniform float sat; uniform int useLut;
+uniform float noise; uniform int noiseAll; uniform float seed; uniform int negate; uniform float op;
+vec3 at(vec2 q) { return texelFetch(src, clamp(ivec2(q), ivec2(0), ivec2(ss) - 1), 0).rgb; }
+float rnd(vec2 p, float s) { return fract(sin(dot(p + s * vec2(17.13, 31.71), vec2(12.9898, 78.233))) * 43758.5453); }
+void main() {
+  vec2 p = floor(gl_FragCoord.xy), q = p;
+  if (geo == 1) { if (p.x >= floor(ss.x / 2.0)) q.x = ss.x - 1.0 - p.x; }
+  else if (geo == 2) { if (p.x >= floor(ss.x / 2.0)) q.x = ss.x - 1.0 - p.x; if (p.y >= floor(ss.y / 2.0)) q.y = ss.y - 1.0 - p.y; }
+  else if (geo == 3) { vec2 n = max(vec2(1.0), floor(ss / cell)), c = ss / n; q = floor((floor(p / c) + 0.5) * c); }
+  vec3 a = shift != 0.0 ? vec3(at(q + vec2(shift, 0.0)).r, at(q).g, at(q - vec2(shift, 0.0)).b) : at(q);
+  vec3 c = a;
+  if (noiseAll == 1 && noise > 0.0) c += (vec3(rnd(p, seed), rnd(p + 3.1, seed), rnd(p + 7.7, seed)) * 2.0 - 1.0) * noise;
+  vec3 v = toYuv(clamp(c, 0.0, 1.0));
+  v.yz *= keep;
+  if (hue != 0.0) {   // like ffmpeg's hue filter: the colour turned in the video colour plane of an untagged clip (BT.601)
+    c = clamp(toRgb(v), 0.0, 1.0); float y6 = dot(c, vec3(0.299, 0.587, 0.114)); vec2 uv = vec2((c.b - y6) / 1.772, (c.r - y6) / 1.402);
+    float cs = cos(hue), sn = sin(hue); uv = vec2(cs * uv.x - sn * uv.y, sn * uv.x + cs * uv.y);
+    float r = y6 + 1.402 * uv.y, b = y6 + 1.772 * uv.x; c = vec3(r, (y6 - 0.299 * r - 0.114 * b) / 0.587, b); v = toYuv(clamp(c, 0.0, 1.0));
+  }
+  v.x = (v.x - 0.5) * contrast + 0.5 + bright; v.yz *= sat;
+  c = clamp(toRgb(v), 0.0, 1.0);
+  if (useLut == 1) c = vec3(texture(lut, vec2((c.r * 255.0 + 0.5) / 256.0, 0.5)).r, texture(lut, vec2((c.g * 255.0 + 0.5) / 256.0, 0.5)).g, texture(lut, vec2((c.b * 255.0 + 0.5) / 256.0, 0.5)).b);
+  if (noiseAll == 0 && noise > 0.0) c += (rnd(p, seed) * 2.0 - 1.0) * noise;
+  if (negate == 1) c = 1.0 - c;
+  o = vec4(clamp(mix(a, c, op), 0.0, 1.0), 1.0);
+}`;
+// a blur along one direction (Gauss), for the glow of Neon (done on a smaller copy, so a wide glow needs few taps)
+const FS_BLUR = HEAD + `
+uniform sampler2D src; uniform vec2 dir; uniform float sigma;
+void main() { ivec2 p = ivec2(gl_FragCoord.xy), m = textureSize(src, 0) - 1; vec3 s = vec3(0.0); float ws = 0.0; int r = int(ceil(sigma * 3.0));
+  for (int i = -12; i <= 12; i++) { if (i < -r || i > r) continue; float k = exp(-float(i * i) / (2.0 * sigma * sigma)); s += k * texelFetch(src, clamp(p + ivec2(dir) * i, ivec2(0), m), 0).rgb; ws += k; }
+  o = vec4(s / ws, 1.0); }`;
+// Neon: the picture with its glow laid over it like ffmpeg's blend=screen, op = how strong
+const FS_SCREEN = HEAD + `
+uniform sampler2D a; uniform sampler2D b; uniform vec2 sa; uniform float op;
+// (ffmpeg blends the video planes: brightness and both colour planes, in their stored form, so the glow also shifts the colours)
+vec3 lim(vec3 c) { vec3 v = toYuv(c); return vec3(16.0 / 255.0 + v.x * 219.0 / 255.0, 128.0 / 255.0 + v.yz * 224.0 / 255.0); }
+vec3 unlim(vec3 q) { return toRgb(vec3((q.x - 16.0 / 255.0) * 255.0 / 219.0, (q.yz - 128.0 / 255.0) * 255.0 / 224.0)); }
+void main() { ivec2 p = ivec2(gl_FragCoord.xy); vec3 x = lim(texelFetch(a, p, 0).rgb), y = lim(texture(b, (gl_FragCoord.xy) / sa).rgb);
+  o = vec4(clamp(unlim(mix(x, 1.0 - (1.0 - x) * (1.0 - y), op)), 0.0, 1.0), 1.0); }`;
+// Edge glow, like ffmpeg edgedetect mode=colormix: per colour, the outlines (Sobel on a softened picture, thinned to the strongest
+// line, kept above the thresholds) are added to half of the colour
+const FS_EDGE = HEAD + `
+uniform sampler2D src; uniform sampler2D orig; uniform float lo; uniform float hi;
+vec3 g(ivec2 p) { ivec2 m = textureSize(src, 0) - 1; return texelFetch(src, clamp(p, ivec2(0), m), 0).rgb; }
+void sob(ivec2 p, out vec3 gx, out vec3 gy) {
+  vec3 a = g(p + ivec2(-1, -1)), b = g(p + ivec2(0, -1)), c = g(p + ivec2(1, -1)), d = g(p + ivec2(-1, 0)), f = g(p + ivec2(1, 0)), h = g(p + ivec2(-1, 1)), i = g(p + ivec2(0, 1)), k = g(p + ivec2(1, 1));
+  gx = (c + 2.0 * f + k) - (a + 2.0 * d + h); gy = (h + 2.0 * i + k) - (a + 2.0 * b + c); }
+void main() {
+  ivec2 p = ivec2(gl_FragCoord.xy); vec3 gx, gy, ax, ay, bx, by; sob(p, gx, gy); vec3 m = abs(gx) + abs(gy), e = vec3(0.0);
+  for (int ch = 0; ch < 3; ch++) {
+    float X = gx[ch], Y = gy[ch], M = m[ch]; if (M < lo) continue;
+    ivec2 d = abs(X) > 2.414 * abs(Y) ? ivec2(1, 0) : abs(Y) > 2.414 * abs(X) ? ivec2(0, 1) : (X * Y > 0.0 ? ivec2(1, 1) : ivec2(1, -1));
+    sob(p + d, ax, ay); sob(p - d, bx, by);
+    float m1 = abs(ax[ch]) + abs(ay[ch]), m2 = abs(bx[ch]) + abs(by[ch]);
+    if (M >= m1 && M >= m2 && M >= 0.5 * (lo + hi)) e[ch] = 1.0;
+  }
+  o = vec4((e + texelFetch(orig, p, 0).rgb) * 0.5, 1.0); }`;
 // a logo or text box filled in from the picture around it, like ffmpeg delogo: each side of the box that has picture beyond it gives a
 // colour (a short average along the edge, so one noisy pixel does not make a stripe), weighted by how near that side is
 const FS_CLEAN = HEAD + `
@@ -176,7 +240,7 @@ export class Gpu {
     this.lost = false;
     if (this.canvas.addEventListener) this.canvas.addEventListener('webglcontextlost', e => { e.preventDefault(); this.lost = true; });
     this.vao = gl.createVertexArray(); this.fb = gl.createFramebuffer(); this.progs = {};
-    for (const [k, fs] of Object.entries({ yuv: FS_YUV, clean: FS_CLEAN, warp: FS_WARP, mix: FS_MIX, fx: FS_FX, trail: FS_TRAIL, down: FS_DOWN, match: FS_MATCH, med: FS_MED, conf: FS_CONF, interp: FS_INTERP })) this.progs[k] = this.prog(fs);
+    for (const [k, fs] of Object.entries({ yuv: FS_YUV, clean: FS_CLEAN, look: FS_LOOK, blur: FS_BLUR, screen: FS_SCREEN, edge: FS_EDGE, warp: FS_WARP, mix: FS_MIX, fx: FS_FX, trail: FS_TRAIL, down: FS_DOWN, match: FS_MATCH, med: FS_MED, conf: FS_CONF, interp: FS_INTERP })) this.progs[k] = this.prog(fs);
     this.scratch = new Map(); this.pool = []; this.pbos = [];
     this.issued = 0; this.done = 0;   // pictures asked back from the card, and how many of those have arrived
     this.asyncRead = !(Gpu.syncRead === true || (Gpu.syncRead !== false && WEBKIT));
@@ -243,6 +307,44 @@ export class Gpu {
     this.run('warp', dst, U => { U.tex('src', src); U.f('ss', src.w, src.h); U.m3('H', [H[0], H[3], H[6], H[1], H[4], H[7], H[2], H[5], H[8]]); U.i('flip', dst ? 0 : 1); U.f('outH', outH || oh); U.f('lod', lod); U.i('bg', bg ? 1 : 0);
       const C = clip ? clip.C : [1, 0, 0, 0, 1, 0, 0, 0, 1]; U.m3('C', [C[0], C[3], C[6], C[1], C[4], C[7], C[2], C[5], C[8]]); U.f('cs', clip ? clip.w : 1e9, clip ? clip.h : 1e9); });
   }
+  // one Look on a finished frame (spec from filters.js lookSpec), n = the frame number (for grain and the colour cycle). Returns a texture.
+  look(src, L, n, tag = 'lk') {
+    const w = src.w, h = src.h, gl = this.gl;
+    if (L.lut && !L._lut) {   // the colour curves as a 256 x 1 texture
+      const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t); gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, 256, 1);
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false); gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 256, 1, gl.RGBA, gl.UNSIGNED_BYTE, L.lut);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      L._lut = { t, w: 256, h: 1 };
+    }
+    const one = (dst, s, P) => this.run('look', dst, U => { U.tex('src', s); U.tex('lut', L._lut || s); U.f('ss', s.w, s.h); U.i('geo', P.geo || 0); U.f('cell', P.cell || 1); U.f('shift', P.shift || 0);
+      U.f('keep', P.keep == null ? 1 : P.keep); U.f('hue', P.hue || 0); U.f('contrast', P.contrast == null ? 1 : P.contrast); U.f('bright', P.bright || 0); U.f('sat', P.sat == null ? 1 : P.sat);
+      U.i('useLut', P.lut ? 1 : 0); U.f('noise', P.noise || 0); U.i('noiseAll', P.noiseAll ? 1 : 0); U.f('seed', (n * 0.6180339887) % 1 * 97); U.i('negate', P.negate ? 1 : 0); U.f('op', P.op == null ? 1 : P.op); });
+    let cur = src;
+    if (L.blur) {   // Neon: a soft, brighter, more colourful copy laid over the picture
+      const k = Math.max(1, Math.ceil(L.blur / 3.5)), bw = Math.max(1, Math.ceil(w / k)), bh = Math.max(1, Math.ceil(h / k)), s = L.blur / k;
+      const d = this.tmp(tag + 'bd', bw, bh), b1 = this.tmp(tag + 'b1', bw, bh), b2 = this.tmp(tag + 'b2', bw, bh);
+      this.down(d, cur, 0); this.run('blur', b1, U => { U.tex('src', d); U.f('dir', 1, 0); U.f('sigma', s); }); this.run('blur', b2, U => { U.tex('src', b1); U.f('dir', 0, 1); U.f('sigma', s); });
+      const g = this.tmp(tag + 'bg', bw, bh); one(g, b2, { bright: L.bright, sat: L.sat });
+      const o = this.tmp(tag + 'sc', w, h); this.run('screen', o, U => { U.tex('a', cur); U.tex('b', g); U.f('sa', w, h); U.f('op', L.screen); }); return o;
+    }
+    if (L.edges) {
+      const g = this.tmp(tag + 'eg', w, h), e = this.tmp(tag + 'ee', w, h);
+      this.run('blur', g, U => { U.tex('src', cur); U.f('dir', 1, 0); U.f('sigma', 1.4); }); const g2 = this.tmp(tag + 'eg2', w, h); this.run('blur', g2, U => { U.tex('src', g); U.f('dir', 0, 1); U.f('sigma', 1.4); });
+      this.run('edge', e, U => { U.tex('src', g2); U.tex('orig', cur); U.f('lo', L.edges.low); U.f('hi', L.edges.high); });
+      const o = this.tmp(tag + 'eo', w, h); one(o, e, { bright: L.bright, sat: L.sat }); return o;
+    }
+    if (L.trail) {   // Trails: the average of the last frames (ffmpeg tmix), kept in a ring of copies
+      const N = L.trail, ring = L._ring || (L._ring = []), slot = this.tmp(`${tag}r${n % N}`, w, h); this.mix(slot, cur, cur, 0);
+      ring.push(slot); if (ring.length > N) ring.shift();
+      const groups = []; for (let i = 0; i < ring.length; i += 4) groups.push(ring.slice(i, i + 4));
+      const avgs = groups.map((gr, i) => { const t = this.tmp(`${tag}ta${i}`, w, h); this.trail(t, gr, gr.map(() => 1)); return { t, n: gr.length }; });
+      if (avgs.length === 1) return avgs[0].t;
+      const o = this.tmp(tag + 'to', w, h); this.trail(o, avgs.map(x => x.t), avgs.map(x => x.n)); return o;
+    }
+    const o = this.tmp(tag + 'o', w, h); one(o, cur, L); return o;
+  }
+  forgetLook(L) { if (L && L._lut) { this.gl.deleteTexture(L._lut.t); L._lut = null; } if (L) L._ring = null; }
   // fill in boxes [x0, y0, x1, y1) (texture pixels) of a frame texture, in place
   clean(T, boxes) {
     if (!boxes || !boxes.length) return T;

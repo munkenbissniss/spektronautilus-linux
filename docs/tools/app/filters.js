@@ -35,12 +35,41 @@ export const FILTERS = [
 // each brightness gets the colour the reference has there (stops are brightness 0..1 -> red, green, blue). A few keep the clip's own
 // colours and only lift the blacks to a tint. `keep` is how much of the clip's own colour survives before the curves (0 = none).
 // The amount slider: 0 = a light touch, 50 = the reference look, 100 = the reference look pushed further (more colour and contrast).
+// ffmpeg's curves: a natural cubic spline through the points, clipped to 0..1. As a 256 x 1 table (red, green, blue, 255) for the
+// graphics card; pts = for each colour [[in, out], ...]
+export function curvesLut(pts) {
+  const out = new Uint8Array(256 * 4);
+  pts.forEach((P, c) => {
+    const n = P.length, x = P.map(p => p[0]), y = P.map(p => p[1]), m = new Float64Array(n);
+    if (n > 2) {   // second derivatives of the natural spline (tridiagonal solve)
+      const h = Array.from({ length: n - 1 }, (_, i) => x[i + 1] - x[i]), A = new Float64Array(n), B = new Float64Array(n), C = new Float64Array(n), D = new Float64Array(n);
+      B[0] = 1; B[n - 1] = 1;
+      for (let i = 1; i < n - 1; i++) { A[i] = h[i - 1]; B[i] = 2 * (h[i - 1] + h[i]); C[i] = h[i]; D[i] = 6 * ((y[i + 1] - y[i]) / h[i] - (y[i] - y[i - 1]) / h[i - 1]); }
+      for (let i = 1; i < n; i++) { const w = A[i] / B[i - 1]; B[i] -= w * C[i - 1]; D[i] -= w * D[i - 1]; }
+      m[n - 1] = D[n - 1] / B[n - 1]; for (let i = n - 2; i >= 0; i--) m[i] = (D[i] - C[i] * m[i + 1]) / B[i];
+    }
+    for (let v = 0; v < 256; v++) {
+      const X = v / 255; let r;
+      if (X <= x[0]) r = y[0]; else if (X >= x[n - 1]) r = y[n - 1];
+      else { let i = 0; while (i < n - 2 && X > x[i + 1]) i++; const h = x[i + 1] - x[i], a = (x[i + 1] - X) / h, b = (X - x[i]) / h;
+        r = a * y[i] + b * y[i + 1] + ((a * a * a - a) * m[i] + (b * b * b - b) * m[i + 1]) * h * h / 6; }
+      out[v * 4 + c] = Math.round(Math.max(0, Math.min(1, r)) * 255);
+    }
+  });
+  for (let v = 0; v < 256; v++) out[v * 4 + 3] = 255;
+  return out;
+}
+const lutOf = f => { const out = new Uint8Array(256 * 4); for (let v = 0; v < 256; v++) { for (let c = 0; c < 3; c++) out[v * 4 + c] = Math.max(0, Math.min(255, Math.round(f(v, c)))); out[v * 4 + 3] = 255; } return out; };
 const ch = (stops, i) => stops.map(s => `${s[0]}/${s[i]}`).join(' ');
-const grade = ({ keep, stops, contrast = 1, sat = 1, grain = 0 }) => a => {
+const grade = ({ keep, stops, contrast = 1, sat = 1, grain = 0 }) => Object.assign(a => {
   const op = r1(Math.min(1, 0.3 + 1.4 * a)), push = Math.max(0, a - 0.5);                  // push: 0 at the reference look, 0.5 at 100
   const eq = `eq=contrast=${Math.round((contrast + push * 0.5) * 100) / 100}:saturation=${Math.round((sat + push * 0.8) * 100) / 100}`;
   return `split[fxa][fxb];[fxb]hue=s=${Math.round(keep * 100) / 100},${eq},curves=r='${ch(stops, 1)}':g='${ch(stops, 2)}':b='${ch(stops, 3)}'${grain ? `,format=yuv444p,noise=c0s=${Math.round(grain * (0.4 + 1.2 * a))}:c0f=t+u` : ''}[fxg];[fxa][fxg]blend=all_expr='A+(B-A)*${op}'`;
-};
+}, { gpu: a => {   // the same on the graphics card (gpu.js look)
+  const op = r1(Math.min(1, 0.3 + 1.4 * a)), push = Math.max(0, a - 0.5);
+  return { keep: Math.round(keep * 100) / 100, contrast: Math.round((contrast + push * 0.5) * 100) / 100, sat: Math.round((sat + push * 0.8) * 100) / 100,
+    lut: curvesLut([1, 2, 3].map(i => stops.map(s => [s[0], s[i]]))), noise: grain ? Math.round(grain * (0.4 + 1.2 * a)) / 255 : 0, op };
+} });
 const STYLES = [
   { id: 'bluedream', name: 'Blue Dream', desc: 'Deep navy shadows with vivid cyan, red and white colours.',
     chain: grade({ keep: 1, contrast: 1.25, sat: 1.5, stops: [[0, 0, .02, .4], [1, 1, 1, 1]] }) },
@@ -67,4 +96,27 @@ export const filterById = id => FILTERS.find(f => f.id === id);
 export function filterChain(id, amount, ctx) {
   const f = filterById(id); if (!f) throw new Error('Unknown filter ' + id);
   return f.chain(Math.min(1, Math.max(0, amount / 100)), ctx);
+}
+
+// What a Look does, for the graphics card (gpu.js look). Every Look has one, so the fast way can do them all. ctx: { w, h, dur, fps }.
+const GPU_FX = {
+  neon: (a, { w }) => ({ blur: r1(sc(w, 5 + a * 30)), bright: r1(0.02 + a * 0.08), sat: r1(1.4 + a * 0.8), screen: r1(0.6 + a * 0.4) }),
+  rgb: (a, { w }) => ({ shift: sc(w, 2 + a * 18) }),
+  mirror: () => ({ geo: 1 }),
+  kaleido: () => ({ geo: 2 }),
+  vhs: (a, { w }) => ({ noise: Math.round(6 + a * 30) / 255, noiseAll: true, shift: sc(w, 1 + a * 5), sat: r1(1.2 + a * 0.5), contrast: r1(1.03 + a * 0.1) }),
+  pixel: (a, { w }) => ({ geo: 3, cell: sc(w, 8 + a * 56) }),
+  hue: (a, { dur }) => ({ hueDur: r1(Math.max(0.5, dur || 8)), sat: r1(1 + a * 0.6) }),
+  duo: a => ({ keep: 0, contrast: r1(1 + a), lut: curvesLut([[[0, 0.05], [1, 1]], [[0, 0], [1, 0.2]], [[0, 0.25], [1, 0.6]]]) }),
+  edges: a => ({ edges: { low: r1(0.04 + (1 - a) * 0.06), high: r1(0.35 - a * 0.22) }, bright: 0.02, sat: 1.6 }),
+  trails: a => ({ trail: 2 + Math.round(a * 10) }),
+  invert: () => ({ negate: true }),
+  polarize: a => { const t = r1(0.8 - a * 0.6); return { lut: lutOf(v => (v > 255 * t ? 255 - v : v)) }; },
+};
+export function lookSpec(id, amount, ctx = {}) {
+  const f = filterById(id); if (!f) throw new Error('Unknown filter ' + id);
+  const a = Math.min(1, Math.max(0, amount / 100));
+  if (f.chain.gpu) return { id, ...f.chain.gpu(a, ctx) };
+  if (GPU_FX[id]) return { id, ...GPU_FX[id](a, ctx) };
+  return null;
 }

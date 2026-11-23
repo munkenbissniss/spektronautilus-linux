@@ -1,3 +1,4 @@
+import { fixAvcC, fixSample, lengthSize } from './avc.js';
 // MP4 / MOV reading and writing, for the fast path that uses the device's own video chip (WebCodecs).
 // demux(file): reads only the index (the 'moov' box) and hands out where every frame is in the file, so frames are read one at a time
 //   straight from the file and never all held in memory.
@@ -138,6 +139,10 @@ export function fpsRational(f) {
 
 // chunks: [{ data, key, pts }] in decode order; pts = frame number (presentation). codec 'avc' (description = avcC) or 'vp9'.
 export function muxMp4({ codec, width, height, description, fps, chunks, vp9 = { profile: 0, level: 40, bitDepth: 8 } }) {
+  if (codec === 'avc') {   // the colour range in the parameter sets says what the picture really is (avc.js: Safari marks it wrong)
+    const ls = lengthSize(description); description = fixAvcC(description);
+    chunks = chunks.map(c => (c.key ? { ...c, data: fixSample(c.data, ls) } : c));
+  }
   const n = chunks.length, { ts, dur } = fpsRational(fps), total = n * dur;
   const sorted = chunks.every((c, i) => !i || c.pts > chunks[i - 1].pts);
   let entry;
@@ -149,7 +154,11 @@ export function muxMp4({ codec, width, height, description, fps, chunks, vp9 = {
   const keys = chunks.map((c, i) => c.key ? i + 1 : 0).filter(Boolean);
   const stss = full('stss', 0, 0, (() => { const w = new W().u32(keys.length); keys.forEach(k => w.u32(k)); return w.out(); })());
   const stsz = full('stsz', 0, 0, (() => { const w = new W().u32(0).u32(n); chunks.forEach(c => w.u32(c.data.length)); return w.out(); })());
-  const stsc = full('stsc', 0, 0, new W().u32(1).u32(1).u32(n).u32(1).out());
+  // the frames are stored in pieces of about a second (one table row per piece), as cameras and ffmpeg do: some players read a
+  // file piece by piece and do not like one piece of the whole size
+  const per = Math.max(1, Math.round(fps || 30)), nCh = Math.max(1, Math.ceil(n / per)), lastN = n - (nCh - 1) * per;
+  const stsc = full('stsc', 0, 0, (() => { const w = new W(); if (lastN === per || nCh === 1) w.u32(1).u32(1).u32(nCh === 1 ? n : per).u32(1); else w.u32(2).u32(1).u32(per).u32(1).u32(nCh).u32(lastN).u32(1); return w.out(); })());
+  const chOff = []; { let o = 0; for (let i = 0; i < n; i++) { if (i % per === 0) chOff.push(o); o += chunks[i].data.length; } }
   // frames out of order (B-frames): composition offsets, with the decode times pulled back by the largest reordering and an edit list to match
   let ctts = null, delay = 0;
   if (!sorted) {
@@ -157,7 +166,7 @@ export function muxMp4({ codec, width, height, description, fps, chunks, vp9 = {
     const w = new W().u32(n); offs.forEach(o => w.u32(1).u32(o + delay)); ctts = full('ctts', 0, 0, w.out());
   }
   const moovFor = off => {
-    const stco = full('stco', 0, 0, new W().u32(1).u32(off).out());
+    const stco = full('stco', 0, 0, (() => { const w = new W().u32(nCh); chOff.forEach(o => w.u32(off + o)); return w.out(); })());
     const stbl = box('stbl', full('stsd', 0, 0, new W().u32(1).bytes(entry).out()), stts, ...(ctts ? [ctts] : []), stss, stsz, stsc, stco);
     const minf = box('minf', full('vmhd', 0, 1, new W().zero(8).out()), box('dinf', full('dref', 0, 0, new W().u32(1).bytes(full('url ', 0, 1, new Uint8Array(0))).out())), stbl);
     const hdlr = full('hdlr', 0, 0, new W().u32(0).str('vide').zero(12).str('VideoHandler').u8(0).out());

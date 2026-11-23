@@ -11,7 +11,10 @@ injectCSS();
 
 const $ = s => document.querySelector(s);
 // the message under the buttons: red for trouble, green when something is done
-function say(t, good = false) { const m = $('#msg'); m.textContent = t; m.classList.toggle('warn', !good); m.classList.toggle('good', !!good); }
+const LOG = (k, d) => { try { if (window.SPK_LOG) window.SPK_LOG.add(k, d); } catch (e) { /* never in the way */ } };   // the diagnostics log (shared/log.js)
+// what was asked for, in short: the steps that are on and their settings
+const recipeLog = Rx => Object.fromEntries(Object.entries(Rx).filter(([k, v]) => v && (v.on || k === 'out')).map(([k, v]) => [k, Object.fromEntries(Object.entries(v).filter(([kk]) => kk !== 'on').map(([kk, vv]) => [kk, Array.isArray(vv) && kk === 'boxes' ? vv.length : vv]))]));
+function say(t, good = false) { if (t) LOG('msg', { text: String(t).slice(0, 300), good }); const m = $('#msg'); m.textContent = t; m.classList.toggle('warn', !good); m.classList.toggle('good', !!good); }
 // Videos on this page play once and stop (many clips looping at once wear out a phone and can freeze the picture).
 // Press play yourself after that, and the clip loops.
 (() => {
@@ -236,7 +239,14 @@ function placeAfter() {
 }
 function showAfter() {
   placeAfter();
-  const f = $('#fafter'); try { f.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch (e) { /* ignore */ }
+  // the video and the buttons under it both on screen (the video's height is known once it has loaded)
+  const f = $('#fafter'), v = $('#vafter'), run = $('#c4 .run');
+  const fit = smooth => { try {
+    const a = f.getBoundingClientRect(), b = run ? run.getBoundingClientRect() : a, top = Math.min(a.top, b.top), bottom = Math.max(a.bottom, b.bottom);
+    let dy = 0; if (bottom > innerHeight - 8) dy = bottom - innerHeight + 8; if (top - dy < 8) dy = top - 8;
+    if (Math.abs(dy) > 2) window.scrollBy({ top: dy, behavior: smooth ? 'smooth' : 'auto' });
+  } catch (e) { /* ignore */ } };
+  fit(true); if (v && v.readyState < 1) v.addEventListener('loadedmetadata', () => fit(false), { once: true });
 }
 placeAfter();
 
@@ -324,6 +334,7 @@ function examine() {
   const verdict = lp ? (lp.verdict === 'seamless' ? '<span class="chip good">loops ✓</span>' : lp.verdict === 'almost' ? '<span class="chip bad">almost loops</span>' : '<span class="chip bad">jumps</span>') : '';
   $('#facts').innerHTML = `<span>${i.width}×${i.height}</span><span>${Math.round(i.fps * 100) / 100} fps</span><span>${Math.round(i.duration * 10) / 10} s</span><span>${fmtSize(patient.file.size)}</span><span>${esc(i.codec || '')}</span>${verdict}`;
   const d = ST.diagnose(i, lp, { slowEngine: engine.kind !== 'native' && !patient.wc, ai: aiFast });
+  LOG('clip', { name: patient.file.name.slice(0, 80), mb: Math.round(patient.file.size / 1e5) / 10, w: i.width, h: i.height, fps: i.fps, s: i.duration, codec: i.codec, rot: i.rotation || 0, loop: lp ? lp.verdict : null, fast: !!patient.wc, engine: engine.kind, findings: d.map(x => x.id) });
   $('#findings').innerHTML = d.length ? d.map((x, n) => `<li><span>${esc(x.text)}</span>${Object.keys(x.fix).length ? `<button class="sm" data-fix="${n}" type="button">Add this treatment</button>` : ''}</li>`).join('')
     : '<li class="ok"><span>Nothing wrong found. This clip is ready for the mixers.</span></li>';
   $('#gifbar').classList.toggle('hide', !i.isGif);
@@ -426,6 +437,7 @@ $('#pausebtn').onclick = () => { pauseReq = !pauseReq; $('#pausebtn').textConten
 $('#stop').onclick = () => { if (ctl) ctl.cancel = true; engine.terminate(); setCur(T('Stopping…')); };
 
 $('#prev').onclick = () => run(async () => {
+  LOG('preview', { recipe: recipeLog(R) });
   if (!patient || !patient.info) throw new Error('Choose a clip first.');
   // Small but long enough to judge the loop seam and the life effects: low resolution (cheap), a few seconds of the
   // clip, then the normal loop / life / repeat steps, so the preview runs for 12 to 20 seconds and loops in the player.
@@ -454,8 +466,9 @@ $('#aiprev').onclick = () => run(async () => {   // the real AI on a couple of s
 });
 
 function addResult(name, data, note) {
-  const blob = new Blob([data], { type: 'video/mp4' });
-  RESULTS.push({ id: nextId++, name, blob, size: data.length, note, url: URL.createObjectURL(blob) });
+  const blob = data instanceof Blob ? data : new Blob([data], { type: 'video/mp4' });
+  LOG('result', { name: String(name).slice(0, 80), mb: Math.round(blob.size / 1e5) / 10, note: String(note || '').slice(0, 400) });
+  RESULTS.push({ id: nextId++, name, blob, size: blob.size, note, url: URL.createObjectURL(blob) });
   $('#res').innerHTML = RESULTS.map(r => `<div class="rr"><a href="${r.url}" download="${esc(r.name)}" title="${esc(r.name)}">${esc(short(r.name, 44))} <small class="muted">${fmtSize(r.size)}${r.note ? ' · ' + esc(r.note) : ''}</small></a><button class="sm" data-up="${r.id}" type="button">Upload…</button></div>`).join('');
   $('#more').classList.remove('hide'); $('#zipall').classList.toggle('hide', RESULTS.length < 2);
 }
@@ -531,14 +544,24 @@ async function measure(file, rec0, loopRep) {
 }
 $('#go').onclick = () => run(async () => {
   if (!patient || !patient.info) throw new Error('Choose a clip first.');
+  LOG('treat', { recipe: recipeLog(R), fast: !!(patient.wc && WC.canRun(patient.wc, R)) });
   const vs = ST.variants(R); units = { done: 0, total: vs.length }; $('#pausebtn').classList.toggle('hide', units.total < 2);
   setCur(T('Estimating how long it will take…'));
   const m = await measure(patient.file, vs[0].rec, patient.loop), t1 = Date.now();
   if (m) plan = { total: m.one * vs.length, at: t1 - pausedMs };
   await treatClip(patient.file, short(patient.file.name));
+  LOG('treat-done', { s: Math.round((Date.now() - t1) / 100) / 10, estimated: plan ? Math.round(plan.total) : null, files: vs.length });
   if (plan) say(T('Done in {a} (estimated {b}).').replace('{a}', fmtDur((Date.now() - t1) / 1000)).replace('{b}', fmtDur(plan.total)), true);
   const v = $('#vafter'); if (v.src) URL.revokeObjectURL(v.src); v.src = URL.createObjectURL(RESULTS[RESULTS.length - 1].blob); $('#fafter').classList.remove('hide'); showAfter(); $('#fafter figcaption').textContent = 'After';
 });
+// A clip that needs nothing: saved unchanged (not encoded again), named like the treated ones so it goes in the same folder
+$('#asis').onclick = () => {
+  if (busy) return;
+  if (!patient) { say(T('Choose a clip first.')); return; }
+  const f = patient.file, ext = (extOf(f.name) || '.mp4').replace(/^\./, '').toLowerCase(), name = stemOf(f.name).replace(/\s+/g, '_') + '_healed.' + (ext === 'm4v' ? 'mp4' : ext);
+  addResult(name, f.type ? f : new Blob([f], { type: 'video/' + (ext === 'mov' ? 'quicktime' : ext) }), T('saved as it is, no treatment'));
+  say(T('Saved as it is. Download it from the list below.'), true);
+};
 $('#res').onclick = e => { const b = e.target.closest('[data-up]'); const r = b && RESULTS.find(x => x.id === +b.dataset.up); if (r && window.SPK_UP) SPK_UP.open(new File([r.blob], r.name, { type: 'video/mp4' }), { title: stemOf(r.name).replace(/_healed$/, ''), name: r.name }); };
 $('#pickmore').onclick = () => $('#pickermore').click();
 $('#pickermore').onchange = e => {

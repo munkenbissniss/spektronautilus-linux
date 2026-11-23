@@ -7,6 +7,7 @@ import * as L from './loops.js';
 import { makeZip } from './zip.js';
 import * as ST from './steps.js';
 
+const LOG = (k, d) => { try { if (window.SPK_LOG) window.SPK_LOG.add(k, d); } catch (e) { /* never in the way */ } };   // the diagnostics log (shared/log.js)
 const $ = s => document.querySelector(s);
 // Videos on this page play once and stop (many clips looping at once wear out a phone and can freeze the picture).
 // Press play yourself after that, and the clip loops.
@@ -502,6 +503,7 @@ async function buildInspectOutputs(job) {
 
 async function runJob(job) {
   const c = job.c; job.status = 'running'; job.started = Date.now(); job.lastChange = job.started; render();
+  LOG('tools-job', { tool: job.tool, files: job.items.length, mb: Math.round(job.items.reduce((s, it) => s + ((it.file && it.file.size) || 0), 0) / 1e5) / 10, settings: c, engine: engine.kind });
   try {
     if (!(window.SPK_IOS && SPK_IOS.features && SPK_IOS.features.transcode && job.tool === "convert")) await ensureEngine();   // iPhone app: plain conversions never need ffmpeg.wasm (it loads by itself if the fallback is used)
     if (job.dir) job.taken = await stems(job.dir);
@@ -540,6 +542,7 @@ async function runJob(job) {
     if (job.status === 'failed') job.error = e.message;
   }
   job.progress = job.status === 'done' ? 1 : job.progress; job.current = ''; job.paused = false; job.pauseReq = false; render();
+  LOG('tools-job-end', { tool: job.tool, status: job.status, s: Math.round((Date.now() - job.started) / 100) / 10, done: job.finished, failed: job.failed, error: job.error, log: (job.log || []).slice(-8) });
   if (job.ctl.cancel) engine.terminate();
 }
 
